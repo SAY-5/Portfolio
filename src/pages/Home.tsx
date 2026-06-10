@@ -4,6 +4,7 @@ import ProjectTile from '../components/ProjectTile';
 import GitHubIcon from '../components/GitHubIcon';
 import CategoryConstellation from '../components/CategoryConstellation';
 import Reveal from '../components/Reveal';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { flagshipProjects } from '../data/projects';
 import {
   totalProjects,
@@ -16,6 +17,7 @@ import '../styles/home.css';
 const ease = [0.22, 1, 0.36, 1] as const;
 
 export default function Home() {
+  useDocumentTitle();
   const reduce = useReducedMotion();
 
   const heroChildren = {

@@ -1,4 +1,4 @@
-// Generated from the portfolio inventory. Do not edit content by hand.
+// Sourced from the portfolio inventory. Do not edit content by hand.
 
 export type Project = {
   name: string;
