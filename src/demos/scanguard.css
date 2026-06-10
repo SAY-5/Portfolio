@@ -1,0 +1,300 @@
+/* scanguard demo: bed settle track + preflight checklist */
+.sg__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.sg__panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 16px 18px;
+}
+.sg__panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.sg__panel-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.sg__panel-state {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.sg__panel-state[data-settled='true'] {
+  color: #4fd08a;
+}
+
+/* ---- bed track ---- */
+.sg__track {
+  position: relative;
+  height: 72px;
+  margin: 8px 6px 18px;
+  border-bottom: 2px solid var(--line);
+}
+.sg__mark {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.sg__mark-tick {
+  width: 2px;
+  height: 10px;
+  background: var(--line);
+}
+.sg__mark-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.sg__mark--hit .sg__mark-tick {
+  background: #4fd08a;
+}
+.sg__mark--hit .sg__mark-label {
+  color: #4fd08a;
+}
+.sg__mark--target .sg__mark-tick {
+  background: var(--accent);
+  height: 16px;
+}
+.sg__mark--target .sg__mark-label {
+  color: var(--accent);
+}
+.sg__window {
+  position: absolute;
+  bottom: 0;
+  height: 30px;
+  transform: translateX(-50%);
+  background: var(--accent-glow);
+  border-left: 1px dashed var(--accent-line);
+  border-right: 1px dashed var(--accent-line);
+  pointer-events: none;
+}
+.sg__bed {
+  position: absolute;
+  bottom: -7px;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  will-change: left;
+}
+.sg__bed--settled {
+  background: #4fd08a;
+  box-shadow: 0 0 0 3px rgba(79, 208, 138, 0.3);
+}
+
+/* ---- numeric readout ---- */
+.sg__readout {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.sg__metric {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--ink-800);
+}
+.sg__metric-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+.sg__metric-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(18px, 4vw, 24px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.sg__metric-unit {
+  font-size: 0.5em;
+  color: var(--text-faint);
+  margin-left: 3px;
+}
+.sg__metric--delta {
+  border-color: var(--accent-line);
+}
+.sg__metric--delta.sg__metric--in {
+  border-color: rgba(79, 208, 138, 0.55);
+  background:
+    radial-gradient(200px 80px at 50% 0%, rgba(79, 208, 138, 0.1), transparent 70%),
+    var(--ink-800);
+}
+.sg__metric--delta.sg__metric--in .sg__metric-val {
+  color: #4fd08a;
+}
+
+.sg__scpi {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: var(--ink-850);
+}
+.sg__scpi-q {
+  color: var(--accent);
+}
+.sg__scpi-a {
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.sg__scpi-polls {
+  margin-left: auto;
+  color: var(--text-faint);
+}
+
+/* ---- checklist ---- */
+.sg__checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sg__check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 11px 14px;
+  background: var(--ink-800);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.sg__check-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--line);
+}
+.sg__check-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sg__check-label {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-strong);
+}
+.sg__check-detail {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.sg__check-state {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  min-width: 48px;
+  text-align: right;
+}
+.sg__check--pass {
+  border-color: rgba(79, 208, 138, 0.5);
+}
+.sg__check--pass .sg__check-dot {
+  background: #4fd08a;
+  box-shadow: 0 0 10px rgba(79, 208, 138, 0.5);
+}
+.sg__check--pass .sg__check-state {
+  color: #4fd08a;
+}
+.sg__check--fail {
+  border-color: var(--accent-line);
+}
+.sg__check--fail .sg__check-dot {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+.sg__check--fail .sg__check-state {
+  color: var(--accent);
+}
+.sg__check--stale {
+  border-color: rgba(255, 180, 60, 0.5);
+}
+.sg__check--stale .sg__check-dot {
+  background: #ffb43c;
+  box-shadow: 0 0 10px rgba(255, 180, 60, 0.45);
+}
+.sg__check--stale .sg__check-state {
+  color: #ffb43c;
+}
+
+/* ---- verdict ---- */
+.sg__verdict {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  border: 1px solid rgba(79, 208, 138, 0.5);
+  border-radius: 12px;
+  background:
+    radial-gradient(300px 140px at 0% 0%, rgba(79, 208, 138, 0.12), transparent 70%),
+    var(--ink-800);
+}
+.sg__verdict--fail {
+  border-color: var(--accent-line);
+  background: var(--accent-glow);
+}
+.sg__verdict-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(26px, 5vw, 38px);
+  color: #4fd08a;
+  line-height: 1;
+}
+.sg__verdict--fail .sg__verdict-head {
+  color: var(--accent);
+}
+.sg__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  max-width: 56ch;
+}
+
+@media (max-width: 620px) {
+  .sg__readout {
+    grid-template-columns: 1fr;
+  }
+}
