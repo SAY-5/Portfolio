@@ -1,4 +1,4 @@
-import { demos } from './index';
+import { demos } from '../lib/demoRegistry';
 
 // Renders the registered demo for a project, or null if none exists.
 // Kept as its own component so the detail page never assigns a component to a

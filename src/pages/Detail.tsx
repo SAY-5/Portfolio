@@ -3,8 +3,8 @@ import { motion, useReducedMotion } from 'framer-motion';
 import GitHubIcon from '../components/GitHubIcon';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { projects, getProject } from '../data/projects';
-import { hasDemo } from '../demos';
-import DemoSlot from '../demos/DemoSlot';
+import { hasDemo } from '../lib/demoRegistry';
+import DemoSlot from '../components/DemoSlot';
 import NotFound from './NotFound';
 import '../styles/detail.css';
 
