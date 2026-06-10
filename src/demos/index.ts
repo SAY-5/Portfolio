@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import CodelensDemo from './codelens';
 import AgentdeskDemo from './agentdesk';
+import TaskboardDemo from './taskboard';
 
 // Maps a project `name` to its interactive demo component. A project listed
 // here renders its demo in the detail-page slot; anything absent keeps the
@@ -8,6 +9,7 @@ import AgentdeskDemo from './agentdesk';
 export const demos: Record<string, ComponentType> = {
   codelens: CodelensDemo,
   agentdesk: AgentdeskDemo,
+  taskboard: TaskboardDemo,
 };
 
 export function hasDemo(name: string): boolean {
