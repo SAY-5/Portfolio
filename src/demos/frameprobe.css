@@ -1,0 +1,201 @@
+/* ---------- frameprobe ---------- */
+.fp__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+.fp__pipe {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px;
+  overflow: hidden;
+}
+.fp__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.fp__stage-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  fill: var(--paper-faint);
+}
+.fp__stage-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  fill: var(--paper-dim);
+}
+.fp__queue-cap {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--paper-faint);
+}
+.fp__controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--ink-800);
+}
+.fp__slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 200px;
+  flex: 1;
+}
+.fp__slider-label {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.fp__slider-label b {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.fp__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-line), var(--line));
+  outline-offset: 4px;
+}
+.fp__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  cursor: grab;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.fp__slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+}
+.fp__slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  cursor: grab;
+}
+.fp__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-strong);
+  cursor: pointer;
+  user-select: none;
+}
+.fp__switch {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--ink-900);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+  flex: 0 0 auto;
+}
+.fp__switch[data-on='true'] {
+  background: var(--accent-glow);
+  border-color: var(--accent-line);
+}
+.fp__switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease;
+}
+.fp__switch[data-on='true'] .fp__switch-knob {
+  transform: translateX(18px);
+  background: var(--accent);
+}
+.fp__stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.fp__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+  transition: border-color 0.25s ease;
+}
+.fp__stat--alert {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(180px 100px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.fp__stat-name {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.fp__stat-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(18px, 4vw, 26px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.fp__stat--alert .fp__stat-val {
+  color: var(--accent);
+}
+.fp__stat-unit {
+  font-size: 0.5em;
+  color: var(--text-faint);
+  margin-left: 3px;
+}
+.fp__note {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--paper-dim);
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: var(--accent-glow);
+}
+.fp__note b {
+  color: var(--accent);
+  font-weight: 700;
+}
+@media (max-width: 620px) {
+  .fp__stats {
+    grid-template-columns: 1fr 1fr;
+  }
+}
