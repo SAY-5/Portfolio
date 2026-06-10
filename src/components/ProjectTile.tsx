@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import type { Project } from '../data/projects';
+import '../styles/tile.css';
 
 type Props = {
   project: Project;
