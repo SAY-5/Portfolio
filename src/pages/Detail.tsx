@@ -3,6 +3,8 @@ import { motion, useReducedMotion } from 'framer-motion';
 import GitHubIcon from '../components/GitHubIcon';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { projects, getProject } from '../data/projects';
+import { hasDemo } from '../demos';
+import DemoSlot from '../demos/DemoSlot';
 import NotFound from './NotFound';
 import '../styles/detail.css';
 
@@ -26,6 +28,7 @@ export default function Detail() {
   const next = idx < projects.length - 1 ? projects[idx + 1] : null;
   const liveDemo = LIVE_DEMOS[project.name];
   const githubUrl = `https://github.com/SAY-5/${project.name}`;
+  const demoReady = hasDemo(project.name);
 
   const item = {
     hidden: { opacity: 0, y: reduce ? 0 : 18 },
@@ -101,22 +104,22 @@ export default function Detail() {
               </ul>
             </section>
 
-            {project.isFlagship && (
-              <section
-                className="demo-slot"
-                aria-labelledby="demo-title"
-              >
-                <span className="demo-slot__tag mono">Interactive demo</span>
-                <h2 id="demo-title" className="demo-slot__title">
-                  Coming to this page
-                </h2>
-                <p className="demo-slot__note">
-                  An interactive demo of this project&apos;s core mechanism is in
-                  progress and will run right here.
-                </p>
-                <p className="demo-slot__concept">{project.demoConcept}</p>
-              </section>
-            )}
+            {project.isFlagship &&
+              (demoReady ? (
+                <DemoSlot name={project.name} />
+              ) : (
+                <section className="demo-slot" aria-labelledby="demo-title">
+                  <span className="demo-slot__tag mono">Interactive demo</span>
+                  <h2 id="demo-title" className="demo-slot__title">
+                    Coming to this page
+                  </h2>
+                  <p className="demo-slot__note">
+                    An interactive demo of this project&apos;s core mechanism is
+                    in progress and will run right here.
+                  </p>
+                  <p className="demo-slot__concept">{project.demoConcept}</p>
+                </section>
+              ))}
           </div>
 
           <aside className="detail__aside">

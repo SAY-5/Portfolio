@@ -120,6 +120,11 @@
   padding-top: 2px;
 }
 
+/* Interactive demo wrapper (registered flagships) */
+.detail__demo {
+  margin-top: 8px;
+}
+
 /* Demo slot for flagships */
 .demo-slot {
   position: relative;
