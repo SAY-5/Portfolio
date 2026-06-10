@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import GitHubIcon from '../components/GitHubIcon';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { projects, getProject } from '../data/projects';
 import NotFound from './NotFound';
 import '../styles/detail.css';
@@ -15,6 +16,8 @@ export default function Detail() {
   const { name } = useParams();
   const reduce = useReducedMotion();
   const project = name ? getProject(name) : undefined;
+
+  useDocumentTitle(project?.title);
 
   if (!project) return <NotFound />;
 

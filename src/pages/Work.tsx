@@ -1,12 +1,14 @@
 import { useMemo, useState, useDeferredValue } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import ProjectTile from '../components/ProjectTile';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { projects, categories, languages } from '../data/projects';
 import '../styles/work.css';
 
 type Sort = 'flagship' | 'name';
 
 export default function Work() {
+  useDocumentTitle('Work');
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<string | null>(null);
   const [language, setLanguage] = useState<string | null>(null);
