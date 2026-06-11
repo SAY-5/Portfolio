@@ -1,0 +1,238 @@
+/* baisics: a workout-volume tracking concept for the fitness scaffold */
+.bx__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 12px;
+  margin-bottom: 18px;
+}
+.bx__note b {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.bx__stage {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 16px;
+}
+
+.bx__week {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 16px;
+}
+.bx__week-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.bx__week-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.bx__week-total {
+  margin-left: auto;
+  font-family: var(--mono);
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.bx__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 150px;
+}
+.bx__bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  justify-content: flex-end;
+}
+.bx__bar-track {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 6px 6px 0 0;
+  overflow: hidden;
+}
+.bx__bar {
+  width: 100%;
+  border-radius: 6px 6px 0 0;
+  background: linear-gradient(180deg, var(--accent-soft), var(--accent));
+  min-height: 3px;
+}
+.bx__bar--rest {
+  background: var(--ink-600);
+}
+.bx__bar-day {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.bx__bar-val {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--paper-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.bx__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.bx__rings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.bx__ring {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-800);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.bx__ring-svg {
+  width: 84px;
+  height: 84px;
+}
+.bx__ring-track {
+  fill: none;
+  stroke: var(--ink-600);
+  stroke-width: 9;
+}
+.bx__ring-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 9;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+.bx__ring-fill--green {
+  stroke: #4fd08a;
+}
+.bx__ring-pct {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  fill: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.bx__ring-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.bx__control {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-800);
+  padding: 14px 16px;
+}
+.bx__control-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.bx__control-row b {
+  color: var(--accent);
+  font-size: 14px;
+}
+.bx__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--line));
+  outline-offset: 4px;
+}
+.bx__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  cursor: grab;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.bx__slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+}
+.bx__slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  cursor: grab;
+}
+.bx__days {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.bx__day-toggle {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--ink-900);
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+.bx__day-toggle:hover {
+  border-color: var(--accent-line);
+}
+.bx__day-toggle--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--ink-900);
+  font-weight: 600;
+}
+.bx__day-toggle:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .bx__stage {
+    grid-template-columns: 1fr;
+  }
+}
