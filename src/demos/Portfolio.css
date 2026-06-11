@@ -1,0 +1,209 @@
+/* Portfolio demo: a small navigable render of the portfolio site itself. */
+.pf__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.pf__window {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  overflow: hidden;
+}
+.pf__chrome {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--ink-850);
+}
+.pf__dots {
+  display: flex;
+  gap: 6px;
+}
+.pf__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ink-600);
+}
+.pf__addr {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  background: var(--ink-900);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 5px 11px;
+}
+.pf__addr b {
+  color: var(--paper-dim);
+  font-weight: 500;
+}
+.pf__nav {
+  display: flex;
+  gap: 2px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.pf__nav-btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    background 0.16s ease;
+}
+.pf__nav-btn:hover {
+  color: var(--text-strong);
+}
+.pf__nav-btn[aria-current='true'] {
+  color: var(--ink-900);
+  background: var(--accent);
+}
+.pf__nav-btn:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+.pf__view {
+  padding: clamp(18px, 3vw, 28px);
+  min-height: 260px;
+}
+/* home / hero */
+.pf__hero-kicker {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+.pf__hero-title {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(26px, 5vw, 40px);
+  line-height: 1.05;
+  color: var(--text-strong);
+  margin-bottom: 12px;
+}
+.pf__hero-sub {
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+  max-width: 52ch;
+}
+.pf__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+.pf__tag {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--paper-dim);
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+/* work / project cards */
+.pf__cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.pf__card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 15px;
+  background: var(--ink-800);
+  transition:
+    border-color 0.18s ease,
+    transform 0.18s ease;
+}
+.pf__card:hover {
+  border-color: var(--accent-line);
+  transform: translateY(-2px);
+}
+.pf__card-cat {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.pf__card-name {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--text-strong);
+  margin-bottom: 5px;
+}
+.pf__card-desc {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.pf__card-metric {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #4fd08a;
+  margin-top: 9px;
+}
+/* about / stack */
+.pf__about {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.pf__about-lead {
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text);
+  max-width: 56ch;
+}
+.pf__statline {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.pf__statcell {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--ink-800);
+}
+.pf__statcell-val {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 24px;
+  color: var(--accent);
+  line-height: 1;
+}
+.pf__statcell-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 6px;
+}
+@media (max-width: 620px) {
+  .pf__cards {
+    grid-template-columns: 1fr;
+  }
+  .pf__statline {
+    grid-template-columns: 1fr;
+  }
+}
