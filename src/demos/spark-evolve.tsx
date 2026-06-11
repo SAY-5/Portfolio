@@ -92,18 +92,19 @@ export default function SparkEvolveDemo() {
   const compatible = violations.length === 0;
 
   // Build the writer schema view by starting from READER and applying each
-  // selected change in order.
+  // selected change in order. Depend on the stable `active` map and recompute
+  // the selection inside so the memo has no per-render dependency.
   const writer = useMemo(() => {
     let f = READER.map((x) => ({ ...x }));
     const baseNames = new Set(READER.map((x) => x.name));
-    for (const c of selected) f = c.apply(f);
+    for (const c of CHANGES.filter((c) => active[c.id])) f = c.apply(f);
     return f.map((x) => {
       const orig = READER.find((r) => r.name === x.name);
       const isAdd = !baseNames.has(x.name);
       const changed = orig ? orig.type !== x.type : false;
       return { ...x, isAdd, changed };
     });
-  }, [selected]);
+  }, [active]);
 
   // A tiny batch the splitter routes: when the schema is incompatible the
   // affected records dead-letter with the structured reason; otherwise the
