@@ -121,7 +121,7 @@ function buildTokens(): Token[] {
 export default function NerPipelineDemo() {
   const reduce = useReducedMotion();
   const [strategy, setStrategy] = useState<'simple' | 'first'>('first');
-  const tokens = useMemo(buildTokens, []);
+  const tokens = useMemo(() => buildTokens(), []);
 
   const isFirst = strategy === 'first';
   const f1 = isFirst ? F1_FIRST : F1_SIMPLE;

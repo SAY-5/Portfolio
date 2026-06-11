@@ -77,7 +77,7 @@ const STEP = SVG / GRID;
 
 export default function SpatialPathDbDemo() {
   const reduce = useReducedMotion();
-  const keyGrid = useMemo(buildKeyGrid, []);
+  const keyGrid = useMemo(() => buildKeyGrid(), []);
   const pointsByCell = useMemo(
     () => Array.from({ length: CELLS }, (_, c) => seededPoints(c)),
     [],

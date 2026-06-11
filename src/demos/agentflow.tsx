@@ -175,6 +175,10 @@ export default function AgentflowDemo() {
     setRunning(false);
   }, [clearTimers, traceFor]);
 
+  // Holds the latest runStep so the auto-advance timeout can recurse without
+  // referencing the callback before it is declared.
+  const runStepRef = useRef<(idx: number, auto: boolean) => void>(() => {});
+
   // Run a single step's animated lifecycle, then advance the cursor.
   const runStep = useCallback(
     (idx: number, auto: boolean) => {
@@ -212,7 +216,7 @@ export default function AgentflowDemo() {
           setCursor(idx + 1);
           setActive(null);
           if (auto) {
-            const nx = window.setTimeout(() => runStep(idx + 1, true), 320);
+            const nx = window.setTimeout(() => runStepRef.current(idx + 1, true), 320);
             timers.current.push(nx);
           } else {
             setRunning(false);
@@ -226,6 +230,10 @@ export default function AgentflowDemo() {
     },
     [traceFor],
   );
+
+  useEffect(() => {
+    runStepRef.current = runStep;
+  }, [runStep]);
 
   const play = useCallback(() => {
     if (running) return;
