@@ -224,6 +224,7 @@ export default function DefecttracerDemo() {
                 <AnimatePresence>
                   {hit && (
                     <motion.span
+                      key={`dot-${c}`}
                       className="dt__bucket-dot"
                       initial={{ scale: reduce ? 1 : 0 }}
                       animate={{ scale: 1 }}
@@ -260,6 +261,7 @@ export default function DefecttracerDemo() {
       <AnimatePresence>
         {phase === 'done' && (
           <motion.div
+            key="verdict"
             className="dt__verdict"
             initial={{ opacity: 0, y: reduce ? 0 : 8 }}
             animate={{ opacity: 1, y: 0 }}

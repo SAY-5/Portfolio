@@ -274,6 +274,7 @@ export default function ApiforgeDemo() {
       <AnimatePresence>
         {done && (
           <motion.div
+            key="verdict"
             className="af__verdict"
             initial={{ opacity: 0, y: reduce ? 0 : 8 }}
             animate={{ opacity: 1, y: 0 }}
