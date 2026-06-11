@@ -1,0 +1,323 @@
+/* quantbacktest demo: loop-vs-vectorized recompute and a grid sweep ranked
+   by Sharpe. Tokens come from the global :root, so this only adds layout. */
+.qb__tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ink-900);
+  margin-bottom: 18px;
+}
+.qb__tab {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
+}
+.qb__tab:hover {
+  color: var(--text-strong);
+}
+.qb__tab--on {
+  background: var(--accent);
+  color: var(--ink-900);
+}
+.qb__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.qb__lanes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.qb__lane {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--ink-800);
+}
+.qb__lane--fast {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(280px 150px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.qb__lane-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 14px;
+}
+.qb__lane-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-strong);
+}
+.qb__lane-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.qb__track {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  gap: 3px;
+  min-height: 44px;
+  align-content: center;
+}
+.qb__cell {
+  height: 16px;
+  border-radius: 2px;
+  background: var(--ink-600);
+  transition: background 0.12s ease;
+}
+.qb__cell--on {
+  background: var(--paper-dim);
+}
+.qb__vector {
+  height: 44px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-line);
+  background: var(--ink-900);
+  overflow: hidden;
+  display: flex;
+  align-items: stretch;
+}
+.qb__vector-fill {
+  width: 100%;
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+}
+.qb__lane-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 12px;
+}
+.qb__counter {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.qb__counter--fast {
+  color: var(--accent);
+}
+.qb__lane-state {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.qb__lane-state--fast {
+  color: var(--accent);
+}
+.qb__verdict {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background: var(--accent-glow);
+}
+.qb__verdict-x {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(26px, 5vw, 38px);
+  color: var(--accent);
+  line-height: 1;
+}
+.qb__verdict-text {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--paper-dim);
+  max-width: 50ch;
+}
+
+/* sweep mode */
+.qb__sweep {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr;
+  gap: 14px;
+}
+.qb__best {
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  padding: 16px;
+  background:
+    radial-gradient(280px 160px at 0% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.qb__best-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.qb__best-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.qb__best-sharpe {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 26px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.qb__best-unit {
+  font-size: 0.45em;
+  color: var(--text-faint);
+  margin-left: 4px;
+}
+.qb__chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ink-900);
+  padding: 6px;
+}
+.qb__best-weights {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.qb__best-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+.qb__bstat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.qb__bstat-v {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.qb__bstat-k {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.qb__rank {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px;
+}
+.qb__rank-head {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.qb__rank-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.qb__rank-row {
+  display: grid;
+  grid-template-columns: 22px 64px 1fr 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ink-800);
+  transition:
+    border-color 0.2s ease,
+    opacity 0.2s ease;
+}
+.qb__rank-row--pending {
+  opacity: 0.4;
+}
+.qb__rank-row--top {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(160px 60px at 0% 50%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.qb__rank-idx {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-faint);
+  text-align: center;
+}
+.qb__rank-row--top .qb__rank-idx {
+  color: var(--accent);
+}
+.qb__rank-cfg {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+}
+.qb__rank-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ink-600);
+  overflow: hidden;
+}
+.qb__rank-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.qb__rank-sharpe {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-strong);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 620px) {
+  .qb__lanes,
+  .qb__sweep {
+    grid-template-columns: 1fr;
+  }
+  .qb__best-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
