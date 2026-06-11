@@ -66,7 +66,7 @@ function buildSeries(step: Step, fault: Fault): number[] {
   const out: number[] = [];
   for (let i = 0; i < SAMPLES; i++) {
     const t = i / (SAMPLES - 1);
-    let v = step.nominal;
+    let v: number;
     if (fault === 'drift') {
       v = step.nominal + range * 0.9 * t;
     } else if (fault === 'freeze') {
@@ -108,9 +108,13 @@ export default function MfgTestControllerDemo() {
   useEffect(() => clearTimer, [clearTimer]);
 
   // Reset verdicts whenever the fault profile changes; the plan must re-run.
-  useEffect(() => {
+  // Adjust state during render against the last seen fault rather than in an
+  // effect, so the reset does not trigger an extra cascading render.
+  const [lastFault, setLastFault] = useState(fault);
+  if (fault !== lastFault) {
+    setLastFault(fault);
     setResults({});
-  }, [fault]);
+  }
 
   // Step through the plan, streaming one verdict at a time like the SSE feed.
   function runPlan() {
