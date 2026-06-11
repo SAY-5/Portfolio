@@ -1,0 +1,202 @@
+/* inventory-tracker: conditional-write contention on one SKU */
+.iv__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.iv__item {
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  padding: 16px 18px;
+  background:
+    radial-gradient(300px 140px at 0% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-900);
+}
+.iv__item-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.iv__item-name {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.iv__item-ver {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.iv__gauge {
+  position: relative;
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--ink-800);
+  overflow: hidden;
+}
+.iv__gauge-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+  border-radius: 9px 0 0 9px;
+}
+.iv__gauge-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-900);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.iv__gauge-label b {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.iv__cond {
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  word-break: break-word;
+}
+.iv__nodes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.iv__node {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--ink-900);
+}
+.iv__node-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.iv__node-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+.iv__node-wins {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.iv__dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.iv__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--ink-700);
+  border: 1px solid var(--line);
+  display: inline-block;
+}
+.iv__dot--pending {
+  background: var(--ink-700);
+  border-color: var(--line);
+}
+.iv__dot--retry {
+  background: transparent;
+  border-color: var(--accent);
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+.iv__dot--won {
+  background: #4fd08a;
+  border-color: #4fd08a;
+  box-shadow: 0 0 6px rgba(79, 208, 138, 0.5);
+}
+.iv__dot--rejected {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.iv__tallies {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.iv__tally {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+  text-align: center;
+}
+.iv__tally--ok {
+  border-color: rgba(79, 208, 138, 0.5);
+}
+.iv__tally--rej {
+  border-color: var(--accent-line);
+}
+.iv__tally-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(24px, 5vw, 34px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.iv__tally--ok .iv__tally-val {
+  color: #4fd08a;
+}
+.iv__tally--rej .iv__tally-val {
+  color: var(--accent);
+}
+.iv__tally-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 6px;
+  letter-spacing: 0.04em;
+}
+.iv__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  border: 1px solid rgba(79, 208, 138, 0.5);
+  border-radius: 12px;
+  background:
+    radial-gradient(300px 140px at 0% 0%, rgba(79, 208, 138, 0.12), transparent 70%),
+    var(--ink-800);
+}
+.iv__verdict-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  color: #4fd08a;
+}
+.iv__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  max-width: 60ch;
+}
+
+@media (max-width: 620px) {
+  .iv__nodes,
+  .iv__tallies {
+    grid-template-columns: 1fr;
+  }
+}
