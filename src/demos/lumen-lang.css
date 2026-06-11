@@ -1,0 +1,306 @@
+/* ---------- lumen-lang ---------- */
+.ll__samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ink-900);
+  margin-bottom: 14px;
+  width: fit-content;
+  max-width: 100%;
+}
+.ll__sample {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
+}
+.ll__sample:hover {
+  color: var(--text-strong);
+}
+.ll__sample--on {
+  background: var(--accent);
+  color: var(--ink-900);
+}
+.ll__engine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ll__engine-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ll__toggle {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ink-900);
+}
+.ll__toggle-btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
+}
+.ll__toggle-btn--on {
+  background: var(--accent-glow);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+.ll__pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.ll__stage-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px 6px 6px;
+  background: var(--ink-800);
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+.ll__stage-pill--on {
+  color: var(--text-strong);
+  border-color: var(--accent-line);
+}
+.ll__stage-pill--cur {
+  background: var(--accent-glow);
+}
+.ll__stage-num {
+  font-size: 10px;
+  font-weight: 700;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink-700);
+  color: var(--text-faint);
+}
+.ll__stage-pill--on .ll__stage-num {
+  background: var(--accent);
+  color: var(--ink-900);
+}
+.ll__panels {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.ll__panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px;
+  min-height: 150px;
+}
+.ll__panel-head {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+}
+.ll__src {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--paper-dim);
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ll__tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ll__tok {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--ink-800);
+}
+.ll__tok--kw {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+.ll__tok--id {
+  color: var(--text-strong);
+}
+.ll__tok--num {
+  color: #4fd08a;
+  border-color: rgba(79, 208, 138, 0.4);
+}
+.ll__tok--op {
+  color: var(--accent-soft);
+}
+.ll__tok--punct {
+  color: var(--text-faint);
+}
+.ll__ast {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ll__ast-row {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--paper-dim);
+  display: flex;
+  gap: 8px;
+}
+.ll__ast-branch {
+  color: var(--text-faint);
+}
+.ll__code {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+.ll__code-row {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--paper-dim);
+  display: flex;
+  gap: 12px;
+}
+.ll__code-off {
+  color: var(--text-faint);
+}
+.ll__walk {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+}
+.ll__result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-top: 4px;
+}
+.ll__result-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ll__result-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 18px;
+  color: #4fd08a;
+}
+.ll__muted {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.ll__bench {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--ink-900);
+}
+.ll__bench-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 14px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ll__bench-sub {
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.ll__bench-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 40px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.ll__bench-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--paper-dim);
+}
+.ll__bench-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--ink-800);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.ll__bench-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+  border-radius: 999px;
+}
+.ll__bench-val {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-strong);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 620px) {
+  .ll__panels {
+    grid-template-columns: 1fr;
+  }
+  .ll__bench-row {
+    grid-template-columns: 100px 1fr 36px;
+  }
+}
