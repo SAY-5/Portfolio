@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import '../styles/demo.css';
 import './docsearch.css';
@@ -146,7 +146,7 @@ export default function DocSearchDemo() {
   const synTerms = useMemo(() => {
     if (!useSynonyms) return [] as string[];
     return queryTerms.flatMap((t) => SYNONYMS[t] ?? []);
-  }, [query, useSynonyms, queryTerms]);
+  }, [useSynonyms, queryTerms]);
 
   // Run both lanes, normalize each to 0..1, then fuse with the weight slider.
   const ranked: Ranked[] = useMemo(() => {
@@ -178,18 +178,25 @@ export default function DocSearchDemo() {
     [ranked]
   );
 
-  function stop() {
+  const stop = useCallback(() => {
     if (timer.current !== null) window.clearInterval(timer.current);
     timer.current = null;
-  }
-  useEffect(() => stop, []);
+  }, []);
 
   // Reset the stream whenever the query, weighting, or synonym toggle changes.
-  useEffect(() => {
-    stop();
+  // React's pattern for adjusting state when an input changes: compare against
+  // the last seen key during render and reset in place, no cascading effect.
+  const inputKey = `${query}|${vecWeight}|${useSynonyms}`;
+  const [lastInputKey, setLastInputKey] = useState(inputKey);
+  if (inputKey !== lastInputKey) {
+    setLastInputKey(inputKey);
     setStreaming(false);
     setRevealed(0);
-  }, [query, vecWeight, useSynonyms]);
+  }
+
+  // Tear down any in-flight reveal interval when the inputs change so a stale
+  // timer cannot keep advancing the freshly reset stream, and on unmount.
+  useEffect(() => stop, [inputKey, stop]);
 
   function runSearch() {
     stop();

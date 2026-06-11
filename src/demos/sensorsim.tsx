@@ -127,7 +127,6 @@ export default function SensorsimDemo() {
   // Animated sweep playhead. Lives in useEffect so it never runs during SSR.
   useEffect(() => {
     if (reduce || !playing) {
-      setSweep(1);
       return;
     }
     let start: number | null = null;
@@ -147,7 +146,9 @@ export default function SensorsimDemo() {
 
   const activeFaults = FAULT_DEFS.filter((f) => faults[f.key]);
   const activeStages = STAGE_DEFS.filter((s) => stages[s.key]).length;
-  const playX = sweep * W;
+  // When the sweep is not animating the playhead rests at the end of the trace.
+  const effectiveSweep = reduce || !playing ? 1 : sweep;
+  const playX = effectiveSweep * W;
 
   function toggleFault(k: keyof Faults) {
     setFaults((f) => ({ ...f, [k]: !f[k] }));
