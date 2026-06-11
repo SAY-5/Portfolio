@@ -111,7 +111,6 @@ export default function StorebenchDemo() {
     return () => {
       if (timer.current) window.clearInterval(timer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running, reduce]);
 
   function reset() {

@@ -28,8 +28,7 @@ const BANK: Question[] = [
   { id: 'q6', label: 'nested radical', diff: 1600 },
 ];
 
-const BUCKETS = ['novice', 'developing', 'proficient', 'mastered'] as const;
-type Bucket = (typeof BUCKETS)[number];
+type Bucket = 'novice' | 'developing' | 'proficient' | 'mastered';
 
 // Mastery is bucketed from the rolling rating, mirroring the event-sourced log.
 function bucketFor(rating: number): Bucket {
