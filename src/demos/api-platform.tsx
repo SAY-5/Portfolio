@@ -44,8 +44,10 @@ export default function ApiPlatformDemo() {
   const tickRef = useRef<number | null>(null);
   const idRef = useRef(0);
   const stateRef = useRef({ now: 0, entries: [] as Entry[], rate, limit: tier.limit });
-  stateRef.current.rate = rate;
-  stateRef.current.limit = tier.limit;
+  useEffect(() => {
+    stateRef.current.rate = rate;
+    stateRef.current.limit = tier.limit;
+  }, [rate, tier.limit]);
 
   function stop() {
     if (tickRef.current !== null) {

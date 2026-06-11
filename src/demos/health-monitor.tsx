@@ -100,7 +100,9 @@ export default function HealthMonitorDemo() {
   const tickRef = useRef<number | null>(null);
   const auditId = useRef(0);
   const outageRef = useRef<string | null>(null);
-  outageRef.current = outage;
+  useEffect(() => {
+    outageRef.current = outage;
+  }, [outage]);
 
   function stop() {
     if (tickRef.current !== null) {

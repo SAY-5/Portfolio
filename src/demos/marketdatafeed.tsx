@@ -70,7 +70,9 @@ export default function MarketDataFeedDemo() {
   const snapId = useRef(0);
   const quoteTimer = useRef<number | null>(null);
   const drainTimer = useRef<number | null>(null);
-  booksRef.current = books;
+  useEffect(() => {
+    booksRef.current = books;
+  }, [books]);
 
   const clearTimers = useCallback(() => {
     if (quoteTimer.current !== null) window.clearInterval(quoteTimer.current);

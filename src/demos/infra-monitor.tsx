@@ -84,10 +84,12 @@ export default function InfraMonitorDemo() {
   const tickRef = useRef(0);
   const fireRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  phaseRef.current = phase;
-  armRef.current = armCount;
-  coolRef.current = coolCount;
-  pushedRef.current = pushed;
+  useEffect(() => {
+    phaseRef.current = phase;
+    armRef.current = armCount;
+    coolRef.current = coolCount;
+    pushedRef.current = pushed;
+  }, [phase, armCount, coolCount, pushed]);
 
   const current = samples[samples.length - 1] ?? 0;
 

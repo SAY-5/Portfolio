@@ -134,6 +134,10 @@ export default function StationDiagDashboardDemo() {
     .sort((a, b) => a.offset - b.offset);
   const rootCause = incidentLines[0];
 
+  // The displayed last_seq mirrors the cursor advanced in emitNext: the newest
+  // line carries the highest sequence, and an empty stream sits at zero.
+  const lastSeq = lines.length ? lines[lines.length - 1].seq : 0;
+
   return (
     <div className="demo" aria-label="station diagnostics dashboard demo">
       <span className="demo__tag">Interactive demo</span>
@@ -151,7 +155,7 @@ export default function StationDiagDashboardDemo() {
           <span className="sdd__conn-dot" />
           {connected ? 'WS connected' : 'reconnecting, backfilling'}
         </span>
-        <span className="sdd__seq">last_seq {seqRef.current}</span>
+        <span className="sdd__seq">last_seq {lastSeq}</span>
       </div>
 
       <div className="sdd__stage">

@@ -49,7 +49,9 @@ export default function ClouddriveDemo() {
   const objRef = useRef(0);
   const timer = useRef<number | null>(null);
 
-  throttledRef.current = throttled;
+  useEffect(() => {
+    throttledRef.current = throttled;
+  }, [throttled]);
 
   function pushFeed(text: string, kind: FeedLine['kind']) {
     const id = feedIdRef.current++;

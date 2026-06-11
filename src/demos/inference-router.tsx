@@ -45,9 +45,12 @@ export default function InferenceRouterDemo() {
   const phaseRef = useRef<Phase>('idle');
   const inFlightRef = useRef<Req[]>([]);
   const queuedRef = useRef<number[]>([]);
-  phaseRef.current = phase;
-  inFlightRef.current = inFlight;
-  queuedRef.current = queued;
+  const loopRef = useRef<(now: number) => void>(() => {});
+  useEffect(() => {
+    phaseRef.current = phase;
+    inFlightRef.current = inFlight;
+    queuedRef.current = queued;
+  }, [phase, inFlight, queued]);
 
   const stop = useCallback(() => {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
@@ -154,10 +157,14 @@ export default function InferenceRouterDemo() {
         }
       }
 
-      rafRef.current = requestAnimationFrame(loop);
+      rafRef.current = requestAnimationFrame((t) => loopRef.current(t));
     },
     [],
   );
+
+  useEffect(() => {
+    loopRef.current = loop;
+  }, [loop]);
 
   function start() {
     if (phase === 'serving' || phase === 'draining') return;
