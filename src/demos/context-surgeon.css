@@ -1,0 +1,255 @@
+/* ---------- context-surgeon ---------- */
+.cs__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.cs__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cs__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--ink-800);
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    color 0.16s ease,
+    background 0.16s ease;
+}
+.cs__filter:hover {
+  border-color: var(--accent-line);
+  color: var(--text-strong);
+}
+.cs__filter--on {
+  color: var(--text-strong);
+}
+.cs__filter-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+  background: var(--line);
+}
+.cs__filter--on.cs__filter--clip {
+  border-color: var(--accent-line);
+  background: var(--accent-glow);
+}
+.cs__filter--clip .cs__filter-dot {
+  background: var(--accent);
+}
+.cs__filter--on.cs__filter--dead {
+  border-color: rgba(255, 199, 89, 0.6);
+  background: rgba(255, 199, 89, 0.1);
+}
+.cs__filter--dead .cs__filter-dot {
+  background: #ffc759;
+}
+.cs__filter--on.cs__filter--dup {
+  border-color: rgba(120, 162, 255, 0.6);
+  background: rgba(120, 162, 255, 0.1);
+}
+.cs__filter--dup .cs__filter-dot {
+  background: #78a2ff;
+}
+.cs__filter-count {
+  font-size: 10px;
+  opacity: 0.8;
+}
+.cs__map {
+  position: relative;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+}
+.cs__cell {
+  position: absolute;
+  border: 1px solid var(--ink-900);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--ink-700);
+  transition:
+    filter 0.15s ease,
+    outline-color 0.15s ease;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+}
+.cs__cell:hover,
+.cs__cell:focus-visible {
+  filter: brightness(1.25);
+  outline-color: var(--text-strong);
+  z-index: 3;
+}
+.cs__cell-inner {
+  position: absolute;
+  inset: 0;
+  padding: 7px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cs__cell-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs__cell-tok {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: rgba(8, 8, 10, 0.7);
+}
+.cs__cell--dim {
+  opacity: 0.32;
+}
+.cs__cell--flag-clip {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  z-index: 2;
+}
+.cs__cell--flag-dead {
+  outline: 2px solid #ffc759;
+  outline-offset: -2px;
+  z-index: 2;
+}
+.cs__cell--flag-dup {
+  outline: 2px solid #78a2ff;
+  outline-offset: -2px;
+  z-index: 2;
+}
+.cs__detail {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--ink-800);
+  min-height: 92px;
+}
+.cs__detail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.cs__detail-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.cs__detail-tok {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.cs__detail-share {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.cs__findings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cs__finding {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--paper-dim);
+}
+.cs__finding-tag {
+  flex: 0 0 auto;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+.cs__finding-tag--clip {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+.cs__finding-tag--dead {
+  color: #ffc759;
+  border-color: rgba(255, 199, 89, 0.5);
+}
+.cs__finding-tag--dup {
+  color: #78a2ff;
+  border-color: rgba(120, 162, 255, 0.5);
+}
+.cs__clean {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #4fd08a;
+}
+.cs__exit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 13px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--ink-900);
+}
+.cs__exit-code {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1;
+  padding: 8px 14px;
+  border-radius: 9px;
+}
+.cs__exit-code--warn {
+  color: var(--accent);
+  background: var(--accent-glow);
+  border: 1px solid var(--accent-line);
+}
+.cs__exit-code--ok {
+  color: #4fd08a;
+  background: rgba(79, 208, 138, 0.12);
+  border: 1px solid rgba(79, 208, 138, 0.5);
+}
+.cs__exit-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--paper-dim);
+  max-width: 56ch;
+}
+.cs__exit-total {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.cs__exit-total b {
+  color: var(--text-strong);
+}
