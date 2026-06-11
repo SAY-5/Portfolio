@@ -1,0 +1,263 @@
+/* mdfeed-itch: ITCH order book ladder with gap detection and TCP gap-fill */
+.itch__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.itch__topbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+.itch__seq {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.itch__seq b {
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.itch__status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+.itch__status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #4fd08a;
+  box-shadow: 0 0 8px rgba(79, 208, 138, 0.5);
+}
+.itch__status[data-state='gap'] {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+.itch__status[data-state='gap'] .itch__status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+.itch__status[data-state='recover'] {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+.itch__status[data-state='recover'] .itch__status-dot {
+  background: var(--accent);
+  animation: itch-pulse 0.8s ease-in-out infinite;
+}
+.itch__status[data-state='synced'] {
+  border-color: rgba(79, 208, 138, 0.5);
+  color: #4fd08a;
+}
+@keyframes itch-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.itch__book {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px 16px;
+}
+.itch__book-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+.itch__side-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.itch__side-label--bid {
+  text-align: right;
+  color: #4fd08a;
+}
+.itch__side-label--ask {
+  color: var(--accent);
+}
+.itch__ladder {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.itch__level {
+  display: grid;
+  grid-template-columns: 1fr 78px 78px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.itch__depth {
+  height: 22px;
+  border-radius: 4px;
+}
+.itch__depth--bid {
+  justify-self: end;
+  background: linear-gradient(90deg, transparent, rgba(79, 208, 138, 0.22));
+}
+.itch__depth--ask {
+  justify-self: start;
+  background: linear-gradient(90deg, rgba(255, 91, 41, 0.22), transparent);
+}
+.itch__px {
+  text-align: center;
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.itch__qty--bid {
+  text-align: right;
+  color: #4fd08a;
+}
+.itch__qty--ask {
+  text-align: left;
+  color: var(--accent);
+}
+.itch__stale {
+  position: relative;
+}
+.itch__stale::after {
+  content: '';
+  position: absolute;
+  inset: -2px -6px;
+  border-radius: 6px;
+  border: 1px dashed var(--accent-line);
+  pointer-events: none;
+}
+
+.itch__wire {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.itch__channel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-800);
+  padding: 12px 14px;
+}
+.itch__channel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.itch__channel-tag {
+  margin-left: auto;
+  color: var(--text-faint);
+}
+.itch__packets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 30px;
+}
+.itch__pkt {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  color: var(--paper-dim);
+  background: var(--ink-700);
+}
+.itch__pkt--add { border-color: rgba(79, 208, 138, 0.4); }
+.itch__pkt--exec { border-color: var(--accent-line); }
+.itch__pkt--dropped {
+  border-style: dashed;
+  border-color: var(--accent-line);
+  color: var(--accent);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.itch__pkt--snapshot {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--ink-900);
+}
+.itch__pkt-empty {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.itch__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  border: 1px solid rgba(79, 208, 138, 0.5);
+  border-radius: 12px;
+  background:
+    radial-gradient(300px 140px at 0% 0%, rgba(79, 208, 138, 0.12), transparent 70%),
+    var(--ink-800);
+}
+.itch__verdict-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  color: #4fd08a;
+}
+.itch__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  max-width: 62ch;
+}
+.itch__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.itch__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+}
+.itch__stat-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(18px, 3.4vw, 24px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.itch__stat-unit {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+@media (max-width: 620px) {
+  .itch__stats {
+    grid-template-columns: 1fr;
+  }
+}
