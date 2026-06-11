@@ -1,0 +1,177 @@
+/* export-validator demo: per-layer parity bars */
+.ev__tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ink-900);
+  margin-bottom: 18px;
+}
+.ev__tab {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
+}
+.ev__tab:hover {
+  color: var(--text-strong);
+}
+.ev__tab--on {
+  background: var(--accent);
+  color: var(--ink-900);
+}
+.ev__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+.ev__plotwrap {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 16px 14px 8px;
+}
+.ev__tolrow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+}
+.ev__tolrow b {
+  color: var(--accent);
+}
+.ev__bars {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 150px;
+  border-bottom: 1px solid var(--line);
+  padding-top: 4px;
+}
+.ev__tolline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed var(--accent);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.ev__tolline::after {
+  content: 'tolerance 1e-4';
+  position: absolute;
+  right: 2px;
+  top: -14px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--accent);
+}
+.ev__bar {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 4px;
+  border-radius: 3px 3px 0 0;
+  background: #4fd08a;
+  transition: background 0.2s ease;
+}
+.ev__bar--over {
+  background: var(--accent);
+}
+.ev__bar--origin {
+  background: var(--accent-soft);
+}
+.ev__bar--pending {
+  background: var(--ink-600);
+}
+.ev__layerlabel {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: 8px;
+  min-height: 1.2em;
+  text-align: center;
+}
+.ev__layerlabel b {
+  color: var(--accent);
+}
+.ev__readout {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.ev__stat {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+}
+.ev__stat--origin {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(220px 120px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.ev__stat-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(18px, 4vw, 24px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+.ev__stat--origin .ev__stat-val {
+  color: var(--accent);
+}
+.ev__stat-name {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-top: 6px;
+}
+.ev__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  border: 1px solid rgba(79, 208, 138, 0.5);
+  border-radius: 12px;
+  background:
+    radial-gradient(300px 140px at 0% 0%, rgba(79, 208, 138, 0.12), transparent 70%),
+    var(--ink-800);
+}
+.ev__verdict--drift {
+  border-color: var(--accent-line);
+  background: var(--accent-glow);
+}
+.ev__verdict-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  color: #4fd08a;
+}
+.ev__verdict--drift .ev__verdict-head {
+  color: var(--accent);
+}
+.ev__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  max-width: 64ch;
+}
