@@ -1,0 +1,318 @@
+/* mdfeed-handler demo: two wire formats normalize into one BBO book */
+.mdf__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.mdf__wires {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.mdf__wire {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+.mdf__wire--binary.mdf__wire--live {
+  border-color: var(--accent-line);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+.mdf__wire--ascii.mdf__wire--live {
+  border-color: rgba(79, 208, 138, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(79, 208, 138, 0.45);
+}
+.mdf__wire-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.mdf__wire-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.mdf__wire--binary .mdf__wire-label {
+  color: var(--accent);
+}
+.mdf__wire--ascii .mdf__wire-label {
+  color: #4fd08a;
+}
+.mdf__wire-sub {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.mdf__wire-frame {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ink-900);
+  padding: 10px 12px;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+}
+.mdf__wire-bytes {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--paper-dim);
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+.mdf__wire-idle {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.mdf__pipe {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 6px 0;
+  position: relative;
+}
+.mdf__pipe::before {
+  content: '';
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
+}
+.mdf__pipe-label {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: var(--ink-850);
+  padding: 2px 12px;
+}
+.mdf__pipe-dot {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+.mdf__book {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--ink-900);
+}
+.mdf__book-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.mdf__book-head span:first-child {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.mdf__book-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.mdf__book-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.mdf__bbo {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+  text-align: center;
+  transition:
+    border-color 0.25s ease,
+    background 0.25s ease;
+}
+.mdf__bbo--active {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(160px 100px at 50% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.mdf__bbo-sym {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-strong);
+  margin-bottom: 8px;
+}
+.mdf__bbo-prices {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.mdf__bbo-bid {
+  font-size: 15px;
+  font-weight: 700;
+  color: #4fd08a;
+}
+.mdf__bbo--set .mdf__bbo-bid {
+  color: #4fd08a;
+}
+.mdf__bbo-bid,
+.mdf__bbo-ask {
+  color: var(--text-faint);
+}
+.mdf__bbo--set .mdf__bbo-ask {
+  color: var(--accent);
+}
+.mdf__bbo-ask {
+  font-size: 15px;
+  font-weight: 700;
+}
+.mdf__bbo-x {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.mdf__bbo-venue {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: 8px;
+  letter-spacing: 0.04em;
+}
+.mdf__hists {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.mdf__hist {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--ink-800);
+}
+.mdf__hist--accent {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(280px 150px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.mdf__hist-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.mdf__hist-head span:first-child {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.mdf__hist--accent .mdf__hist-head span:first-child {
+  color: var(--accent);
+}
+.mdf__hist-sub {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.mdf__hist-bars {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 7px;
+  height: 92px;
+  align-items: end;
+}
+.mdf__hist-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+  justify-content: flex-end;
+}
+.mdf__hist-track {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--line);
+}
+.mdf__hist-bar {
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, var(--ink-600), var(--line));
+}
+.mdf__hist--accent .mdf__hist-bar {
+  background: linear-gradient(180deg, var(--accent-soft), rgba(255, 91, 41, 0.3));
+}
+.mdf__hist-bar--hi {
+  background: linear-gradient(180deg, #4fd08a, rgba(79, 208, 138, 0.35));
+}
+.mdf__hist--accent .mdf__hist-bar--hi {
+  background: linear-gradient(180deg, var(--accent), var(--accent-soft));
+}
+.mdf__hist-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.mdf__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.mdf__stat {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+}
+.mdf__stat-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(20px, 4vw, 28px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.mdf__stat-unit {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 6px;
+}
+
+@media (max-width: 620px) {
+  .mdf__wires,
+  .mdf__hists {
+    grid-template-columns: 1fr;
+  }
+  .mdf__book-grid {
+    grid-template-columns: 1fr;
+  }
+  .mdf__stats {
+    grid-template-columns: 1fr;
+  }
+}
