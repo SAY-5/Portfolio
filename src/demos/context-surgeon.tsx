@@ -27,7 +27,7 @@ type ConfigFile = {
 // concrete reason the tool would report.
 const FILES: ConfigFile[] = [
   {
-    name: 'CLAUDE.md',
+    name: 'instructions.md',
     tokens: 4200,
     findings: [
       {
@@ -76,7 +76,7 @@ const FILES: ConfigFile[] = [
     findings: [
       {
         kind: 'dup',
-        text: 'An agent-routing paragraph duplicates one already present in CLAUDE.md.',
+        text: 'An agent-routing paragraph duplicates one already present in instructions.md.',
       },
     ],
   },
@@ -165,7 +165,7 @@ export default function ContextSurgeonDemo() {
     dead: true,
     dup: true,
   });
-  const [selected, setSelected] = useState<string | null>('CLAUDE.md');
+  const [selected, setSelected] = useState<string | null>('instructions.md');
 
   const placed = useMemo(
     () => squarify(FILES, { x: 0, y: 0, w: 100, h: 100 }),
