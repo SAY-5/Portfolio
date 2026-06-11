@@ -1,0 +1,219 @@
+/* configmesh demo: server write rippling to subscribers + token bucket */
+.cm__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+.cm__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.cm__key {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  background: var(--ink-800);
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease;
+}
+.cm__key:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--accent-line);
+}
+.cm__key:disabled {
+  cursor: not-allowed;
+}
+.cm__key--active {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(220px 120px at 0% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-700);
+}
+.cm__key:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+.cm__key-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-strong);
+}
+.cm__key-ver {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.cm__grid-wrap {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 16px;
+}
+.cm__grid-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+.cm__grid-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.cm__grid-count {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.cm__grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 8px;
+}
+.cm__node {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 5px;
+  background: var(--ink-600);
+  border: 1px solid var(--line);
+}
+.cm__node--on {
+  background: var(--accent);
+  border-color: var(--accent-soft);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+.cm__spread {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.cm__spread-row {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cm__spread-k {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.cm__spread-v {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.cm__spread-note {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  margin-left: auto;
+}
+
+.cm__bucket {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-800);
+  padding: 16px;
+  transition: border-color 0.2s ease;
+}
+.cm__bucket--storm {
+  border-color: var(--accent-line);
+}
+.cm__bucket-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+.cm__bucket-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.cm__bucket-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.cm__meter {
+  height: 14px;
+  border-radius: 999px;
+  background: var(--ink-600);
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.cm__meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+  border-radius: 999px;
+}
+.cm__bucket-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.cm__bucket-stats strong {
+  color: var(--text-strong);
+}
+.cm__stat-ok {
+  color: var(--paper-dim);
+}
+.cm__stat-block {
+  color: var(--accent);
+}
+.cm__bucket-verdict {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+}
+
+@media (min-width: 720px) {
+  .cm__stage {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      'keys keys'
+      'grid bucket';
+  }
+  .cm__keys {
+    grid-area: keys;
+  }
+  .cm__grid-wrap {
+    grid-area: grid;
+  }
+  .cm__bucket {
+    grid-area: bucket;
+    align-self: start;
+  }
+}
