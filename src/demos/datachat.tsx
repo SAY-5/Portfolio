@@ -3,10 +3,10 @@ import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
 import '../styles/demo.css';
 import './datachat.css';
 
-// Real behavior from the project: a plain-English question streams generated
-// Python token by token, the code runs in a sandboxed subprocess against a
-// seeded 10k-row demo_orders table, and the resulting Plotly chart renders
-// inline. The default model is a mock so it runs with no API key.
+// Real behavior from the project: a plain-English question streams Python
+// token by token, the code runs in a sandboxed subprocess against a seeded
+// 10k-row demo_orders table, and the resulting Plotly chart renders inline.
+// The default model is a mock so it runs with no API key.
 const ROW_COUNT = 10000;
 
 type Question = {
@@ -174,7 +174,7 @@ export default function DatachatDemo() {
         <div className="dc__pane dc__pane--code">
           <div className="dc__pane-head">
             <span className="dc__dot" aria-hidden="true" />
-            <span className="dc__pane-name">generated.py</span>
+            <span className="dc__pane-name">analysis.py</span>
             <span className="dc__pane-state">
               {phase === 'idle' && 'waiting'}
               {phase === 'streaming' && 'streaming'}
