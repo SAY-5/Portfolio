@@ -20,7 +20,7 @@ const CLASS_META: Record<DefectClass, { label: string; sanitizer: string; sev: n
   UAF: { label: 'use-after-free', sanitizer: 'ASan', sev: 3 },
   DOUBLE_FREE: { label: 'double free', sanitizer: 'ASan', sev: 3 },
   LEAK: { label: 'memory leak', sanitizer: 'ASan', sev: 1 },
-  NONE: { label: 'clean', sanitizer: '—', sev: 0 },
+  NONE: { label: 'clean', sanitizer: 'none', sev: 0 },
 };
 
 type Scenario = {
