@@ -1,0 +1,260 @@
+/* marketdatafeed: coalesced best-bid-offer book demo */
+.mdf__stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.mdf__stat {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+}
+.mdf__stat--accent {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(220px 120px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.mdf__stat-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(20px, 4vw, 30px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.mdf__stat--accent .mdf__stat-val {
+  color: var(--accent);
+}
+.mdf__stat-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-top: 8px;
+}
+
+.mdf__books {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.mdf__book {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-900);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.mdf__book.is-dirty {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 1px var(--accent-line) inset;
+}
+.mdf__book.is-gap {
+  border-color: #d9534f;
+}
+.mdf__book.is-stale {
+  opacity: 0.62;
+  border-style: dashed;
+}
+.mdf__book-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+.mdf__sym {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--text-strong);
+}
+.mdf__seq {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.mdf__quote {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.mdf__side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mdf__side--ask {
+  text-align: right;
+}
+.mdf__side-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.mdf__px {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.mdf__side--bid .mdf__px {
+  color: #5fb878;
+}
+.mdf__side--ask .mdf__px {
+  color: var(--accent-soft);
+}
+.mdf__spread {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.mdf__flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.mdf__flag {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--text-faint);
+}
+.mdf__flag--dirty {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+.mdf__flag--gap {
+  border-color: #d9534f;
+  color: #e8736f;
+}
+.mdf__flag--stale {
+  border-color: var(--line);
+  color: var(--paper-faint);
+}
+.mdf__flag--clean {
+  border-color: var(--line-soft);
+  color: #5fb878;
+}
+.mdf__drained {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-900);
+  background: var(--accent);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.mdf__drain-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink-850);
+  margin-bottom: 16px;
+}
+.mdf__drain-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.mdf__drain-set {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.mdf__stream {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px;
+  min-height: 132px;
+}
+.mdf__stream-head {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.mdf__stream-empty {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.mdf__frame {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.mdf__frame:last-child {
+  border-bottom: none;
+}
+.mdf__frame-sym {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text-strong);
+  width: 52px;
+}
+.mdf__frame-px {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.mdf__frame-flag {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #e8736f;
+  border: 1px solid #d9534f;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+@media (max-width: 720px) {
+  .mdf__stats,
+  .mdf__books {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdf__book {
+    transition: none;
+  }
+}

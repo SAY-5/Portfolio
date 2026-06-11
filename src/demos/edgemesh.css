@@ -1,0 +1,206 @@
+/* ---------- edgemesh ---------- */
+.em__stage {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) 1fr;
+  gap: 18px;
+  align-items: start;
+}
+.em__graph {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 6px;
+}
+.em__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.em__core-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  fill: var(--ink-900);
+  font-weight: 700;
+  pointer-events: none;
+}
+.em__peer {
+  cursor: pointer;
+}
+.em__peer:focus-visible {
+  outline: none;
+}
+.em__peer:focus-visible circle {
+  stroke: var(--accent-soft);
+  stroke-width: 3;
+}
+.em__peer-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  fill: var(--paper-dim);
+  pointer-events: none;
+}
+.em__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.em__conv {
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  padding: 16px;
+  background:
+    radial-gradient(300px 160px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.em__conv-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.em__conv-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.em__conv-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(24px, 5vw, 34px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.em__conv-unit {
+  font-size: 0.45em;
+  color: var(--text-faint);
+  margin-left: 4px;
+}
+.em__deadline {
+  position: relative;
+  height: 22px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ink-900);
+  overflow: hidden;
+}
+.em__deadline-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+  border-radius: 999px;
+}
+.em__deadline-tick {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+.em__conv-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 10px;
+  min-height: 1.4em;
+}
+.em__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.em__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--ink-800);
+}
+.em__stat-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(18px, 4vw, 24px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.em__stat-val--accent {
+  color: var(--accent);
+}
+.em__stat-unit {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.em__facts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.em__facts li {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--paper-dim);
+  padding-left: 16px;
+  position: relative;
+}
+.em__facts li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.em__facts b {
+  color: var(--text-strong);
+  font-weight: 700;
+}
+.em__verdict {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background: var(--accent-glow);
+}
+.em__verdict-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--accent);
+}
+.em__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  max-width: 60ch;
+}
+
+@media (max-width: 620px) {
+  .em__stage {
+    grid-template-columns: 1fr;
+  }
+  .em__graph {
+    max-width: 320px;
+    margin: 0 auto;
+    width: 100%;
+  }
+}

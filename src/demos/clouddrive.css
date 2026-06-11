@@ -1,0 +1,217 @@
+/* clouddrive: multi-cloud sync engine demo */
+.cd__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.cd__providers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.cd__provider {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-strong);
+  border: 1px solid var(--accent-line);
+  border-radius: 10px;
+  padding: 9px 14px;
+  background: var(--ink-800);
+}
+.cd__arrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+}
+.cd__arrow::before {
+  content: '\2192';
+  color: var(--accent);
+  margin-right: 8px;
+}
+.cd__hashrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: var(--ink-900);
+}
+.cd__hash-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.cd__hash {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--accent-soft);
+  letter-spacing: 0.04em;
+}
+.cd__hash-ok {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #4fd08a;
+}
+.cd__chunks {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 6px;
+}
+.cd__chunk {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+}
+.cd__chunk--pending {
+  color: var(--text-faint);
+  background: var(--ink-900);
+}
+.cd__chunk--active {
+  color: var(--ink-900);
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.cd__chunk--done {
+  color: #4fd08a;
+  border-color: rgba(79, 208, 138, 0.5);
+  background: rgba(79, 208, 138, 0.08);
+}
+.cd__panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.cd__meter,
+.cd__feed {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-800);
+  padding: 14px 16px;
+}
+.cd__meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.cd__meter-val {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+.cd__meter-track {
+  height: 14px;
+  border-radius: 999px;
+  background: var(--ink-900);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.cd__meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-line), var(--accent-soft));
+}
+.cd__meter-meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin-top: 10px;
+}
+.cd__feed-head {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.cd__feed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 120px;
+}
+.cd__feed-line {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--paper-dim);
+}
+.cd__feed-line--sha {
+  color: var(--accent-soft);
+}
+.cd__feed-line--throttle {
+  color: var(--accent);
+}
+.cd__feed-line--done {
+  color: #4fd08a;
+}
+.cd__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.cd__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+}
+.cd__stat--warn {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(220px 120px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.cd__stat-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(18px, 3.6vw, 24px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.cd__stat--warn .cd__stat-val {
+  color: var(--accent);
+}
+.cd__stat-unit {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+@media (max-width: 620px) {
+  .cd__panel,
+  .cd__stats {
+    grid-template-columns: 1fr;
+  }
+  .cd__chunks {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}

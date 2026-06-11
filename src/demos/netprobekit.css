@@ -1,0 +1,260 @@
+/* netprobekit demo: an instrument panel replaying probe RPCs over a JSON TCP
+   channel, lighting suites, gauges, CAN frames, and a firmware crc check.
+   Tokens come from the global :root. */
+.np__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+.np__channel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: var(--ink-900);
+}
+.np__channel-end {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  flex: 0 0 auto;
+}
+.np__channel-end--target {
+  color: var(--accent);
+}
+.np__wire {
+  position: relative;
+  flex: 1;
+  height: 2px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--line) 0,
+    var(--line) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+}
+.np__packet {
+  position: absolute;
+  top: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+  transform: translateX(-50%);
+}
+.np__grid {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 14px;
+}
+.np__suites {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.np__suite {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 11px 13px;
+  background: var(--ink-800);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.np__suite-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ink-600);
+  flex: 0 0 auto;
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.np__suite--active {
+  border-color: var(--accent-line);
+}
+.np__suite--active .np__suite-dot {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+.np__suite--ok .np__suite-dot {
+  background: #4fd08a;
+  box-shadow: 0 0 10px rgba(79, 208, 138, 0.5);
+}
+.np__suite-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-strong);
+}
+.np__suite-count {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.np__suite--ok .np__suite-count {
+  color: #4fd08a;
+}
+.np__gauges {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.np__gauge {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--ink-800);
+  opacity: 0.7;
+  transition:
+    opacity 0.25s ease,
+    border-color 0.25s ease;
+}
+.np__gauge--on {
+  opacity: 1;
+  border-color: var(--accent-line);
+}
+.np__gauge-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+.np__gauge-head b {
+  color: var(--accent);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.np__spark {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.np__can {
+  display: flex;
+  gap: 8px;
+}
+.np__can-frame {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--text-faint);
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.np__can-frame--on {
+  color: var(--ink-900);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.np__crc {
+  display: flex;
+  align-items: center;
+}
+.np__crc-state {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.np__crc-state--ok {
+  color: #4fd08a;
+}
+.np__log {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px 16px;
+}
+.np__log-head {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.np__log-count {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.np__log-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 72px;
+}
+.np__log-body--empty {
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.np__log-line {
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.np__log-line--out {
+  color: var(--paper-dim);
+}
+.np__log-line--in {
+  color: #4fd08a;
+}
+.np__log-detail {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+.np__report {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background: var(--accent-glow);
+}
+.np__report-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--accent);
+}
+.np__report-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  max-width: 60ch;
+}
+
+@media (max-width: 620px) {
+  .np__grid {
+    grid-template-columns: 1fr;
+  }
+}

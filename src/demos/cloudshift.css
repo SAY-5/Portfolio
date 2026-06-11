@@ -1,0 +1,153 @@
+/* cloudshift: strangler-fig gateway cutover */
+.cs__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+.cs__toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.cs__seg {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ink-900);
+}
+.cs__seg-btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
+}
+.cs__seg-btn:hover {
+  color: var(--text-strong);
+}
+.cs__seg-btn--on {
+  background: var(--accent);
+  color: var(--ink-900);
+}
+.cs__seg-btn:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+.cs__phase-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.cs__phase-label b {
+  color: var(--accent);
+}
+.cs__topo {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 4px;
+  min-height: 250px;
+}
+.cs__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.cs__box-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  fill: var(--paper-dim);
+  pointer-events: none;
+}
+.cs__box-sub {
+  font-family: var(--mono);
+  font-size: 9px;
+  fill: var(--paper-faint);
+  pointer-events: none;
+}
+.cs__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.cs__metric {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--ink-800);
+}
+.cs__metric--diverge {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(280px 150px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.cs__metric-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+.cs__metric--diverge .cs__metric-name {
+  color: var(--accent);
+}
+.cs__metric-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(22px, 4.5vw, 32px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.cs__metric-unit {
+  font-size: 0.45em;
+  color: var(--text-faint);
+  margin-left: 4px;
+}
+.cs__metric-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 8px;
+  min-height: 1.4em;
+}
+.cs__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background: var(--accent-glow);
+}
+.cs__verdict-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--accent);
+}
+.cs__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  max-width: 62ch;
+}
+@media (max-width: 620px) {
+  .cs__metrics {
+    grid-template-columns: 1fr;
+  }
+}

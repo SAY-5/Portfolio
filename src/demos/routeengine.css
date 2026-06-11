@@ -1,0 +1,178 @@
+/* routeengine demo: constraint-aware A* over a grid */
+.re__stage {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+.re__grid {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 6px;
+}
+.re__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.re__cell {
+  fill: var(--ink-700);
+  stroke: var(--line);
+  stroke-width: 1;
+  transition:
+    fill 0.18s ease,
+    stroke 0.18s ease;
+}
+.re__cell--visited {
+  fill: var(--accent-glow);
+  stroke: var(--accent-line);
+}
+.re__cell--storm {
+  fill: rgba(255, 91, 41, 0.28);
+  stroke: var(--accent);
+  stroke-width: 1.4;
+}
+.re__cost {
+  font-family: var(--mono);
+  font-size: 9px;
+  fill: var(--accent);
+  pointer-events: none;
+  font-weight: 700;
+}
+.re__path {
+  stroke: var(--accent);
+  stroke-width: 4;
+  filter: drop-shadow(0 0 6px var(--accent-glow));
+}
+.re__start {
+  fill: var(--paper-dim);
+}
+.re__goal {
+  fill: var(--accent);
+}
+.re__pin {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--ink-900);
+  pointer-events: none;
+}
+.re__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.re__metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.re__metric {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+}
+.re__metric-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+.re__metric-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(22px, 4vw, 30px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.re__metric-unit {
+  font-size: 0.42em;
+  color: var(--text-faint);
+  margin-left: 5px;
+}
+.re__factors {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--ink-800);
+}
+.re__factors-head {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+}
+.re__factor {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+.re__factor:first-of-type {
+  border-top: none;
+}
+.re__factor-name {
+  color: var(--paper-dim);
+}
+.re__factor-val {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.re__factor--on {
+  color: var(--accent);
+}
+.re__factor--on .re__factor-name {
+  color: var(--accent);
+}
+.re__factor--on .re__factor-val {
+  color: var(--accent);
+  font-weight: 700;
+}
+.re__factors-note {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.5;
+  margin-top: 12px;
+}
+.re__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid rgba(79, 208, 138, 0.5);
+  border-radius: 12px;
+  background:
+    radial-gradient(280px 140px at 0% 0%, rgba(79, 208, 138, 0.12), transparent 70%),
+    var(--ink-800);
+}
+.re__verdict-check {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #4fd08a;
+}
+.re__verdict-text {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+}
+
+@media (max-width: 620px) {
+  .re__stage {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,243 @@
+/* equipfleet utilization timeline demo */
+.ef__stage {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ef__timeline-head {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  padding: 0 0 0 152px;
+  letter-spacing: 0.04em;
+}
+.ef__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ef__row {
+  display: grid;
+  grid-template-columns: 140px 1fr 96px;
+  align-items: center;
+  gap: 12px;
+}
+.ef__row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ef__row-name {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text-strong);
+}
+.ef__row-kind {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+.ef__track {
+  position: relative;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--ink-700);
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.ef__seg {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  opacity: 0.92;
+}
+.ef__mask {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: rgba(8, 8, 10, 0.66);
+  pointer-events: none;
+}
+.ef__window {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-left: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px var(--accent-glow);
+}
+.ef__row-metrics {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.ef__chip {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+  min-width: 42px;
+  text-align: center;
+}
+.ef__chip--util {
+  color: #4fd08a;
+  border: 1px solid rgba(79, 208, 138, 0.45);
+}
+.ef__chip--up {
+  color: var(--accent);
+  border: 1px solid var(--accent-line);
+}
+
+.ef__scrubber {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--ink-900);
+}
+.ef__scrub-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 56px;
+  align-items: center;
+  gap: 12px;
+}
+.ef__scrub-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ef__scrub-val {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--accent);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ef__range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-line), var(--line));
+  outline-offset: 4px;
+}
+.ef__range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  cursor: grab;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.ef__range::-webkit-slider-thumb:active {
+  cursor: grabbing;
+}
+.ef__range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  cursor: grab;
+}
+.ef__range:focus-visible {
+  outline: 2px solid var(--accent-soft);
+}
+
+.ef__fleet {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.ef__fleet-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--ink-800);
+}
+.ef__fleet-card--util {
+  border-color: rgba(79, 208, 138, 0.4);
+}
+.ef__fleet-card--up {
+  border-color: var(--accent-line);
+}
+.ef__fleet-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ef__fleet-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(26px, 5vw, 36px);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.ef__fleet-card--util .ef__fleet-val {
+  color: #4fd08a;
+}
+.ef__fleet-card--up .ef__fleet-val {
+  color: var(--accent);
+}
+.ef__fleet-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.ef__legend {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.ef__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.ef__legend-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+}
+
+@media (max-width: 620px) {
+  .ef__timeline-head {
+    padding-left: 0;
+  }
+  .ef__row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .ef__row-metrics {
+    justify-content: flex-start;
+  }
+  .ef__fleet {
+    grid-template-columns: 1fr;
+  }
+  .ef__scrub-row {
+    grid-template-columns: 72px 1fr 48px;
+  }
+}

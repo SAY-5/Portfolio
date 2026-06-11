@@ -1,0 +1,219 @@
+/* ---------- inferencegateway ---------- */
+.ig__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+.ig__policies {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ink-900);
+}
+.ig__policy {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
+}
+.ig__policy:hover {
+  color: var(--text-strong);
+}
+.ig__policy--on {
+  background: var(--accent);
+  color: var(--ink-900);
+}
+.ig__backends {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.ig__backend {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 132px;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.ig__backend--probed {
+  border-color: var(--accent-line);
+}
+.ig__backend--picked {
+  border-color: var(--accent);
+  background:
+    radial-gradient(180px 120px at 50% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.ig__backend-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-strong);
+}
+.ig__backend-inflight {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(22px, 5vw, 32px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.ig__backend-unit {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ig__backend-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ink-600);
+  overflow: hidden;
+  margin-top: auto;
+}
+.ig__backend-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.ig__backend-flag {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.ig__backend-flag--probe {
+  color: var(--accent);
+  border: 1px solid var(--accent-line);
+}
+.ig__backend-flag--pick {
+  color: var(--ink-900);
+  background: var(--accent);
+}
+.ig__hist-wrap {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px 18px;
+  background: var(--ink-900);
+}
+.ig__hist-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+}
+.ig__hist-p99 {
+  margin-left: auto;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.ig__hist {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  align-items: end;
+  gap: 6px;
+  height: 110px;
+}
+.ig__hist-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 100%;
+}
+.ig__hist-bar {
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  background: var(--accent-line);
+  min-height: 2px;
+}
+.ig__hist-bar--over {
+  background: var(--accent);
+}
+.ig__hist-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-faint);
+}
+.ig__hist-slo {
+  position: absolute;
+  top: 0;
+  bottom: 18px;
+  width: 0;
+  border-left: 1.5px dashed var(--accent);
+  pointer-events: none;
+}
+.ig__hist-slo-tag {
+  position: absolute;
+  top: -2px;
+  left: 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.ig__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.ig__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+}
+.ig__stat-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(18px, 4vw, 26px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.ig__stat-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+@media (max-width: 620px) {
+  .ig__backends {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .ig__stats {
+    grid-template-columns: 1fr;
+  }
+}

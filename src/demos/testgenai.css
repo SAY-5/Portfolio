@@ -1,0 +1,248 @@
+/* ---------- testgenai ---------- */
+.tg__stage {
+  display: grid;
+  grid-template-columns: 0.85fr 1.15fr;
+  gap: 18px;
+}
+.tg__panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px 16px;
+}
+.tg__panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+}
+.tg__panel-live {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 10px;
+}
+.tg__panel-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.tg__spec-line {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--paper-dim);
+}
+.tg__spec-key {
+  color: var(--text-faint);
+}
+.tg__spec-val {
+  color: var(--text-strong);
+}
+.tg__client {
+  display: flex;
+  gap: 4px;
+  margin: 14px 0 0;
+}
+.tg__client-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--ink-800);
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+.tg__client-chip:hover {
+  border-color: var(--accent-line);
+}
+.tg__client-chip--on {
+  border-color: var(--accent-line);
+  background: var(--accent-glow);
+  color: var(--text-strong);
+}
+.tg__coverage {
+  margin-top: 16px;
+}
+.tg__coverage-label {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-bottom: 7px;
+}
+.tg__coverage-label b {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.tg__coverage-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink-700);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.tg__coverage-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+}
+.tg__facets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.tg__facet {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px dashed var(--line);
+  color: var(--text-faint);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.tg__facet[data-hit='true'] {
+  border-style: solid;
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+.tg__cases {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.tg__case {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink-800);
+  padding: 11px 13px;
+}
+.tg__case[data-dup='true'] {
+  border-style: dashed;
+  opacity: 0.6;
+}
+.tg__case-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+.tg__case-id {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.tg__case-quality {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.tg__case-bars {
+  display: inline-flex;
+  gap: 2px;
+}
+.tg__case-bar {
+  width: 4px;
+  height: 11px;
+  border-radius: 1px;
+  background: var(--line);
+}
+.tg__case-bar[data-on='true'] {
+  background: var(--accent);
+}
+.tg__case-dupflag {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.tg__tuple {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 10px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.tg__tuple-key {
+  color: var(--text-faint);
+  text-transform: uppercase;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  padding-top: 2px;
+}
+.tg__tuple-val {
+  color: var(--paper-dim);
+}
+.tg__skel {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink-900);
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--paper-dim);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.tg__skel-kw {
+  color: var(--accent);
+}
+.tg__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 14px 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background: var(--accent-glow);
+}
+.tg__verdict-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--accent);
+}
+.tg__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  max-width: 62ch;
+}
+
+@media (max-width: 720px) {
+  .tg__stage {
+    grid-template-columns: 1fr;
+  }
+}

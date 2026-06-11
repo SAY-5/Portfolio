@@ -1,0 +1,198 @@
+/* InsightLLM demo: question to typed query intent, validated and grounded. */
+.il__grid {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+.il__col-head {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.il__col-head--gap {
+  margin-top: 18px;
+}
+
+.il__schema {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 10px;
+}
+.il__schema-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 4px 6px;
+}
+.il__schema-col {
+  color: var(--text-strong);
+}
+.il__schema-type {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.il__questions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.il__q {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--ink-800);
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+.il__q:hover {
+  border-color: var(--accent-line);
+}
+.il__q--on {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+  color: var(--text-strong);
+}
+.il__q--risky {
+  border-style: dashed;
+}
+
+.il__pipe {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.il__step {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px 16px;
+}
+.il__step--on {
+  border-color: var(--accent-line);
+}
+.il__step-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.il__step-n {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-900);
+  background: var(--accent);
+}
+.il__step:not(.il__step--on) .il__step-n {
+  background: var(--ink-600);
+  color: var(--text-faint);
+}
+.il__step-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.il__step--on .il__step-label {
+  color: var(--text-strong);
+}
+.il__step-body {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--paper-dim);
+  min-height: 1.4em;
+}
+
+.il__muted {
+  color: var(--text-faint);
+}
+.il__intent {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--paper-dim);
+  border: 1px solid var(--accent-line);
+  border-radius: 8px;
+  background: var(--ink-800);
+  padding: 10px 12px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.il__intent--bad {
+  border-color: var(--accent-line);
+  border-style: dashed;
+}
+.il__ok {
+  color: #4fd08a;
+}
+.il__reject {
+  color: var(--accent);
+}
+
+.il__scan {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.il__results {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.il__result-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 13px;
+  background: var(--ink-800);
+}
+.il__result-key {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.il__result-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 620px) {
+  .il__grid {
+    grid-template-columns: 1fr;
+  }
+}

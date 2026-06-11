@@ -1,0 +1,321 @@
+/* GovGate risk assessment demo */
+.gg__stage {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  grid-template-areas:
+    'checklist side'
+    'register register';
+  gap: 16px;
+}
+.gg__checklist {
+  grid-area: checklist;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gg__req {
+  display: grid;
+  grid-template-columns: 26px 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--ink-800);
+  color: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+.gg__req:hover {
+  border-color: var(--accent-line);
+}
+.gg__req:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+.gg__req-box {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--line);
+}
+.gg__req.is-pass .gg__req-box {
+  color: var(--ink-900);
+  background: #2fbd86;
+  border-color: #2fbd86;
+}
+.gg__req.is-fail .gg__req-box {
+  color: var(--ink-900);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.gg__req.is-fail {
+  background: radial-gradient(
+      200px 80px at 0% 50%,
+      var(--accent-glow),
+      transparent 70%
+    ),
+    var(--ink-800);
+  border-color: var(--accent-line);
+}
+.gg__req-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.gg__req-cat {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.gg__req-label {
+  font-size: 13.5px;
+  color: var(--text-strong);
+}
+.gg__sev {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--text-faint);
+}
+.gg__sev--medium {
+  color: #8fb3ff;
+  border-color: rgba(143, 179, 255, 0.4);
+}
+.gg__sev--high {
+  color: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+.gg__sev--critical {
+  color: var(--ink-900);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.gg__req-w {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* side: meters + band */
+.gg__side {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.gg__meters {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-850);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.gg__meter-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 26px;
+  align-items: center;
+  gap: 10px;
+}
+.gg__meter-name {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gg__meter-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink-700);
+  overflow: hidden;
+}
+.gg__meter-fill {
+  display: block;
+  height: 100%;
+  background: #2fbd86;
+  border-radius: 999px;
+}
+.gg__meter-fill.is-hot {
+  background: linear-gradient(90deg, var(--accent-soft), var(--accent));
+}
+.gg__meter-pct {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: right;
+}
+
+.gg__band {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--ink-800);
+}
+.gg__band-name {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+.gg__band-val {
+  font-family: var(--display);
+  font-size: 30px;
+  font-weight: 600;
+  text-transform: capitalize;
+  line-height: 1;
+}
+.gg__band-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 10px;
+}
+.gg__cap {
+  color: var(--accent-soft);
+  line-height: 1.4;
+}
+
+/* band color treatment, shared by overall band and register pills */
+.gg__band--low {
+  border-color: rgba(74, 214, 160, 0.45);
+}
+.gg__band--low .gg__band-val {
+  color: #4ad6a0;
+}
+.gg__band--medium .gg__band-val {
+  color: #8fb3ff;
+}
+.gg__band--medium {
+  border-color: rgba(143, 179, 255, 0.4);
+}
+.gg__band--high .gg__band-val,
+.gg__band--critical .gg__band-val {
+  color: var(--accent-soft);
+}
+.gg__band--high,
+.gg__band--critical {
+  border-color: var(--accent-line);
+  background: radial-gradient(
+      260px 160px at 100% 0%,
+      var(--accent-glow),
+      transparent 70%
+    ),
+    var(--ink-800);
+}
+
+/* register */
+.gg__register {
+  grid-area: register;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-850);
+  padding: 8px;
+}
+.gg__register-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-strong);
+}
+.gg__register-sub {
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--text-faint);
+}
+.gg__reg-row {
+  display: grid;
+  grid-template-columns: 52px 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.gg__reg-row:nth-child(even) {
+  background: var(--ink-800);
+}
+.gg__reg-id {
+  color: var(--text-faint);
+}
+.gg__reg-name {
+  color: var(--text-strong);
+}
+.gg__reg-band {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+.gg__reg-band.gg__band--low {
+  color: #4ad6a0;
+}
+.gg__reg-band.gg__band--medium {
+  color: #8fb3ff;
+}
+.gg__reg-band.gg__band--high,
+.gg__reg-band.gg__band--critical {
+  color: var(--accent-soft);
+}
+.gg__reg-status {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.status--approved {
+  color: #4ad6a0;
+}
+.status--needs-info {
+  color: #8fb3ff;
+}
+.status--rejected {
+  color: var(--accent-soft);
+}
+
+@media (max-width: 620px) {
+  .gg__stage {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'checklist'
+      'side'
+      'register';
+  }
+  .gg__req {
+    grid-template-columns: 24px 1fr auto;
+  }
+  .gg__req-w {
+    display: none;
+  }
+}

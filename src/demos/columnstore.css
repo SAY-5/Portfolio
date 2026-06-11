@@ -1,0 +1,273 @@
+/* columnstore: AVX2 vs scalar int32 filter, 8 lanes packing a bitmap */
+.cs__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.cs__controls-inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px 20px;
+}
+.cs__thresh {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+  flex: 1;
+}
+.cs__thresh-label {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.cs__thresh-label b {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.cs__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-line), var(--line));
+  outline-offset: 4px;
+}
+.cs__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  cursor: grab;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.cs__slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+}
+.cs__slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  cursor: grab;
+}
+
+.cs__lanes {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px 16px;
+}
+.cs__lanes-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+}
+.cs__lanes-tag {
+  margin-left: auto;
+  color: var(--accent);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.cs__lane-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 8px;
+}
+.cs__lane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.cs__lane-cell {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--ink-700);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: clamp(11px, 2.4vw, 14px);
+  font-weight: 600;
+  color: var(--paper-dim);
+  font-variant-numeric: tabular-nums;
+}
+.cs__lane-cell--pass {
+  border-color: rgba(79, 208, 138, 0.6);
+  background: rgba(79, 208, 138, 0.14);
+  color: #cfeede;
+}
+.cs__lane-cell--fail {
+  border-color: var(--accent-line);
+  background: var(--accent-glow);
+  color: var(--accent);
+}
+.cs__lane-bit {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  color: var(--text-faint);
+}
+.cs__lane-bit--1 {
+  border-color: rgba(79, 208, 138, 0.6);
+  color: #4fd08a;
+}
+.cs__lane-bit--0 {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+.cs__lane-idx {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-faint);
+}
+.cs__bitmap {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.cs__bitmap-bits {
+  font-size: 15px;
+  letter-spacing: 0.18em;
+  color: var(--text-strong);
+}
+.cs__bitmap-mask {
+  color: var(--accent);
+}
+
+.cs__progress {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.cs__progress b {
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.cs__race {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.cs__track {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--ink-800);
+}
+.cs__track--avx {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(280px 150px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.cs__track-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+.cs__track--avx .cs__track-name {
+  color: var(--accent);
+}
+.cs__track-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(24px, 5vw, 34px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.cs__track-unit {
+  font-size: 0.42em;
+  color: var(--text-faint);
+  margin-left: 5px;
+}
+.cs__track-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line);
+  margin-top: 12px;
+  overflow: hidden;
+}
+.cs__track-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transform-origin: left;
+}
+.cs__track--scalar .cs__track-fill {
+  background: var(--paper-faint);
+}
+.cs__track-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 8px;
+  min-height: 1.4em;
+}
+
+.cs__verdict {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background: var(--accent-glow);
+}
+.cs__verdict-x {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(30px, 6vw, 44px);
+  color: var(--accent);
+  line-height: 1;
+}
+.cs__verdict-text {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--paper-dim);
+  max-width: 52ch;
+}
+
+@media (max-width: 620px) {
+  .cs__race {
+    grid-template-columns: 1fr;
+  }
+  .cs__lane-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
