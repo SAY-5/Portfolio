@@ -1,0 +1,202 @@
+/* pagerunner: bounded agent loop with budgets and deterministic replay */
+.pr__budgets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.pr__budget {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-800);
+  padding: 14px;
+}
+.pr__budget-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.pr__budget-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.pr__budget-val {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.pr__budget-max {
+  font-weight: 400;
+  color: var(--text-faint);
+}
+.pr__budget-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink-700);
+  overflow: hidden;
+}
+.pr__budget-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+}
+
+.pr__split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.pr__track {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px;
+}
+.pr__track--accent {
+  border-color: var(--accent-line);
+}
+.pr__track--green {
+  border-color: rgba(79, 208, 138, 0.4);
+}
+.pr__track-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.pr__track-title {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pr__track--accent .pr__track-title {
+  color: var(--accent);
+}
+.pr__track--green .pr__track-title {
+  color: #4fd08a;
+}
+.pr__track-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.pr__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.pr__step {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--ink-800);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.pr__step--on {
+  border-color: var(--line);
+}
+.pr__track--accent .pr__step--cur {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+.pr__step--match {
+  border-color: rgba(79, 208, 138, 0.5);
+}
+.pr__step-n {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-strong);
+  background: var(--ink-600);
+  border: 1px solid var(--line);
+}
+.pr__step-tool {
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.pr__step-arg {
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pr__step-chk {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #4fd08a;
+}
+
+.pr__verdict {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid rgba(79, 208, 138, 0.5);
+  border-radius: 12px;
+  background:
+    radial-gradient(300px 140px at 0% 0%, rgba(79, 208, 138, 0.12), transparent 70%),
+    var(--ink-800);
+}
+.pr__verdict-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.pr__verdict-x {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(30px, 6vw, 44px);
+  color: #4fd08a;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.pr__verdict-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.pr__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  max-width: 64ch;
+}
+
+@media (max-width: 620px) {
+  .pr__budgets {
+    grid-template-columns: 1fr;
+  }
+  .pr__split {
+    grid-template-columns: 1fr;
+  }
+}
