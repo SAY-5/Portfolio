@@ -1,0 +1,231 @@
+/* kube-deploy: parallel up fan-out with idempotent no-op re-runs */
+.kd__stage {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.kd__cmd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+}
+.kd__cmd-prompt {
+  color: var(--accent);
+  font-weight: 700;
+}
+.kd__cmd-text {
+  color: var(--text-strong);
+}
+.kd__cmd-badge {
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-900);
+  background: #4fd08a;
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.kd__cmd-badge--noop {
+  background: var(--accent);
+}
+.kd__halves {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.kd__half {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px;
+}
+.kd__half--terraform {
+  border-top: 2px solid #5b9dff;
+}
+.kd__half--workload {
+  border-top: 2px solid var(--accent);
+}
+.kd__half-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+.kd__half-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.kd__half-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.kd__res-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kd__res {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: var(--ink-800);
+  transition:
+    border-color 0.25s ease,
+    background 0.25s ease;
+}
+.kd__res--running {
+  border-color: var(--accent-line);
+}
+.kd__res--created {
+  border-color: rgba(79, 208, 138, 0.5);
+  background:
+    radial-gradient(160px 60px at 0% 50%, rgba(79, 208, 138, 0.1), transparent 70%),
+    var(--ink-800);
+}
+.kd__res--noop {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(160px 60px at 0% 50%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.kd__res-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+}
+.kd__res-mark {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+.kd__res--created .kd__res-mark {
+  color: #4fd08a;
+}
+.kd__res--noop .kd__res-mark {
+  color: var(--accent);
+}
+.kd__spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-line);
+  border-top-color: var(--accent);
+  display: inline-block;
+}
+.kd__res-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.kd__res-label {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text-strong);
+}
+.kd__res-kind {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kd__res-state {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.kd__res--created .kd__res-state {
+  color: #4fd08a;
+}
+.kd__res--noop .kd__res-state {
+  color: var(--accent);
+}
+.kd__console {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px 16px;
+}
+.kd__console-head {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.kd__console-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 96px;
+}
+.kd__console-empty {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.kd__console-line {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--paper-dim);
+}
+.kd__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background: var(--accent-glow);
+}
+.kd__verdict-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--accent);
+}
+.kd__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  max-width: 64ch;
+}
+@media (max-width: 620px) {
+  .kd__halves {
+    grid-template-columns: 1fr;
+  }
+}
