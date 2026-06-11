@@ -10,9 +10,7 @@ import '../styles/detail.css';
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
-const LIVE_DEMOS: Record<string, string> = {
-  scanguard: 'https://scanguard-xi.vercel.app',
-};
+const SHOWCASE_BASE = 'https://showcases-lime.vercel.app';
 
 export default function Detail() {
   const { name } = useParams();
@@ -26,7 +24,7 @@ export default function Detail() {
   const idx = projects.findIndex((p) => p.name === project.name);
   const prev = idx > 0 ? projects[idx - 1] : null;
   const next = idx < projects.length - 1 ? projects[idx + 1] : null;
-  const liveDemo = LIVE_DEMOS[project.name];
+  const showcaseUrl = `${SHOWCASE_BASE}/${project.name}`;
   const githubUrl = `https://github.com/SAY-5/${project.name}`;
   const demoReady = hasDemo(project.name);
 
@@ -64,22 +62,20 @@ export default function Detail() {
           <motion.div className="detail__links" variants={item}>
             <a
               className="btn btn--solid"
+              href={showcaseUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Live demo &#8599;
+            </a>
+            <a
+              className="btn btn--ghost"
               href={githubUrl}
               target="_blank"
               rel="noreferrer"
             >
               <GitHubIcon /> View on GitHub
             </a>
-            {liveDemo && (
-              <a
-                className="btn btn--ghost"
-                href={liveDemo}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Live demo &#8599;
-              </a>
-            )}
           </motion.div>
         </motion.header>
 
@@ -143,16 +139,14 @@ export default function Detail() {
               >
                 <GitHubIcon size={14} /> SAY-5/{project.name}
               </a>
-              {liveDemo && (
-                <a
-                  className="detail__link-row"
-                  href={liveDemo}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  &#8599; Live demo
-                </a>
-              )}
+              <a
+                className="detail__link-row"
+                href={showcaseUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                &#8599; Live demo
+              </a>
             </div>
           </aside>
         </div>
