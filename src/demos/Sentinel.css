@@ -1,0 +1,358 @@
+/* Sentinel demo: pipeline, gauges, risk tiers, escalation alert. */
+.sn__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+/* ---- pipeline track ---- */
+.sn__pipe {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.sn__node {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 12px;
+  background: var(--ink-800);
+  transition:
+    border-color 0.25s ease,
+    background 0.25s ease;
+}
+.sn__node--on {
+  border-color: var(--accent-line);
+}
+.sn__node--cur {
+  background:
+    radial-gradient(180px 110px at 50% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+  border-color: var(--accent);
+}
+.sn__node-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.sn__node-sub {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: 4px;
+  line-height: 1.35;
+}
+.sn__node-arrow {
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  width: 16px;
+  height: 2px;
+  transform: translateY(-50%);
+  background: var(--line);
+  overflow: hidden;
+  z-index: 2;
+}
+.sn__node--on .sn__node-arrow {
+  background: var(--accent-line);
+}
+.sn__node-pulse {
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 8px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+/* ---- gauges ---- */
+.sn__gauges {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.sn__gauge {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--ink-800);
+}
+.sn__gauge-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+.sn__gauge-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(24px, 4.5vw, 34px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.sn__gauge-unit {
+  font-size: 0.45em;
+  color: var(--text-faint);
+  margin-left: 4px;
+}
+.sn__gauge-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 8px;
+  min-height: 1.3em;
+}
+.sn__gauge--tax {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(240px 130px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.sn__gauge--tax .sn__gauge-val {
+  color: var(--accent);
+}
+.sn__bar {
+  margin-top: 10px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.sn__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-soft), var(--accent));
+}
+
+/* saturation meter with threshold marks */
+.sn__meter {
+  margin-top: 10px;
+}
+.sn__meter-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.sn__meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #4fd08a, var(--accent-soft), var(--accent));
+}
+.sn__meter-mark {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--paper-faint);
+  z-index: 2;
+}
+.sn__meter-mark--page {
+  background: var(--accent);
+}
+.sn__gauge--warn {
+  border-color: var(--accent-line);
+}
+.sn__gauge--warn .sn__gauge-val {
+  color: var(--accent-soft);
+}
+.sn__gauge--page {
+  border-color: var(--accent);
+  background:
+    radial-gradient(240px 130px at 50% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.sn__gauge--page .sn__gauge-val {
+  color: var(--accent);
+}
+
+/* ---- risk tiers ---- */
+.sn__tiers {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.sn__tier {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--ink-900);
+}
+.sn__tier--t1 {
+  border-left-color: #4fd08a;
+}
+.sn__tier--t2 {
+  border-left-color: #d9c34f;
+}
+.sn__tier--t3 {
+  border-left-color: var(--accent-soft);
+}
+.sn__tier--t4 {
+  border-left-color: var(--accent);
+}
+.sn__tier-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.sn__tier-id {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.sn__tier--t4 .sn__tier-id {
+  color: var(--accent);
+}
+.sn__tier-share {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.sn__tier-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--paper-dim);
+  margin-top: 6px;
+}
+.sn__tier-sample {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+/* ---- alert banner ---- */
+.sn__alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-800);
+}
+.sn__alert--fired {
+  border-color: var(--accent-line);
+  background: var(--accent-glow);
+}
+.sn__alert--quiet {
+  border-color: rgba(79, 208, 138, 0.45);
+}
+.sn__alert-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--paper-faint);
+}
+.sn__esc--slack {
+  background: #4fd08a;
+  box-shadow: 0 0 10px rgba(79, 208, 138, 0.5);
+}
+.sn__esc--email {
+  background: var(--accent-soft);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+.sn__esc--page {
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent);
+}
+.sn__alert-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+}
+.sn__alert-text b {
+  color: var(--text-strong);
+}
+
+/* ---- sliders ---- */
+.sn__sliders {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 18px;
+}
+.sn__slider-row {
+  display: block;
+}
+.sn__slider-label {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+.sn__slider-label b {
+  color: var(--accent);
+}
+.sn__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 91, 41, 0.5), var(--line));
+  outline-offset: 4px;
+}
+.sn__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  cursor: grab;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.sn__slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+}
+.sn__slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  cursor: grab;
+}
+
+@media (max-width: 720px) {
+  .sn__pipe {
+    grid-template-columns: 1fr 1fr;
+  }
+  .sn__node-arrow {
+    display: none;
+  }
+  .sn__gauges {
+    grid-template-columns: 1fr;
+  }
+  .sn__tiers {
+    grid-template-columns: 1fr 1fr;
+  }
+  .sn__sliders {
+    grid-template-columns: 1fr;
+  }
+}
