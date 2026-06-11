@@ -57,7 +57,6 @@ export default function CubitDemo() {
   const [streak, setStreak] = useState(0);
   const [streakDir, setStreakDir] = useState<1 | -1 | 0>(0);
   const [lastMove, setLastMove] = useState<string>('holding');
-  const raf = useRef<number | null>(null);
   const loop = useRef<number | null>(null);
 
   const stop = useCallback(() => {
