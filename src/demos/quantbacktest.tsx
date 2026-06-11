@@ -43,7 +43,7 @@ const baseReturns = (() => {
 // Each signal weights the next bar's return differently; blending the three
 // with the config weights produces an equity curve we can score.
 const carrySig = baseReturns.map((_, i) => Math.sin(i / 9) * 0.6 + 0.2);
-const momSig = baseReturns.map((r, i) =>
+const momSig = baseReturns.map((_, i) =>
   i === 0 ? 0 : (baseReturns[i - 1] + (baseReturns[i - 2] || 0)) * 0.4,
 );
 const valueSig = baseReturns.map((_, i) => Math.cos(i / 14) * 0.5);
