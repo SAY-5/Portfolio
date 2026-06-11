@@ -1,0 +1,213 @@
+/* streamcatalog lineage demo */
+.sc__stage {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 18px;
+}
+.sc__graph {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 4px;
+  min-height: 280px;
+}
+.sc__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.sc__node {
+  cursor: pointer;
+}
+.sc__node:focus-visible {
+  outline: none;
+}
+.sc__node:focus-visible .sc__node-box {
+  stroke: var(--accent-soft);
+  stroke-width: 2.5;
+}
+.sc__node-box {
+  fill: var(--ink-700);
+  stroke: var(--line);
+  stroke-width: 1;
+  transition:
+    stroke 0.2s ease,
+    fill 0.2s ease;
+}
+.sc__node-box--active {
+  fill: var(--accent-glow);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.sc__node-box--down {
+  stroke: var(--accent-line);
+  stroke-width: 1.5;
+}
+.sc__node-box--up {
+  stroke: rgba(79, 208, 138, 0.55);
+  stroke-width: 1.5;
+}
+.sc__node-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  fill: var(--paper-dim);
+  pointer-events: none;
+}
+.sc__node-badge {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.sc__node-badge--public {
+  fill: #4fd08a;
+}
+.sc__node-badge--domain {
+  fill: var(--accent-soft);
+}
+.sc__node-badge--private {
+  fill: var(--paper-faint);
+}
+
+.sc__side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sc__counts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.sc__count {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--ink-800);
+}
+.sc__count--up {
+  border-color: rgba(79, 208, 138, 0.4);
+}
+.sc__count--down {
+  border-color: var(--accent-line);
+}
+.sc__count-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(22px, 5vw, 30px);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.sc__count--up .sc__count-val {
+  color: #4fd08a;
+}
+.sc__count--down .sc__count-val {
+  color: var(--accent);
+}
+.sc__count-name {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+.sc__selected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: var(--ink-900);
+}
+.sc__selected-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.sc__selected-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-strong);
+}
+.sc__pill {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  margin-left: auto;
+}
+.sc__pill--public {
+  color: #4fd08a;
+  border: 1px solid rgba(79, 208, 138, 0.5);
+}
+.sc__pill--domain {
+  color: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+}
+.sc__pill--private {
+  color: var(--paper-faint);
+  border: 1px solid var(--line);
+}
+.sc__sub {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 11px 16px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    background 0.16s ease;
+}
+.sc__sub--ok {
+  background: #4fd08a;
+  color: var(--ink-900);
+}
+.sc__sub--ok:hover {
+  transform: translateY(-2px);
+}
+.sc__sub--blocked {
+  background: transparent;
+  border-color: var(--accent-line);
+  color: var(--accent);
+  cursor: not-allowed;
+}
+.sc__sub-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.sc__note {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.sc__note--ok {
+  color: var(--paper-dim);
+  border: 1px solid rgba(79, 208, 138, 0.5);
+  background: radial-gradient(220px 120px at 0% 0%, rgba(79, 208, 138, 0.1), transparent 70%), var(--ink-800);
+}
+.sc__note--blocked {
+  color: var(--paper-dim);
+  border: 1px solid var(--accent-line);
+  background: var(--accent-glow);
+}
+
+@media (max-width: 620px) {
+  .sc__stage {
+    grid-template-columns: 1fr;
+  }
+}
