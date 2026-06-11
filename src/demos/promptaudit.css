@@ -1,0 +1,227 @@
+/* PromptAudit CI gate demo */
+.pa__stage {
+  display: grid;
+  gap: 18px;
+}
+.pa__lanes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.pa__lane {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-800);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.pa__lane--fail {
+  border-color: var(--accent-line);
+  background: radial-gradient(
+      260px 160px at 50% 0%,
+      var(--accent-glow),
+      transparent 70%
+    ),
+    var(--ink-800);
+}
+.pa__lane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pa__lane-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+.pa__verdict {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+.pa__verdict.is-pass {
+  color: #4ad6a0;
+  border-color: rgba(74, 214, 160, 0.4);
+}
+.pa__verdict.is-fail {
+  color: var(--ink-900);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* vertical meter with baseline line */
+.pa__meter {
+  position: relative;
+  height: 150px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--ink-900);
+  overflow: hidden;
+}
+.pa__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, var(--accent-soft), var(--accent));
+  border-top: 1px solid var(--accent-soft);
+}
+.pa__lane--fail .pa__bar {
+  background: linear-gradient(180deg, #ff8a63, var(--accent));
+}
+.pa__baseline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px dashed var(--paper);
+  opacity: 0.85;
+}
+.pa__baseline-tag {
+  position: absolute;
+  right: 4px;
+  top: -16px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-strong);
+  background: var(--ink-850);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.pa__control {
+  display: block;
+}
+.pa__control-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+.pa__control-row b {
+  color: var(--text-strong);
+  font-size: 15px;
+}
+.pa__control-unit {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 400;
+}
+.pa__slider {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.pa__lane-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pa__blurb {
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+.pa__z {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+}
+.pa__sig {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.pa__sig.is-on {
+  color: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+/* merge check banner */
+.pa__check {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  padding: 16px 18px;
+  background: var(--ink-850);
+}
+.pa__check--green {
+  border-color: rgba(74, 214, 160, 0.45);
+  background: radial-gradient(
+      400px 120px at 0% 50%,
+      rgba(74, 214, 160, 0.12),
+      transparent 70%
+    ),
+    var(--ink-850);
+}
+.pa__check--red {
+  border-color: var(--accent-line);
+  background: radial-gradient(
+      400px 120px at 0% 50%,
+      var(--accent-glow),
+      transparent 70%
+    ),
+    var(--ink-850);
+}
+.pa__check-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+}
+.pa__check--green .pa__check-dot {
+  background: #4ad6a0;
+  box-shadow: 0 0 0 5px rgba(74, 214, 160, 0.18);
+}
+.pa__check--red .pa__check-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 5px var(--accent-glow);
+}
+.pa__check-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pa__check-text b {
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  color: var(--text-strong);
+}
+.pa__check-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+@media (max-width: 620px) {
+  .pa__lanes {
+    grid-template-columns: 1fr;
+  }
+  .pa__meter {
+    height: 110px;
+  }
+}
