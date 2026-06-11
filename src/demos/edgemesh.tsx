@@ -43,11 +43,11 @@ export default function EdgemeshDemo() {
     () => Array<Health>(NODE_COUNT).fill('healthy'),
   );
   const [target, setTarget] = useState(0);
-  const [rrCursor, setRrCursor] = useState(0);
   const [converging, setConverging] = useState(false);
   const [convMs, setConvMs] = useState<number | null>(null);
   const [sent, setSent] = useState(0);
   const [rerouted, setRerouted] = useState(0);
+  const rrCursorRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const tickRef = useRef<number | null>(null);
 
@@ -65,20 +65,18 @@ export default function EdgemeshDemo() {
   // Pick the next healthy peer round-robin, skipping unhealthy ones. This is the
   // visible reroute: the caller never sends to a peer it has marked down.
   const stepTraffic = useCallback(() => {
-    setRrCursor((cursor) => {
-      const ids = nodes
-        .filter((n) => health[n.id] === 'healthy')
-        .map((n) => n.id);
-      if (ids.length === 0) {
-        setTarget(-1);
-        return cursor;
-      }
-      const next = ids[(cursor + 1) % ids.length];
-      setTarget(next);
-      setSent((s) => s + 1);
-      if (health[next] !== 'healthy') setRerouted((r) => r + 1);
-      return (cursor + 1) % ids.length;
-    });
+    const ids = nodes
+      .filter((n) => health[n.id] === 'healthy')
+      .map((n) => n.id);
+    if (ids.length === 0) {
+      setTarget(-1);
+      return;
+    }
+    const cursor = rrCursorRef.current;
+    const next = ids[(cursor + 1) % ids.length];
+    rrCursorRef.current = (cursor + 1) % ids.length;
+    setTarget(next);
+    setSent((s) => s + 1);
   }, [health]);
 
   // Drive steady-state traffic so the mesh always looks alive.
@@ -153,7 +151,7 @@ export default function EdgemeshDemo() {
     clearTimers();
     setHealth(Array<Health>(NODE_COUNT).fill('healthy'));
     setTarget(0);
-    setRrCursor(0);
+    rrCursorRef.current = 0;
     setConverging(false);
     setConvMs(null);
     setSent(0);
