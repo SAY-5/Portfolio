@@ -240,7 +240,7 @@ export default function NetProbeKitDemo() {
             <div className={`np__gauge ${sensorRun ? 'np__gauge--on' : ''}`}>
               <div className="np__gauge-head">
                 <span>sensor: temp</span>
-                <b>{sensorRun ? `${lastTemp.toFixed(1)} C` : '— C'}</b>
+                <b>{sensorRun ? `${lastTemp.toFixed(1)} C` : '- C'}</b>
               </div>
               <svg className="np__spark" viewBox="0 0 160 38" role="img" aria-label="sensor temperature history">
                 <motion.path

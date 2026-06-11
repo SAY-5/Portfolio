@@ -435,7 +435,7 @@ export default function QuantBacktestDemo() {
                         />
                       </span>
                       <span className="qb__rank-sharpe">
-                        {shown ? row.sharpe.toFixed(2) : '–'}
+                        {shown ? row.sharpe.toFixed(2) : '-'}
                       </span>
                     </li>
                   );

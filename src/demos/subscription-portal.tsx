@@ -187,7 +187,7 @@ export default function SubscriptionPortalDemo() {
           <div className="sp__sig">
             <span className="sp__sig-k">X-Signature</span>
             <code className="sp__sig-v">
-              sha256={phase === 'idle' ? '—'.repeat(8) : sig}
+              sha256={phase === 'idle' ? '-'.repeat(8) : sig}
             </code>
           </div>
         </div>
