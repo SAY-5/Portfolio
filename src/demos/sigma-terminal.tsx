@@ -15,7 +15,7 @@ type Ticker = { sym: string; co: string; seed: number; base: number; vol: number
 const TICKERS: Ticker[] = [
   { sym: 'AAPL', co: 'Apple Inc', seed: 11, base: 188.4, vol: 1.7 },
   { sym: 'NVDA', co: 'NVIDIA Corp', seed: 29, base: 121.6, vol: 2.6 },
-  { sym: 'TSLA', co: 'Tesla', seed: 7, base: 242.1, vol: 3.1 },
+  { sym: 'NVDA', co: 'Nvidia', seed: 7, base: 242.1, vol: 3.1 },
   { sym: 'MSFT', co: 'Microsoft', seed: 41, base: 415.2, vol: 1.9 },
 ];
 

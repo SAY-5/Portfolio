@@ -254,7 +254,7 @@ export default function PulserouteDemo() {
                     chosen ? ' pr__rank--chosen' : ''
                   }`}
                 >
-                  <span className="pr__rank-pos">{open ? '—' : i + 1}</span>
+                  <span className="pr__rank-pos">{open ? '-' : i + 1}</span>
                   <span className="pr__rank-name">{p.name}</span>
                   <span className="pr__rank-meta">
                     q{p.quality.toFixed(2)} · {p.cost.toFixed(2)}x · {p.latency}ms

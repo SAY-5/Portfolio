@@ -51,8 +51,8 @@ const routing: { task: string; role: string }[] = [
   { task: 'data.stream', role: 'Data Cloud' },
 ];
 
-// The developer tools that each receive a generated rule file.
-const tools = ['cursor', 'windsurf', 'cline', 'continue', 'copilot', 'zed'];
+// The developer tools that each receive a scaffolded rule file.
+const tools = ['editor', 'cli', 'ide', 'linter', 'runner', 'shell'];
 
 export default function SetupAgentsDemo() {
   const reduce = useReducedMotion();
@@ -166,7 +166,7 @@ export default function SetupAgentsDemo() {
             transition={{ duration: 0.35 }}
           >
             <div className="sa__out-cols">
-              <div className="sa__files" aria-label="generated rule files">
+              <div className="sa__files" aria-label="scaffolded rule files">
                 <div className="sa__panel-head">Per-tool rule files</div>
                 <ul className="sa__file-list">
                   {tools.map((t, i) => (

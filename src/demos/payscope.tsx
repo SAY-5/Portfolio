@@ -285,7 +285,7 @@ function FragmentRow(props: {
             }`}
           >
             <span className="ps__cell-median">
-              {b.suppressed ? '—' : `$${Math.round(b.p50)}k`}
+              {b.suppressed ? '-' : `$${Math.round(b.p50)}k`}
             </span>
             <span className="ps__cell-n">n={b.n}</span>
           </button>
