@@ -1,0 +1,128 @@
+/* ---------- netlat: RTT flow timeline ---------- */
+.nl__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.nl__lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nl__lane {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: var(--ink-900);
+  transition: border-color 0.25s ease;
+}
+.nl__lane--alert {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(320px 120px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-900);
+}
+.nl__lane-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.nl__lane-id {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.nl__lane-peer {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.nl__plot {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.nl__readout {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.nl__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--ink-800);
+}
+.nl__stat-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(22px, 4vw, 30px);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.nl__stat-val--alert {
+  color: var(--accent);
+}
+.nl__stat-unit {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.nl__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: var(--ink-900);
+}
+.nl__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+}
+.nl__legend-swatch {
+  width: 11px;
+  height: 11px;
+  border: 1.6px solid var(--line);
+  background: var(--ink-900);
+  transform: rotate(45deg);
+}
+.nl__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background: var(--accent-glow);
+}
+.nl__verdict-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--accent);
+}
+.nl__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--paper-dim);
+  max-width: 62ch;
+}
+
+@media (max-width: 620px) {
+  .nl__readout {
+    grid-template-columns: 1fr;
+  }
+}
