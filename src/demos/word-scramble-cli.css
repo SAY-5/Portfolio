@@ -1,0 +1,197 @@
+/* word-scramble-cli demo: terminal scramble game with hints and profile */
+.ws__stage {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+.ws__term {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  overflow: hidden;
+}
+.ws__term-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--ink-850);
+}
+.ws__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--line);
+}
+.ws__dot:first-child {
+  background: var(--accent);
+}
+.ws__term-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: 6px;
+}
+.ws__term-body {
+  padding: 18px;
+}
+.ws__prompt {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+}
+.ws__tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.ws__tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 48px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--ink-800);
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.ws__tile--target {
+  border-color: var(--accent-line);
+}
+.ws__tile--solved {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+  color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.ws__hints {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 36px;
+  margin-bottom: 16px;
+}
+.ws__hint {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.ws__hint-key {
+  flex: 0 0 auto;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+.ws__hint-text {
+  color: var(--paper-dim);
+}
+.ws__form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: var(--ink-850);
+}
+.ws__form:focus-within {
+  border-color: var(--accent-line);
+}
+.ws__caret {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.ws__input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--text-strong);
+  letter-spacing: 0.04em;
+}
+.ws__input::placeholder {
+  color: var(--text-faint);
+}
+.ws__input:disabled {
+  color: var(--accent);
+}
+.ws__solved-line {
+  margin-top: 14px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--accent);
+}
+.ws__profile {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-800);
+  padding: 16px;
+}
+.ws__profile-head {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin-bottom: 14px;
+}
+.ws__stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.ws__stat {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--ink-900);
+}
+.ws__stat-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+.ws__stat-val {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(22px, 4vw, 28px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.ws__note {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 620px) {
+  .ws__stage {
+    grid-template-columns: 1fr;
+  }
+}
