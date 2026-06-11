@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
 import '../styles/demo.css';
 import './export-validator.css';
@@ -95,18 +95,21 @@ export default function ExportValidatorDemo() {
   const [running, setRunning] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  function clearTimer() {
+  const clearTimer = useCallback(() => {
     if (timerRef.current !== null) clearInterval(timerRef.current);
     timerRef.current = null;
-  }
-  useEffect(() => clearTimer, []);
+  }, []);
 
-  // reset reveal when switching models
-  useEffect(() => {
-    clearTimer();
+  // Reset the reveal when switching models. React's adjust-state-on-input
+  // pattern: compare against the last seen model during render and reset in
+  // place, with the interval torn down by the effect below.
+  const [lastModelId, setLastModelId] = useState(modelId);
+  if (modelId !== lastModelId) {
+    setLastModelId(modelId);
     setRunning(false);
     setRevealed(0);
-  }, [modelId]);
+  }
+  useEffect(() => clearTimer, [modelId, clearTimer]);
 
   function run() {
     if (running) return;

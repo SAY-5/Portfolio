@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
 import '../styles/demo.css';
 import './cloudshift.css';
@@ -26,14 +26,6 @@ export default function CloudshiftDemo() {
   const [target, setTarget] = useState<Target>('MONOLITH');
   const [diverged, setDiverged] = useState(false);
   const [pulse, setPulse] = useState(0);
-  const timerRef = useRef<number | null>(null);
-
-  // A small request pulse animates along the active route on each flip or send.
-  useEffect(() => {
-    return () => {
-      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    };
-  }, []);
 
   function flip(next: Target) {
     setTarget(next);

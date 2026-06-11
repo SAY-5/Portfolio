@@ -42,7 +42,7 @@ function buildCorpus(): Doc[] {
 
 export default function ReviewdeckDemo() {
   const reduce = useReducedMotion();
-  const corpus = useMemo(buildCorpus, []);
+  const corpus = useMemo(() => buildCorpus(), []);
 
   const [status, setStatus] = useState<Status | null>(null);
   const [kind, setKind] = useState<Kind | null>(null);
@@ -68,10 +68,17 @@ export default function ReviewdeckDemo() {
     );
   }, [corpus, status, kind]);
 
-  // reset scroll when the filter changes the set
+  // Reset scroll when the filter changes the set. The scrollTop state is reset
+  // during render against the last seen filter (React's adjust-on-input
+  // pattern); the matching DOM scroll reset stays in the effect below.
+  const filterKey = `${status ?? ''}|${kind ?? ''}`;
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
+    setScrollTop(0);
+  }
   useEffect(() => {
     if (viewportRef.current) viewportRef.current.scrollTop = 0;
-    setScrollTop(0);
   }, [status, kind]);
 
   // measure the viewport once mounted (browser-only, kept out of render)
@@ -88,10 +95,11 @@ export default function ReviewdeckDemo() {
   const visibleRows = filtered.slice(startIdx, endIdx);
   const domCount = visibleRows.length;
 
-  // track the high-water mark of rows actually in the DOM
-  useEffect(() => {
-    setMaxDom((m) => Math.max(m, domCount));
-  }, [domCount]);
+  // Track the high-water mark of rows actually in the DOM. It only grows, so
+  // raise it during render rather than in a cascading effect.
+  if (domCount > maxDom) {
+    setMaxDom(domCount);
+  }
 
   // cursor pagination: the next page would start after the last windowed row
   const pageSize = 50;

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import '../styles/demo.css';
 import './ordermatching.css';
@@ -74,8 +74,8 @@ export default function OrderMatchingDemo() {
   const [side, setSide] = useState<Side>('buy');
   const [qty, setQty] = useState(6);
   const [limitOffset, setLimitOffset] = useState(4); // ticks past the touch
-  const seqRef = useState(() => ({ n: 100 }))[0];
-  const tradeRef = useState(() => ({ n: 0 }))[0];
+  const seqRef = useRef(100);
+  const tradeRef = useRef(0);
 
   const bids = useMemo(() => buildLevels(book, 'buy'), [book]);
   const asks = useMemo(() => buildLevels(book, 'sell'), [book]);
@@ -136,10 +136,10 @@ export default function OrderMatchingDemo() {
         const refill = Math.min(top.slice, top.hidden);
         top.qty = refill;
         top.hidden -= refill;
-        top.seq = ++seqRef.n; // refreshed slice goes to back of the queue
+        top.seq = ++seqRef.current; // refreshed slice goes to back of the queue
         note = 'iceberg slice refreshed';
       }
-      newTrades.push({ id: ++tradeRef.n, px: top.px, qty: fill, note });
+      newTrades.push({ id: ++tradeRef.current, px: top.px, qty: fill, note });
     }
 
     // Drop fully consumed orders (qty 0 and no reserve left).
@@ -148,13 +148,13 @@ export default function OrderMatchingDemo() {
     // Any unfilled remainder of a limit order rests in the book.
     if (remaining > 0 && limitPx != null) {
       working.push({
-        id: ++seqRef.n,
+        id: ++seqRef.current,
         side: aggrSide,
         px: limitPx,
         qty: remaining,
         hidden: 0,
         slice: 0,
-        seq: ++seqRef.n,
+        seq: ++seqRef.current,
       });
     }
     return { working, newTrades, lastPx };
@@ -212,8 +212,8 @@ export default function OrderMatchingDemo() {
     setTrades([]);
     setStops([{ id: 50, side: 'sell', trigger: 9994, qty: 6 }]);
     setLast(null);
-    seqRef.n = 100;
-    tradeRef.n = 0;
+    seqRef.current = 100;
+    tradeRef.current = 0;
   }
 
   const stopArmed = (s: StopOrder) =>

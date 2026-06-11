@@ -39,7 +39,7 @@ function allocateProrata(incoming: number): Fill[] {
     const fill = Math.min(o.qty, Math.floor(raw));
     return { id: o.id, party: o.party, raw, fill, residual: 0 };
   });
-  let allocated = fills.reduce((s, f) => s + f.fill, 0);
+  const allocated = fills.reduce((s, f) => s + f.fill, 0);
   let residual = Math.min(incoming, TOTAL_RESTING) - allocated;
   // Residual hops FIFO down the queue, oldest first, capped by remaining qty.
   for (let i = 0; i < fills.length && residual > 0; i++) {

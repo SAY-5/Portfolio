@@ -103,7 +103,7 @@ export default function EdgemeshDemo() {
 
   // Race the convergence timer against the 2-second edge deadline. The real
   // suite lands at p95 8ms, so the bar barely moves before it settles.
-  function runConvergence() {
+  const runConvergence = useCallback(() => {
     clearTimers();
     setConverging(true);
     setConvMs(null);
@@ -131,7 +131,7 @@ export default function EdgemeshDemo() {
       }
     };
     rafRef.current = requestAnimationFrame(tick);
-  }
+  }, [clearTimers, reduce]);
 
   function injectPartition() {
     // Drop three peers at once: an asymmetric partition the suite models.

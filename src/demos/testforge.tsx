@@ -99,6 +99,10 @@ export default function TestforgeDemo() {
     setRunning(false);
   }, [clearTimers]);
 
+  // Holds the latest advance so the scheduled follow-up can recurse without
+  // referencing the callback before it is declared.
+  const advanceRef = useRef<(i: number) => void>(() => {});
+
   const advance = useCallback(
     (i: number) => {
       if (i >= CANDIDATES) {
@@ -111,7 +115,7 @@ export default function TestforgeDemo() {
         () => {
           setProcessed(i + 1);
           setInGate(null);
-          const next = window.setTimeout(() => advance(i + 1), stepMs * 0.4);
+          const next = window.setTimeout(() => advanceRef.current(i + 1), stepMs * 0.4);
           timers.current.push(next);
         },
         stepMs * 0.6,
@@ -120,6 +124,10 @@ export default function TestforgeDemo() {
     },
     [],
   );
+
+  useEffect(() => {
+    advanceRef.current = advance;
+  }, [advance]);
 
   const run = useCallback(() => {
     if (running) return;

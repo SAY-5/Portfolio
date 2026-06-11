@@ -226,12 +226,7 @@ export default function OsshellDemo() {
   useEffect(() => clearTimer, []);
 
   useEffect(() => {
-    if (!playing) return;
-    if (reduce) {
-      setStep(maxLen);
-      setPlaying(false);
-      return;
-    }
+    if (!playing || reduce) return;
     timer.current = window.setInterval(() => {
       setStep((s) => {
         if (s + 1 >= maxLen) {
@@ -246,6 +241,12 @@ export default function OsshellDemo() {
   }, [playing, reduce, maxLen]);
 
   function play() {
+    if (reduce) {
+      // Reduced motion jumps straight to the fully revealed final step.
+      setStep(maxLen);
+      setPlaying(false);
+      return;
+    }
     if (done) setStep(0);
     setPlaying(true);
   }

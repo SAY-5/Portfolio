@@ -41,7 +41,9 @@ export default function InferencegatewayDemo() {
   const rrRef = useRef(0);
   const interval = useRef<number | null>(null);
   const inflightRef = useRef(inflight);
-  inflightRef.current = inflight;
+  useEffect(() => {
+    inflightRef.current = inflight;
+  }, [inflight]);
 
   function stop() {
     if (interval.current !== null) window.clearInterval(interval.current);

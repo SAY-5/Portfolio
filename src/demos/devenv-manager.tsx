@@ -78,13 +78,11 @@ export default function DevenvManagerDemo() {
 
   // Boot log reveal and blinking cursor.
   useEffect(() => {
-    if (reduce) {
-      setBootShown(bootLines.length);
-      return;
-    }
-    setBootShown(0);
+    if (reduce) return;
+    let shown = 0;
     const iv = window.setInterval(() => {
-      setBootShown((n) => (n < bootLines.length ? n + 1 : n));
+      shown = shown < bootLines.length ? shown + 1 : shown;
+      setBootShown(shown);
     }, 360);
     return () => clearInterval(iv);
   }, [reduce]);
@@ -150,6 +148,10 @@ export default function DevenvManagerDemo() {
     );
   }
 
+  // Reduced motion shows the whole boot log at once; otherwise it reveals line
+  // by line via the animation effect above.
+  const shownCount = reduce ? bootLines.length : bootShown;
+
   const managerDown = phase === 'killed' || phase === 'restart';
   const orphansRemaining =
     phase === 'reaped' ? 0 : SESSION_COUNT - reaped.length;
@@ -193,7 +195,7 @@ export default function DevenvManagerDemo() {
               </span>
             </div>
             <div className="dv__term-body">
-              {bootLines.slice(0, bootShown).map((line, i) => (
+              {bootLines.slice(0, shownCount).map((line, i) => (
                 <div
                   key={i}
                   className={
@@ -203,7 +205,7 @@ export default function DevenvManagerDemo() {
                   {line}
                 </div>
               ))}
-              {bootShown >= bootLines.length && (
+              {shownCount >= bootLines.length && (
                 <div className="dv__term-cmd">
                   ${' '}
                   <span
