@@ -1,0 +1,165 @@
+/* vectorsearch demo: two parallel rankers fused with RRF */
+.vs__queries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.vs__query {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 8px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--ink-800);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    color 0.16s ease,
+    background 0.16s ease;
+}
+.vs__query:hover {
+  border-color: var(--accent-line);
+  color: var(--text-strong);
+}
+.vs__query--active {
+  border-color: var(--accent-line);
+  background: var(--accent-glow);
+  color: var(--accent);
+}
+.vs__query:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+
+.vs__stage {
+  display: grid;
+  gap: 18px;
+}
+.vs__lists {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+.vs__col {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px;
+  transition: opacity 0.3s ease;
+}
+.vs__col--dim {
+  opacity: 0.5;
+}
+.vs__col-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.vs__col-title {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.vs__col-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.vs__list,
+.vs__fused-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.vs__row,
+.vs__fused-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ink-800);
+  border: 1px solid var(--line);
+}
+.vs__rank,
+.vs__fused-rank {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-faint);
+  width: 1.4em;
+  text-align: center;
+  flex-shrink: 0;
+}
+.vs__title,
+.vs__fused-title {
+  font-size: 13px;
+  color: var(--text-strong);
+  line-height: 1.35;
+  flex: 1;
+}
+
+.vs__fused {
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background:
+    radial-gradient(360px 200px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-850);
+  padding: 16px;
+}
+.vs__fused-row {
+  background: var(--ink-800);
+}
+.vs__fused-src {
+  display: inline-flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.vs__chip {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+.vs__chip--v {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+.vs__chip--b {
+  color: var(--paper-dim);
+}
+.vs__fused-score {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.vs__verdict {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+}
+.vs__verdict strong {
+  color: var(--accent);
+}
+
+@media (min-width: 680px) {
+  .vs__lists {
+    grid-template-columns: 1fr 1fr;
+  }
+}
