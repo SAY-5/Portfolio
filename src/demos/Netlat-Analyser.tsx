@@ -205,7 +205,7 @@ export default function NetlatDemo() {
           {lanes.map(({ flow, pts }) => {
             const path = pts
               .filter((p) => p.counted)
-              .map((p, k, arr) => {
+              .map((p, k) => {
                 const idx = pts.indexOf(p);
                 return `${k === 0 ? 'M' : 'L'} ${x(idx, total).toFixed(1)} ${y(p.rtt).toFixed(1)}`;
               })
