@@ -1,0 +1,276 @@
+/* ---------- edalauncher ---------- */
+.eda__tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ink-900);
+  margin-bottom: 18px;
+}
+.eda__tab {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease;
+}
+.eda__tab:hover {
+  color: var(--text-strong);
+}
+.eda__tab--on {
+  background: var(--accent);
+  color: var(--ink-900);
+}
+.eda__config {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.eda__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.eda__field-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.eda__seg {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.eda__chip {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--ink-800);
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+.eda__chip:hover {
+  border-color: var(--accent-line);
+}
+.eda__chip--on {
+  border-color: var(--accent-line);
+  background: var(--accent-glow);
+  color: var(--text-strong);
+}
+.eda__progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink-700);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  margin: 4px 0 14px;
+}
+.eda__progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+}
+.eda__steps {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.eda__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--ink-800);
+  color: var(--text-faint);
+}
+.eda__step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line);
+}
+.eda__step[data-state='running'] {
+  border-color: var(--accent-line);
+  color: var(--text-strong);
+}
+.eda__step[data-state='running'] .eda__step-dot {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+.eda__step[data-state='done'] {
+  color: var(--paper-dim);
+}
+.eda__step[data-state='done'] .eda__step-dot {
+  background: #4fd08a;
+}
+.eda__console {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 12px 14px;
+  min-height: 200px;
+}
+.eda__console-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.eda__console-live {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 10px;
+}
+.eda__console-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.eda__log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.eda__log-line {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.eda__log-ts {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.eda__log-msg {
+  color: var(--paper-dim);
+}
+.eda__log-msg b {
+  color: var(--accent);
+  font-weight: 600;
+}
+.eda__log-empty {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.eda__diff-head {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr auto;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 0 14px 8px;
+}
+.eda__diff-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr auto;
+  gap: 12px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--ink-800);
+  margin-bottom: 8px;
+}
+.eda__diff-row[data-drift='true'] {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(220px 80px at 100% 50%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.eda__diff-metric {
+  color: var(--text-strong);
+}
+.eda__diff-base {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.eda__diff-cur {
+  color: var(--paper-dim);
+  font-variant-numeric: tabular-nums;
+}
+.eda__diff-row[data-drift='true'] .eda__diff-cur {
+  color: var(--text-strong);
+}
+.eda__diff-delta {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.eda__diff-delta[data-dir='up'] {
+  color: var(--accent);
+}
+.eda__diff-delta[data-dir='down'] {
+  color: #4fd08a;
+}
+.eda__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 14px 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background: var(--accent-glow);
+}
+.eda__verdict-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--accent);
+}
+.eda__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  max-width: 62ch;
+}
+
+@media (max-width: 620px) {
+  .eda__config {
+    grid-template-columns: 1fr;
+  }
+  .eda__diff-head,
+  .eda__diff-row {
+    grid-template-columns: 1fr 1fr 1fr auto;
+  }
+}
