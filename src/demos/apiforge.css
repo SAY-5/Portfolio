@@ -1,0 +1,299 @@
+/* apiforge: spec diff plus lint stream feeding a merge gate */
+.af__stage {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+}
+.af__diff {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px 16px;
+}
+.af__diff-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.af__spec {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+.af__spec--old {
+  color: var(--text-faint);
+}
+.af__spec--new {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+.af__arrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.af__changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.af__change {
+  display: grid;
+  grid-template-columns: 54px 1fr auto;
+  grid-template-areas:
+    'method path flag'
+    'kind detail detail';
+  align-items: center;
+  gap: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--ink-800);
+  transition:
+    border-color 0.25s ease,
+    background 0.25s ease;
+}
+.af__change--break {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(180px 80px at 100% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.af__change--safe {
+  border-color: rgba(79, 208, 138, 0.45);
+}
+.af__method {
+  grid-area: method;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.af__method[data-m='GET'] {
+  color: #4fd08a;
+}
+.af__method[data-m='POST'] {
+  color: var(--accent-soft);
+}
+.af__method[data-m='DELETE'] {
+  color: var(--accent);
+}
+.af__path {
+  grid-area: path;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-strong);
+}
+.af__detail {
+  grid-area: detail;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.af__kind {
+  grid-area: kind;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  min-height: 1em;
+}
+.af__flag {
+  grid-area: flag;
+  display: inline-flex;
+  justify-content: flex-end;
+  min-width: 64px;
+}
+.af__flag-pill {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.af__flag-pill--break {
+  color: var(--ink-900);
+  background: var(--accent);
+}
+.af__flag-pill--safe {
+  color: var(--ink-900);
+  background: #4fd08a;
+}
+.af__side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.af__lint {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px 16px;
+  flex: 1;
+}
+.af__lint-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+}
+.af__lint-count {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.af__lint-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 120px;
+}
+.af__lint-empty {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.af__finding {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    'sev rule'
+    'sev where';
+  gap: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px 12px;
+  background: var(--ink-800);
+}
+.af__finding--error {
+  border-color: var(--accent-line);
+}
+.af__finding--warn {
+  border-color: rgba(255, 125, 82, 0.4);
+}
+.af__sev {
+  grid-area: sev;
+  align-self: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.af__finding--error .af__sev {
+  color: var(--ink-900);
+  background: var(--accent);
+}
+.af__finding--warn .af__sev {
+  color: var(--ink-900);
+  background: var(--accent-soft);
+}
+.af__rule {
+  grid-area: rule;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-strong);
+}
+.af__where {
+  grid-area: where;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.af__gate {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-800);
+  padding: 16px 18px;
+  transition:
+    border-color 0.3s ease,
+    background 0.3s ease;
+}
+.af__gate--blocked {
+  border-color: var(--accent-line);
+  background:
+    radial-gradient(240px 120px at 50% 0%, var(--accent-glow), transparent 70%),
+    var(--ink-800);
+}
+.af__gate--pass {
+  border-color: rgba(79, 208, 138, 0.5);
+}
+.af__gate-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+.af__gate-state {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(22px, 5vw, 30px);
+  line-height: 1;
+  color: var(--text-strong);
+  text-transform: capitalize;
+}
+.af__gate--blocked .af__gate-state {
+  color: var(--accent);
+}
+.af__gate--pass .af__gate-state {
+  color: #4fd08a;
+}
+.af__gate-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 8px;
+}
+.af__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 14px 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background: var(--accent-glow);
+}
+.af__verdict-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--accent);
+}
+.af__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  max-width: 70ch;
+}
+
+@media (max-width: 720px) {
+  .af__stage {
+    grid-template-columns: 1fr;
+  }
+}
