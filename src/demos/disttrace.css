@@ -1,0 +1,315 @@
+/* disttrace demo: flame-graph trace tree, p99 threshold control, per-service
+   rollups, and a live SSE-style feed. Tokens come from the global :root. */
+.dt__stage {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  grid-template-areas:
+    'flame panel'
+    'feed verdict';
+  gap: 14px;
+}
+.dt__flame {
+  grid-area: flame;
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 28px 14px 14px;
+  min-height: 220px;
+}
+.dt__axis {
+  position: absolute;
+  top: 8px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.dt__row {
+  position: relative;
+  height: 30px;
+  margin-bottom: 6px;
+}
+.dt__bar {
+  position: absolute;
+  top: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  background: var(--ink-700);
+  transform-origin: left center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.dt__bar--path {
+  background: var(--ink-600);
+  box-shadow: 0 0 0 1px var(--accent-line);
+}
+.dt__bar--over {
+  background:
+    radial-gradient(120px 40px at 100% 50%, var(--accent-glow), transparent 70%),
+    var(--ink-700);
+}
+.dt__bar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.dt__bar-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dt__bar-dur {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.dt__path-badge {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: var(--accent-glow);
+}
+.dt__panel {
+  grid-area: panel;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dt__threshold {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--ink-800);
+}
+.dt__threshold-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.dt__threshold-label b {
+  color: var(--accent);
+  font-size: 16px;
+}
+.dt__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--line), rgba(255, 91, 41, 0.5));
+  outline-offset: 4px;
+}
+.dt__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  cursor: grab;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.dt__slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+}
+.dt__slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink-900);
+  cursor: grab;
+}
+.dt__threshold-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 10px;
+}
+.dt__rollups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dt__rollup {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: var(--ink-800);
+  transition: border-color 0.2s ease;
+}
+.dt__rollup--over {
+  border-color: var(--accent-line);
+}
+.dt__rollup-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.dt__rollup-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-strong);
+  min-width: 68px;
+}
+.dt__rollup-vals {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.dt__rollup-p99 {
+  color: var(--text-strong);
+}
+.dt__rollup--over .dt__rollup-p99 {
+  color: var(--accent);
+}
+.dt__rollup-flag {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.dt__feed {
+  grid-area: feed;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-900);
+  padding: 14px 16px;
+}
+.dt__feed-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.dt__feed-dot {
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+.dt__feed-dot--live {
+  color: #4fd08a;
+}
+.dt__feed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 120px;
+}
+.dt__feed-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: var(--ink-800);
+}
+.dt__feed-line--over {
+  border-color: var(--accent-line);
+}
+.dt__feed-id {
+  color: var(--text-faint);
+}
+.dt__feed-svc {
+  color: var(--text-strong);
+  min-width: 70px;
+}
+.dt__feed-p99 {
+  color: var(--paper-dim);
+  margin-left: auto;
+}
+.dt__feed-line--over .dt__feed-p99 {
+  color: var(--accent);
+}
+.dt__feed-tag {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.dt__feed-empty {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.dt__verdict {
+  grid-area: verdict;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  background: var(--accent-glow);
+}
+.dt__verdict-x {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(30px, 6vw, 44px);
+  color: var(--accent);
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.dt__verdict-text {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+}
+
+@media (max-width: 720px) {
+  .dt__stage {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'flame'
+      'panel'
+      'feed'
+      'verdict';
+  }
+}
