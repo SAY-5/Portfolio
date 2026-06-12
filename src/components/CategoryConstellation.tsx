@@ -43,8 +43,8 @@ export default function CategoryConstellation() {
       >
         <defs>
           <radialGradient id="hub" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#ff7d52" />
-            <stop offset="100%" stopColor="#ff5b29" />
+            <stop offset="0%" stopColor="#ffd277" />
+            <stop offset="100%" stopColor="#f2b13c" />
           </radialGradient>
         </defs>
 
@@ -56,7 +56,7 @@ export default function CategoryConstellation() {
             y1={CENTER}
             x2={n.x}
             y2={n.y}
-            stroke="rgba(255,91,41,0.28)"
+            stroke="rgba(242,177,60,0.26)"
             strokeWidth={1}
             initial={{ pathLength: 0, opacity: 0 }}
             animate={{ pathLength: 1, opacity: 1 }}
@@ -64,14 +64,23 @@ export default function CategoryConstellation() {
           />
         ))}
 
-        {/* orbit ring */}
+        {/* reel rings */}
         <circle
           cx={CENTER}
           cy={CENTER}
           r={ringRadius}
           fill="none"
-          stroke="rgba(244,242,236,0.06)"
+          stroke="rgba(246,239,225,0.06)"
           strokeWidth={1}
+        />
+        <circle
+          cx={CENTER}
+          cy={CENTER}
+          r={ringRadius + 14}
+          fill="none"
+          stroke="rgba(242,177,60,0.12)"
+          strokeWidth={1}
+          strokeDasharray="2 8"
         />
 
         {/* category nodes */}
@@ -103,8 +112,8 @@ export default function CategoryConstellation() {
               cx={n.x}
               cy={n.y}
               r={n.r}
-              fill="#15151b"
-              stroke="rgba(255,91,41,0.5)"
+              fill="#1a130b"
+              stroke="rgba(242,177,60,0.5)"
               strokeWidth={1.2}
             />
             <text
@@ -126,12 +135,41 @@ export default function CategoryConstellation() {
           </motion.g>
         ))}
 
-        {/* central hub */}
+        {/* central hub as a slowly turning film reel */}
         <motion.g
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ duration: 0.6, ease, delay: 0.3 }}
         >
+          {/* reel spokes turn behind the gold core */}
+          <motion.g
+            style={{ originX: `${CENTER}px`, originY: `${CENTER}px` }}
+            animate={reduce ? undefined : { rotate: 360 }}
+            transition={{ duration: 60, repeat: Infinity, ease: 'linear' }}
+          >
+            <circle
+              cx={CENTER}
+              cy={CENTER}
+              r={64}
+              fill="none"
+              stroke="rgba(242,177,60,0.16)"
+              strokeWidth={1}
+            />
+            {Array.from({ length: 6 }).map((_, k) => {
+              const a = (k / 6) * Math.PI * 2;
+              return (
+                <circle
+                  key={`hole-${k}`}
+                  cx={CENTER + Math.cos(a) * 60}
+                  cy={CENTER + Math.sin(a) * 60}
+                  r={6}
+                  fill="#1a130b"
+                  stroke="rgba(242,177,60,0.4)"
+                  strokeWidth={1}
+                />
+              );
+            })}
+          </motion.g>
           <circle cx={CENTER} cy={CENTER} r={46} fill="url(#hub)" />
           <text
             x={CENTER}

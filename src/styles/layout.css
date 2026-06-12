@@ -19,9 +19,9 @@
   display: inline-flex;
   align-items: baseline;
   gap: 10px;
-  font-family: var(--display);
-  font-weight: 600;
-  font-size: 19px;
+  font-family: var(--display-cine);
+  font-weight: 500;
+  font-size: 20px;
   color: var(--text-strong);
   letter-spacing: -0.01em;
 }
@@ -100,8 +100,9 @@
 }
 
 .site-footer__name {
-  font-family: var(--display);
-  font-size: clamp(28px, 5vw, 44px);
+  font-family: var(--display-cine);
+  font-weight: 500;
+  font-size: clamp(28px, 5vw, 46px);
   color: var(--text-strong);
   line-height: 1;
 }

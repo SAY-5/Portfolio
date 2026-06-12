@@ -3,7 +3,10 @@
   margin-bottom: 36px;
 }
 .section-title {
-  font-size: clamp(28px, 4.4vw, 46px);
+  font-family: var(--display-cine);
+  font-weight: 500;
+  font-size: clamp(28px, 4.4vw, 48px);
+  letter-spacing: -0.015em;
   margin: 14px 0 0;
   max-width: 20ch;
 }
@@ -14,27 +17,114 @@
   font-size: 16px;
 }
 
-/* Hero */
+/* Hero: a film frame in a screening room */
 .hero {
   position: relative;
   border-bottom: 1px solid var(--line-soft);
   overflow: hidden;
+  isolation: isolate;
 }
+/* Letterbox bars top and bottom. */
+.hero::before,
+.hero::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 22px;
+  background: linear-gradient(var(--ink-900), color-mix(in srgb, var(--ink-900) 60%, transparent));
+  z-index: 3;
+  pointer-events: none;
+}
+.hero::before {
+  top: 0;
+  box-shadow: 0 1px 0 var(--accent-line);
+}
+.hero::after {
+  bottom: 0;
+  transform: scaleY(-1);
+  box-shadow: 0 1px 0 var(--accent-line);
+}
+
+/* Projector glow cone falling from the top. */
+.hero__beam {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(64% 78% at 50% -8%, rgba(242, 177, 60, 0.16), transparent 58%),
+    radial-gradient(40% 60% at 84% 108%, var(--ember-glow), transparent 60%);
+}
+.hero__beam::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(102deg, transparent 38%, rgba(255, 222, 150, 0.06) 50%, transparent 62%);
+  transform: translateX(-20%);
+  animation: beam-sweep 9s ease-in-out infinite;
+}
+@keyframes beam-sweep {
+  0%, 100% { transform: translateX(-22%); opacity: 0.5; }
+  50% { transform: translateX(22%); opacity: 1; }
+}
+
+/* 35mm film-perforation strips framing the hero. */
+.hero__film {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 28px;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--ink-850), var(--ink-850)),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 10px,
+      rgba(246, 239, 225, 0.07) 10px 20px,
+      transparent 20px 30px
+    );
+  background-blend-mode: normal;
+  border-inline: 1px solid var(--line-soft);
+}
+.hero__film--left { left: 0; }
+.hero__film--right { right: 0; }
+@media (max-width: 700px) {
+  .hero__film { display: none; }
+}
+
 .hero__inner {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
   align-items: center;
   gap: 40px;
   min-height: min(80vh, 720px);
-  padding-block: clamp(48px, 8vw, 96px);
+  padding-block: clamp(64px, 8vw, 108px);
 }
 .hero__title {
-  font-size: clamp(42px, 7vw, 82px);
+  font-family: var(--display-cine);
+  font-weight: 400;
+  font-size: clamp(44px, 7.4vw, 88px);
   line-height: 0.98;
+  letter-spacing: -0.02em;
   margin: 22px 0 0;
 }
 .hero__accent {
-  color: var(--accent);
+  position: relative;
+  font-style: italic;
+  background: linear-gradient(96deg, var(--accent-soft), var(--accent) 46%, var(--ember-soft));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  background-size: 220% 100%;
+  animation: title-shimmer 7s ease-in-out infinite;
+}
+@keyframes title-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
 }
 .hero__lede {
   margin-top: 26px;
