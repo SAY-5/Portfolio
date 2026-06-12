@@ -1,21 +1,28 @@
 :root {
-  /* Engineering atlas: deep ink, paper text, signal-orange accent */
-  --ink-900: #08080a;
-  --ink-850: #0c0c0f;
-  --ink-800: #111116;
-  --ink-700: #17171d;
-  --ink-600: #1f1f27;
-  --line: #26262f;
-  --line-soft: #1c1c23;
+  /* Screening room: warm sepia-black, projector gold, oxblood ember */
+  --ink-900: #0b0806;
+  --ink-850: #100b07;
+  --ink-800: #15100a;
+  --ink-700: #1e160e;
+  --ink-600: #281d12;
+  --line: #2f2317;
+  --line-soft: #1f1810;
 
-  --paper: #f4f2ec;
-  --paper-dim: #b6b4ad;
-  --paper-faint: #76746e;
+  --paper: #f6efe1;
+  --paper-dim: #c8bba3;
+  --paper-faint: #8a7c66;
 
-  --accent: #ff5b29;
-  --accent-soft: #ff7d52;
-  --accent-glow: rgba(255, 91, 41, 0.16);
-  --accent-line: rgba(255, 91, 41, 0.42);
+  /* Projector gold (primary) */
+  --accent: #f2b13c;
+  --accent-soft: #ffd277;
+  --accent-glow: rgba(242, 177, 60, 0.16);
+  --accent-line: rgba(242, 177, 60, 0.44);
+
+  /* Oxblood ember (secondary cinematic accent) */
+  --ember: #d8413f;
+  --ember-soft: #ff6a52;
+  --ember-glow: rgba(216, 65, 63, 0.18);
+  --ember-line: rgba(216, 65, 63, 0.42);
 
   --bg: var(--ink-900);
   --bg-raised: var(--ink-800);
@@ -24,8 +31,14 @@
   --text-faint: var(--paper-faint);
 
   --display: 'Clash Display', Georgia, serif;
+  --display-cine: 'Fraunces', 'Clash Display', Georgia, serif;
   --sans: 'General Sans', Avenir, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  /* Warm celluloid glass */
+  --glass-bg: rgba(32, 23, 14, 0.5);
+  --glass-border: rgba(255, 222, 150, 0.12);
+  --glass-blur: 16px;
 
   --maxw: 1280px;
   --gutter: clamp(20px, 5vw, 72px);
@@ -66,16 +79,48 @@ html {
 body {
   margin: 0;
   background:
-    radial-gradient(1200px 700px at 78% -8%, rgba(255, 91, 41, 0.08), transparent 60%),
+    radial-gradient(1500px 760px at 50% -14%, rgba(242, 177, 60, 0.12), transparent 62%),
+    radial-gradient(1000px 640px at 86% 116%, rgba(216, 65, 63, 0.08), transparent 60%),
+    radial-gradient(130% 120% at 50% 46%, transparent 56%, rgba(0, 0, 0, 0.6) 100%),
     var(--bg);
   background-attachment: fixed;
   min-height: 100svh;
+}
+
+/* Film grain: a fixed, non-interactive celluloid texture over the whole page. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+@media (prefers-reduced-motion: reduce) {
+  body::after {
+    display: none;
+  }
 }
 
 #root {
   min-height: 100svh;
   display: flex;
   flex-direction: column;
+  position: relative;
+  z-index: 0;
+}
+
+/* Warm celluloid glass surface for cinematic panels. */
+.glass-cine {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow:
+    0 1px 0 rgba(255, 222, 150, 0.06) inset,
+    0 26px 64px rgba(0, 0, 0, 0.5);
 }
 
 h1,

@@ -34,6 +34,9 @@ export default function Home() {
   return (
     <>
       <section className="hero" aria-labelledby="hero-title">
+        <div className="hero__beam" aria-hidden="true" />
+        <div className="hero__film hero__film--left" aria-hidden="true" />
+        <div className="hero__film hero__film--right" aria-hidden="true" />
         <div className="wrap hero__inner">
           <motion.div
             className="hero__copy"

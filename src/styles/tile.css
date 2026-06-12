@@ -82,9 +82,10 @@
 }
 
 .tile--featured .tile__title {
-  font-family: var(--display);
-  font-size: 27px;
-  font-weight: 600;
+  font-family: var(--display-cine);
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .tile__tagline {
