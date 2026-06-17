@@ -1,345 +1,726 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import '../styles/demo.css';
 import './devenv-manager.css';
+import { useStore } from './devenv-manager/state';
+import {
+  addDependency,
+  addService,
+  clearLastCycle,
+  conflictIds,
+  conflicts,
+  deleteService,
+  editService,
+  removeDependency,
+  resetAll,
+  setCascadeStop,
+  startAll,
+  startChain,
+  startService,
+  stopAll,
+  stopService,
+  topoOrder,
+  type Service,
+} from './devenv-manager/store';
 
-// Real numbers from the chaos test: 5 sessions provisioned, the manager was
-// SIGKILLed mid-flight, the containers kept running, and on restart the reaper
-// reclaimed every one within 26 seconds with orphans_remaining = 0. Identity is
-// durable in the Docker daemon via labels, so a restarted manager rebuilds its
-// session table from those labels. The reaper sweeps every 30s.
-const SESSION_COUNT = 5;
-const RECLAIM_SECONDS = 26;
-const SWEEP_SECONDS = 30;
-const VOLUME_RETENTION_HOURS = 24;
+// In-browser local dev-services manager. Services, ports, commands, and the
+// dependency graph all live client-side and persist in localStorage. The
+// engine (devenv-manager/engine.ts) does the graph work: it computes a
+// topological start order, starts a service's dependencies before the service,
+// blocks a stop while a running dependent still needs the service (or cascades
+// when the flag is on), rejects any dependency edge that would close a loop,
+// and flags two services sharing a port. No eval, no clock, no randomness in
+// the engine: the same inputs always produce the same start order.
+const ease = [0.22, 1, 0.36, 1] as const;
+const STEP_MS = 420;
 
-type Phase = 'idle' | 'killed' | 'restart' | 'reaped';
+type View = 'services' | 'graph' | 'conflicts';
 
-type Session = {
-  id: string;
-  label: string;
-  ttl: number; // seconds remaining on the container TTL
-  pid: number; // PID label the orphan reaper keys on
+type Toast = { id: number; text: string; tone: 'ok' | 'warn' };
+
+const STATUS_LABEL: Record<Service['status'], string> = {
+  stopped: 'stopped',
+  starting: 'starting',
+  running: 'running',
 };
 
-const initialSessions: Session[] = [
-  { id: 'a1f3', label: 'go-1.22', ttl: 612, pid: 20481 },
-  { id: 'b7c2', label: 'node-20', ttl: 540, pid: 20517 },
-  { id: 'c4e9', label: 'py-3.12', ttl: 488, pid: 20536 },
-  { id: 'd2a8', label: 'rust-1.78', ttl: 421, pid: 20559 },
-  { id: 'e9b1', label: 'go-1.22', ttl: 377, pid: 20574 },
-];
-
-const ease = [0.22, 1, 0.36, 1] as const;
-
-function fmt(seconds: number) {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-const bootLines = [
-  '$ devenv up --shell go-1.22',
-  'pulling template go-1.22 ... cached',
-  'creating container devenv-a1f3 ...',
-  'labels: session=a1f3 pid=20481 ttl=612',
-  'attaching pty (xterm 80x24) ...',
-  'go version go1.22.0 linux/amd64',
-  'session ready. streaming over websocket.',
-];
-
 export default function DevenvManagerDemo() {
+  const state = useStore();
   const reduce = useReducedMotion();
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [sessions, setSessions] = useState<Session[]>(initialSessions);
-  const [reaped, setReaped] = useState<string[]>([]);
-  const [elapsed, setElapsed] = useState(0);
-  const [bootShown, setBootShown] = useState(0);
-  const [cursorOn, setCursorOn] = useState(true);
+  const [view, setView] = useState<View>('services');
+  const [editing, setEditing] = useState<string | null>(null);
+
+  // A transient set of ids the UI is "lighting up" in start order, so the user
+  // sees dependencies coming online before the service that needed them.
+  const [igniting, setIgniting] = useState<string[]>([]);
+  const [toast, setToast] = useState<Toast | null>(null);
   const timers = useRef<number[]>([]);
+  const toastId = useRef(0);
 
   function clearTimers() {
-    timers.current.forEach((t) => clearTimeout(t));
+    timers.current.forEach((t) => window.clearTimeout(t));
     timers.current = [];
   }
-
   useEffect(() => clearTimers, []);
 
-  // TTL countdown ticks while the manager is alive (idle phase).
-  useEffect(() => {
-    if (phase !== 'idle') return;
-    const iv = window.setInterval(() => {
-      setSessions((prev) =>
-        prev.map((s) => ({ ...s, ttl: Math.max(0, s.ttl - 1) })),
-      );
-    }, 1000);
-    return () => clearInterval(iv);
-  }, [phase]);
-
-  // Boot log reveal and blinking cursor.
-  useEffect(() => {
-    if (reduce) return;
-    let shown = 0;
-    const iv = window.setInterval(() => {
-      shown = shown < bootLines.length ? shown + 1 : shown;
-      setBootShown(shown);
-    }, 360);
-    return () => clearInterval(iv);
-  }, [reduce]);
-
-  useEffect(() => {
-    if (reduce) return;
-    const iv = window.setInterval(() => setCursorOn((c) => !c), 520);
-    return () => clearInterval(iv);
-  }, [reduce]);
-
-  function reset() {
-    clearTimers();
-    setPhase('idle');
-    setSessions(initialSessions);
-    setReaped([]);
-    setElapsed(0);
+  function notify(text: string, tone: Toast['tone']) {
+    toastId.current += 1;
+    const id = toastId.current;
+    setToast({ id, text, tone });
+    const t = window.setTimeout(() => {
+      setToast((cur) => (cur && cur.id === id ? null : cur));
+    }, 3200);
+    timers.current.push(t);
   }
 
-  function killManager() {
-    if (phase !== 'idle') return;
-    clearTimers();
-    setReaped([]);
-    setElapsed(0);
-    setPhase('killed');
-
-    if (reduce) {
-      setPhase('restart');
-      setReaped(initialSessions.map((s) => s.id));
-      setElapsed(RECLAIM_SECONDS);
-      setPhase('reaped');
+  // Animate a chain of ids coming up one at a time, then commit the start to
+  // the store. With reduced motion the start is applied immediately.
+  function igniteChain(chain: string[], commit: () => void) {
+    if (chain.length === 0) {
+      commit();
       return;
     }
-
-    // The manager process dies, but the labeled containers keep running.
-    timers.current.push(
-      window.setTimeout(() => setPhase('restart'), 900),
-    );
-
-    // On restart the reaper rebuilds the table from labels and reclaims each
-    // orphaned container one by one, finishing inside the reclaim window.
-    const stepGap = 520;
-    initialSessions.forEach((s, i) => {
-      timers.current.push(
-        window.setTimeout(
-          () => {
-            setReaped((prev) => [...prev, s.id]);
-            const frac = (i + 1) / initialSessions.length;
-            setElapsed(Math.round(frac * RECLAIM_SECONDS));
-          },
-          1500 + i * stepGap,
-        ),
-      );
+    if (reduce) {
+      commit();
+      return;
+    }
+    clearTimers();
+    setIgniting([]);
+    chain.forEach((id, i) => {
+      const t = window.setTimeout(() => {
+        setIgniting((prev) => [...prev, id]);
+      }, i * STEP_MS);
+      timers.current.push(t);
     });
-
-    timers.current.push(
-      window.setTimeout(
-        () => {
-          setElapsed(RECLAIM_SECONDS);
-          setPhase('reaped');
-        },
-        1500 + initialSessions.length * stepGap + 200,
-      ),
-    );
+    const done = window.setTimeout(() => {
+      commit();
+      setIgniting([]);
+    }, chain.length * STEP_MS);
+    timers.current.push(done);
   }
 
-  // Reduced motion shows the whole boot log at once; otherwise it reveals line
-  // by line via the animation effect above.
-  const shownCount = reduce ? bootLines.length : bootShown;
+  const conflictSet = useMemo(() => conflictIds(state), [state]);
+  const portConflicts = useMemo(() => conflicts(state), [state]);
+  const order = useMemo(() => topoOrder(state.services), [state.services]);
+  const byId = useMemo(() => {
+    const m = new Map<string, Service>();
+    for (const s of state.services) m.set(s.id, s);
+    return m;
+  }, [state.services]);
 
-  const managerDown = phase === 'killed' || phase === 'restart';
-  const orphansRemaining =
-    phase === 'reaped' ? 0 : SESSION_COUNT - reaped.length;
+  function handleStart(id: string) {
+    const chain = startChain(state.services, id).filter(
+      (sid) => byId.get(sid)?.status !== 'running',
+    );
+    const svc = byId.get(id);
+    igniteChain(chain, () => {
+      startService(id);
+      if (chain.length > 1 && svc) {
+        notify(`Started ${chain.length} services so ${svc.name} could run`, 'ok');
+      }
+    });
+  }
 
-  const statusText =
-    phase === 'idle'
-      ? `${SESSION_COUNT} sessions live, TTLs counting down`
-      : phase === 'killed'
-        ? 'manager SIGKILLed, containers still running'
-        : phase === 'restart'
-          ? 'manager restarting, rebuilding table from labels'
-          : `reclaimed ${SESSION_COUNT} of ${SESSION_COUNT}, orphans_remaining = 0`;
+  function handleStop(id: string) {
+    const res = stopService(id);
+    if (!res.ok) {
+      const names = res.blockedBy
+        .map((d) => byId.get(d)?.name ?? d)
+        .join(', ');
+      notify(`Blocked: ${names} still depend on this service`, 'warn');
+      return;
+    }
+    if (res.stopped.length > 1) {
+      notify(`Stopped ${res.stopped.length} services (cascade)`, 'ok');
+    }
+  }
+
+  function handleStartAll() {
+    const chain = topoOrder(state.services).filter(
+      (sid) => byId.get(sid)?.status !== 'running',
+    );
+    igniteChain(chain, () => {
+      startAll();
+      if (chain.length > 0) notify(`Started ${chain.length} services in order`, 'ok');
+    });
+  }
+
+  const runningCount = state.services.filter((s) => s.status === 'running').length;
 
   return (
-    <div className="demo" aria-label="devenv-manager chaos recovery demo">
+    <div className="demo" aria-label="local dev-services manager">
       <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Kill the manager, keep the containers</h3>
+      <h3 className="demo__title">Local dev-services manager</h3>
       <p className="demo__lede">
-        Each session is a fresh container with a PTY shell streamed over a
-        WebSocket, and container identity lives in Docker labels. SIGKILL the
-        manager mid-flight: the containers survive, and on restart the reaper
-        rebuilds its table from labels and reclaims every one.
+        Define local services with ports, commands, and dependencies. Starting a
+        service brings its dependencies up first in topological order; stopping
+        one is blocked while a running dependent still needs it. A dependency
+        that would close a loop is rejected, and two services on the same port
+        are flagged. Everything persists in your browser.
       </p>
 
-      <div className="dv__stage">
-        <div className="dv__left">
-          <div className="dv__term" role="group" aria-label="container terminal">
-            <div className="dv__term-bar">
-              <span className="dv__term-dot" />
-              <span className="dv__term-dot" />
-              <span className="dv__term-dot" />
-              <span className="dv__term-title">devenv-a1f3 :: go-1.22</span>
-              <span
-                className={
-                  managerDown
-                    ? 'dv__term-link dv__term-link--down'
-                    : 'dv__term-link'
-                }
-              >
-                {managerDown ? 'ws: reconnecting' : 'ws: live'}
-              </span>
-            </div>
-            <div className="dv__term-body">
-              {bootLines.slice(0, shownCount).map((line, i) => (
-                <div
-                  key={i}
-                  className={
-                    line.startsWith('$') ? 'dv__term-cmd' : 'dv__term-out'
-                  }
-                >
-                  {line}
-                </div>
-              ))}
-              {shownCount >= bootLines.length && (
-                <div className="dv__term-cmd">
-                  ${' '}
-                  <span
-                    className="dv__cursor"
-                    style={{ opacity: cursorOn ? 1 : 0 }}
-                    aria-hidden="true"
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div
-            className={
-              phase === 'reaped'
-                ? 'dv__counter dv__counter--ok'
-                : managerDown
-                  ? 'dv__counter dv__counter--warn'
-                  : 'dv__counter'
-            }
-            role="status"
-            aria-live="polite"
+      <nav className="dm__tabs" aria-label="views">
+        {(['services', 'graph', 'conflicts'] as View[]).map((v) => (
+          <button
+            key={v}
+            type="button"
+            className={view === v ? 'dm__tab dm__tab--on' : 'dm__tab'}
+            aria-pressed={view === v}
+            onClick={() => setView(v)}
           >
-            <div className="dv__counter-row">
-              <span className="dv__counter-key">orphans_remaining</span>
-              <span className="dv__counter-val">{orphansRemaining}</span>
-            </div>
-            <div className="dv__counter-row">
-              <span className="dv__counter-key">reaper elapsed</span>
-              <span className="dv__counter-val">{elapsed}s</span>
-            </div>
-            <div className="dv__counter-meta">{statusText}</div>
-          </div>
-        </div>
-
-        <div className="dv__right">
-          <div className="dv__panel-head">
-            <span>session table</span>
-            <span className="dv__panel-meta">
-              {phase === 'restart' || phase === 'reaped'
-                ? 'rebuilt from Docker labels'
-                : `${SWEEP_SECONDS}s reaper sweep`}
-            </span>
-          </div>
-          <div className="dv__tiles">
-            {sessions.map((s) => {
-              const isReaped = reaped.includes(s.id);
-              return (
-                <motion.div
-                  key={s.id}
-                  className={
-                    isReaped
-                      ? 'dv__tile dv__tile--reaped'
-                      : managerDown
-                        ? 'dv__tile dv__tile--orphan'
-                        : 'dv__tile'
-                  }
-                  animate={
-                    reduce
-                      ? {}
-                      : isReaped
-                        ? { opacity: 0.55, scale: 0.98 }
-                        : { opacity: 1, scale: 1 }
-                  }
-                  transition={{ duration: 0.35, ease }}
-                >
-                  <div className="dv__tile-top">
-                    <span className="dv__tile-id">devenv-{s.id}</span>
-                    <span className="dv__tile-img">{s.label}</span>
-                  </div>
-                  <div className="dv__tile-bottom">
-                    <span className="dv__tile-pid">pid {s.pid}</span>
-                    {isReaped ? (
-                      <span className="dv__tile-state dv__tile-state--reaped">
-                        reclaimed
-                      </span>
-                    ) : managerDown ? (
-                      <span className="dv__tile-state dv__tile-state--orphan">
-                        orphan
-                      </span>
-                    ) : (
-                      <span className="dv__tile-ttl">ttl {fmt(s.ttl)}</span>
-                    )}
-                  </div>
-                </motion.div>
-              );
-            })}
-          </div>
-
-          <AnimatePresence>
-            {phase === 'reaped' && (
-              <motion.div
-                className="dv__verdict"
-                initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.4, ease }}
-              >
-                <span className="dv__verdict-head">
-                  {SESSION_COUNT} reclaimed in {RECLAIM_SECONDS}s
-                </span>
-                <span className="dv__verdict-text">
-                  Server SIGKILLed mid-flight, containers survived, and the
-                  reaper reclaimed every one within {RECLAIM_SECONDS} seconds
-                  with orphans_remaining = 0. Named volumes survive reaping and
-                  reattach within a {VOLUME_RETENTION_HOURS}h window.
-                </span>
-              </motion.div>
+            {v === 'services' ? 'Services' : v === 'graph' ? 'Start order' : 'Conflicts'}
+            {v === 'conflicts' && portConflicts.length > 0 && (
+              <span className="dm__tab-badge" aria-label={`${portConflicts.length} conflicts`}>
+                {portConflicts.length}
+              </span>
             )}
-          </AnimatePresence>
-        </div>
-      </div>
+          </button>
+        ))}
+      </nav>
+
+      {view === 'services' && (
+        <ServicesView
+          services={state.services}
+          order={order}
+          conflictSet={conflictSet}
+          igniting={igniting}
+          editing={editing}
+          setEditing={setEditing}
+          onStart={handleStart}
+          onStop={handleStop}
+          reduce={!!reduce}
+        />
+      )}
+
+      {view === 'graph' && (
+        <GraphView services={state.services} order={order} byId={byId} />
+      )}
+
+      {view === 'conflicts' && (
+        <ConflictsView
+          state={state}
+          portConflicts={portConflicts}
+          byId={byId}
+        />
+      )}
 
       <div className="demo__controls">
-        <button
-          className="demo__btn"
-          onClick={killManager}
-          disabled={phase !== 'idle'}
-        >
-          {phase === 'idle' ? 'SIGKILL the manager' : 'Recovering…'}
+        <button type="button" className="demo__btn" onClick={handleStartAll}>
+          Start all in order
         </button>
         <button
+          type="button"
           className="demo__btn demo__btn--ghost"
-          onClick={reset}
-          disabled={phase === 'killed' || phase === 'restart'}
+          onClick={() => {
+            stopAll();
+            notify('Stopped all services', 'ok');
+          }}
+        >
+          Stop all
+        </button>
+        <button
+          type="button"
+          className="demo__btn demo__btn--ghost"
+          onClick={() => {
+            resetAll();
+            setEditing(null);
+            setIgniting([]);
+            notify('Reset to seed services', 'ok');
+          }}
         >
           Reset
         </button>
         <span className="demo__hint">
-          {phase === 'idle'
-            ? 'containers outlive the manager process'
-            : statusText}
+          {runningCount} of {state.services.length} running
         </span>
       </div>
+
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            key={toast.id}
+            className={
+              toast.tone === 'warn' ? 'dm__toast dm__toast--warn' : 'dm__toast'
+            }
+            role="status"
+            aria-live="polite"
+            initial={{ opacity: 0, y: reduce ? 0 : 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25, ease }}
+          >
+            {toast.text}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ---------- services view ----------
+
+function ServicesView({
+  services,
+  order,
+  conflictSet,
+  igniting,
+  editing,
+  setEditing,
+  onStart,
+  onStop,
+  reduce,
+}: {
+  services: Service[];
+  order: string[];
+  conflictSet: Set<string>;
+  igniting: string[];
+  editing: string | null;
+  setEditing: (id: string | null) => void;
+  onStart: (id: string) => void;
+  onStop: (id: string) => void;
+  reduce: boolean;
+}) {
+  const rank = new Map(order.map((id, i) => [id, i] as const));
+  const sorted = [...services].sort(
+    (a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0),
+  );
+  const igniteSet = new Set(igniting);
+
+  return (
+    <div className="dm__panel glass">
+      <ul className="dm__grid" aria-label="services">
+        {sorted.map((s) => {
+          const conflicted = conflictSet.has(s.id);
+          const lighting = igniteSet.has(s.id);
+          const status = lighting ? 'starting' : s.status;
+          return (
+            <li key={s.id}>
+              <motion.article
+                className={`dm__card dm__card--${status}${
+                  conflicted ? ' dm__card--conflict' : ''
+                }`}
+                animate={reduce ? {} : { scale: lighting ? 1.015 : 1 }}
+                transition={{ duration: 0.3, ease }}
+              >
+                <header className="dm__card-head">
+                  <span className="dm__card-name">{s.name}</span>
+                  <span
+                    className={`dm__status dm__status--${status}`}
+                    role="status"
+                  >
+                    {STATUS_LABEL[status]}
+                  </span>
+                </header>
+                <dl className="dm__meta">
+                  <div className="dm__meta-row">
+                    <dt>port</dt>
+                    <dd className={conflicted ? 'dm__port dm__port--bad' : 'dm__port'}>
+                      {s.port}
+                      {conflicted && (
+                        <span className="dm__port-flag" title="port conflict">
+                          conflict
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                  <div className="dm__meta-row">
+                    <dt>command</dt>
+                    <dd className="dm__cmd">{s.command || '(none)'}</dd>
+                  </div>
+                  <div className="dm__meta-row">
+                    <dt>depends on</dt>
+                    <dd className="dm__deps">
+                      {s.dependsOn.length === 0 ? (
+                        <span className="dm__dep dm__dep--none">none</span>
+                      ) : (
+                        s.dependsOn.map((d) => (
+                          <span key={d} className="dm__dep">
+                            {d}
+                          </span>
+                        ))
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+                <footer className="dm__card-foot">
+                  {s.status === 'running' ? (
+                    <button
+                      type="button"
+                      className="dm__btn dm__btn--stop"
+                      onClick={() => onStop(s.id)}
+                    >
+                      Stop
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="dm__btn dm__btn--start"
+                      onClick={() => onStart(s.id)}
+                    >
+                      Start
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="dm__btn dm__btn--ghost"
+                    aria-expanded={editing === s.id}
+                    onClick={() => setEditing(editing === s.id ? null : s.id)}
+                  >
+                    Edit
+                  </button>
+                </footer>
+                {editing === s.id && (
+                  <EditPanel
+                    service={s}
+                    services={services}
+                    onDone={() => setEditing(null)}
+                  />
+                )}
+              </motion.article>
+            </li>
+          );
+        })}
+        <li>
+          <AddCard services={services} />
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+// ---------- edit panel ----------
+
+function EditPanel({
+  service,
+  services,
+  onDone,
+}: {
+  service: Service;
+  services: Service[];
+  onDone: () => void;
+}) {
+  const [name, setName] = useState(service.name);
+  const [port, setPort] = useState(String(service.port));
+  const [command, setCommand] = useState(service.command);
+  const [dep, setDep] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+
+  const candidates = services.filter(
+    (s) => s.id !== service.id && !service.dependsOn.includes(s.id),
+  );
+
+  return (
+    <div className="dm__edit" role="group" aria-label={`edit ${service.name}`}>
+      <label className="dm__field">
+        <span>name</span>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => editService(service.id, { name })}
+        />
+      </label>
+      <label className="dm__field">
+        <span>port</span>
+        <input
+          inputMode="numeric"
+          value={port}
+          onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))}
+          onBlur={() => editService(service.id, { port: Number(port) || 0 })}
+        />
+      </label>
+      <label className="dm__field">
+        <span>command</span>
+        <input
+          value={command}
+          onChange={(e) => setCommand(e.target.value)}
+          onBlur={() => editService(service.id, { command })}
+        />
+      </label>
+
+      <div className="dm__field">
+        <span>dependencies</span>
+        <div className="dm__dep-edit">
+          {service.dependsOn.map((d) => (
+            <button
+              key={d}
+              type="button"
+              className="dm__dep dm__dep--removable"
+              onClick={() => removeDependency(service.id, d)}
+              aria-label={`remove dependency ${d}`}
+            >
+              {d} <span aria-hidden="true">×</span>
+            </button>
+          ))}
+          <select
+            value={dep}
+            onChange={(e) => {
+              const to = e.target.value;
+              setDep('');
+              if (!to) return;
+              const cycle = addDependency(service.id, to);
+              if (cycle) {
+                setErr(
+                  `Rejected: ${to} already depends on ${service.id} (would create a cycle)`,
+                );
+              } else {
+                setErr(null);
+              }
+            }}
+            aria-label="add a dependency"
+          >
+            <option value="">add dependency…</option>
+            {candidates.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.id}
+              </option>
+            ))}
+          </select>
+        </div>
+        {err && <p className="dm__edit-err">{err}</p>}
+      </div>
+
+      <div className="dm__edit-foot">
+        <button
+          type="button"
+          className="dm__btn dm__btn--danger"
+          onClick={() => {
+            deleteService(service.id);
+            onDone();
+          }}
+        >
+          Delete service
+        </button>
+        <button type="button" className="dm__btn dm__btn--ghost" onClick={onDone}>
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- add card ----------
+
+function AddCard({ services }: { services: Service[] }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [port, setPort] = useState('');
+  const [command, setCommand] = useState('');
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="dm__add-trigger glass"
+        onClick={() => setOpen(true)}
+      >
+        <span aria-hidden="true">+</span> Add service
+      </button>
+    );
+  }
+
+  const dupPort = services.some((s) => String(s.port) === port && port !== '');
+
+  return (
+    <form
+      className="dm__card dm__card--add glass"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!name.trim()) return;
+        addService({
+          name: name.trim(),
+          port: Number(port) || 0,
+          command: command.trim(),
+        });
+        setName('');
+        setPort('');
+        setCommand('');
+        setOpen(false);
+      }}
+    >
+      <label className="dm__field">
+        <span>name</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+      </label>
+      <label className="dm__field">
+        <span>port</span>
+        <input
+          inputMode="numeric"
+          value={port}
+          onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))}
+          aria-describedby={dupPort ? 'dm-dup-port' : undefined}
+        />
+        {dupPort && (
+          <span id="dm-dup-port" className="dm__edit-err">
+            another service already uses this port
+          </span>
+        )}
+      </label>
+      <label className="dm__field">
+        <span>command</span>
+        <input value={command} onChange={(e) => setCommand(e.target.value)} />
+      </label>
+      <div className="dm__edit-foot">
+        <button type="submit" className="dm__btn dm__btn--start">
+          Create
+        </button>
+        <button
+          type="button"
+          className="dm__btn dm__btn--ghost"
+          onClick={() => setOpen(false)}
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ---------- graph / start-order view ----------
+
+function GraphView({
+  services,
+  order,
+  byId,
+}: {
+  services: Service[];
+  order: string[];
+  byId: Map<string, Service>;
+}) {
+  // Depth of a service = longest dependency chain below it, so the indented
+  // tree reads as the order things come up: depth 0 first.
+  const depth = useMemo(() => {
+    const d = new Map<string, number>();
+    const visit = (id: string, stack: Set<string>): number => {
+      if (d.has(id)) return d.get(id) as number;
+      if (stack.has(id)) return 0;
+      stack.add(id);
+      const svc = byId.get(id);
+      let max = 0;
+      if (svc) {
+        for (const dep of svc.dependsOn) {
+          if (byId.has(dep)) max = Math.max(max, visit(dep, stack) + 1);
+        }
+      }
+      stack.delete(id);
+      d.set(id, max);
+      return max;
+    };
+    for (const s of services) visit(s.id, new Set());
+    return d;
+  }, [services, byId]);
+
+  return (
+    <div className="dm__panel glass">
+      <p className="dm__panel-lede">
+        Topological start order. Each service appears after every service it
+        depends on, so starting from the top brings dependencies up first.
+      </p>
+      <ol className="dm__order" aria-label="start order">
+        {order.map((id, i) => {
+          const svc = byId.get(id);
+          if (!svc) return null;
+          const indent = depth.get(id) ?? 0;
+          return (
+            <li
+              key={id}
+              className="dm__order-row"
+              style={{ marginInlineStart: `${indent * 22}px` }}
+            >
+              <span className="dm__order-idx" aria-hidden="true">
+                {i + 1}
+              </span>
+              <span className={`dm__order-dot dm__order-dot--${svc.status}`} aria-hidden="true" />
+              <span className="dm__order-name">{svc.name}</span>
+              <span className="dm__order-port">:{svc.port}</span>
+              {svc.dependsOn.length > 0 && (
+                <span className="dm__order-deps">
+                  after {svc.dependsOn.join(', ')}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+// ---------- conflicts view ----------
+
+function ConflictsView({
+  state,
+  portConflicts,
+  byId,
+}: {
+  state: ReturnType<typeof useStore>;
+  portConflicts: ReturnType<typeof conflicts>;
+  byId: Map<string, Service>;
+}) {
+  return (
+    <div className="dm__panel glass">
+      <section aria-labelledby="dm-ports-head">
+        <h4 id="dm-ports-head" className="dm__section-head">
+          Port conflicts
+        </h4>
+        {portConflicts.length === 0 ? (
+          <p className="dm__empty">No two services share a port.</p>
+        ) : (
+          <ul className="dm__conflicts">
+            {portConflicts.map((c) => (
+              <li key={c.port} className="dm__conflict">
+                <span className="dm__conflict-port">port {c.port}</span>
+                <span className="dm__conflict-svcs">
+                  {c.serviceIds.map((id) => byId.get(id)?.name ?? id).join(' and ')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section aria-labelledby="dm-cycle-head">
+        <h4 id="dm-cycle-head" className="dm__section-head">
+          Last rejected dependency
+        </h4>
+        {state.lastCycle ? (
+          <div className="dm__cycle" role="alert">
+            <p>
+              Adding <code>{state.lastCycle.from}</code> depends-on{' '}
+              <code>{state.lastCycle.to}</code> was rejected: it would close the
+              loop {state.lastCycle.path.join(' → ')} → {state.lastCycle.from}.
+            </p>
+            <button
+              type="button"
+              className="dm__btn dm__btn--ghost"
+              onClick={clearLastCycle}
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : (
+          <p className="dm__empty">
+            No dependency has been rejected. Try adding a dependency in Edit that
+            points back into a service that already depends on it.
+          </p>
+        )}
+      </section>
+
+      <section aria-labelledby="dm-stop-head">
+        <h4 id="dm-stop-head" className="dm__section-head">
+          Stop behaviour
+        </h4>
+        <label className="dm__toggle">
+          <input
+            type="checkbox"
+            checked={state.cascadeStop}
+            onChange={(e) => setCascadeStop(e.target.checked)}
+          />
+          <span>
+            Cascade stop: also stop running dependents (off blocks the stop
+            instead)
+          </span>
+        </label>
+      </section>
     </div>
   );
 }

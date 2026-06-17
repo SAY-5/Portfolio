@@ -1,353 +1,409 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useState } from 'react';
 import '../styles/demo.css';
 import './payflow.css';
+import { act, createPayment, eventsFor, resetAll, useStore } from './payflow/store';
+import { reconcile, type CurrencyTotals } from './payflow/reconcile';
+import { legalActions } from './payflow/engine';
+import { formatMoney, parseMajor } from './payflow/money';
+import {
+  CURRENCIES,
+  type Action,
+  type Currency,
+  type IntentEvent,
+  type IntentStatus,
+  type PaymentIntent,
+} from './payflow/types';
+import { ACTION_LABEL, PIPELINE, pipelineIndex } from './payflow/flow';
 
-// Real behavior from the project: idempotency keys are scoped per merchant and
-// matched on a request-body hash. Same key + same body replays the original
-// 200, a different body returns 422, an in-flight key returns 409 with
-// Retry-After: 5, and keys are retained for 7 days. Stripe webhooks are
-// HMAC-SHA256 verified over raw bytes inside a 5-minute replay window, and a
-// duplicate provider_event_id returns 200 with duplicate: true.
-const RETRY_AFTER = 5;
+// A working payment-orchestration app. A payment intent is created, then driven
+// through authorize, capture, refund or void using only the transitions the
+// engine permits. Everything persists to localStorage; no server is involved.
 
-type Body = 'same' | 'different';
-type State = 'inflight' | 'settled';
-
-type Outcome = {
-  status: number;
-  tag: 'replay' | 'created' | 'mismatch' | 'inflight';
-  line: string;
+const STATUS_LABEL: Record<IntentStatus, string> = {
+  created: 'Created',
+  authorized: 'Authorized',
+  captured: 'Captured',
+  partially_refunded: 'Partially refunded',
+  refunded: 'Refunded',
+  voided: 'Voided',
+  failed: 'Failed',
 };
 
-function decide(body: Body, state: State): Outcome {
-  if (state === 'inflight') {
-    return {
-      status: 409,
-      tag: 'inflight',
-      line: `409 Conflict, Retry-After: ${RETRY_AFTER}`,
-    };
-  }
-  if (body === 'same') {
-    return { status: 200, tag: 'replay', line: '200 OK, replayed original response' };
-  }
-  return { status: 422, tag: 'mismatch', line: '422 Unprocessable, body hash differs' };
+function StatusBadge({ status }: { status: IntentStatus }) {
+  return (
+    <span className={`pf-badge pf-badge--${status}`}>{STATUS_LABEL[status]}</span>
+  );
 }
 
-type Step = { k: string; text: string };
+function CreateForm({
+  onCreate,
+}: {
+  onCreate: (amount: string, currency: Currency) => string | null;
+}) {
+  const [amount, setAmount] = useState('49.99');
+  const [currency, setCurrency] = useState<Currency>('USD');
+  const [error, setError] = useState<string | null>(null);
 
-export default function PayflowDemo() {
-  const reduce = useReducedMotion();
-  const [body, setBody] = useState<Body>('same');
-  const [firstSettled, setFirstSettled] = useState(false);
-  const [steps, setSteps] = useState<Step[]>([]);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const [running, setRunning] = useState(false);
-  const [whVerified, setWhVerified] = useState<null | 'first' | 'dup'>(null);
-  const timers = useRef<number[]>([]);
-
-  function clearTimers() {
-    timers.current.forEach((t) => window.clearTimeout(t));
-    timers.current = [];
-  }
-  useEffect(() => clearTimers, []);
-
-  // The original request must land before any replay can branch, so the
-  // in-flight vs settled state is what the second request keys on.
-  const state: State = firstSettled ? 'settled' : 'inflight';
-
-  function sendFirst() {
-    if (running) return;
-    clearTimers();
-    setRunning(true);
-    setOutcome(null);
-    const seq: Step[] = [
-      { k: 'recv', text: 'POST /payment_intents  Idempotency-Key: idem_a1' },
-      { k: 'hash', text: 'hash(body) stored, key marked in-flight' },
-      { k: 'charge', text: 'intent created, charge captured' },
-      { k: 'done', text: '201 Created, key marked settled (7-day retention)' },
-    ];
-    setSteps([]);
-    if (reduce) {
-      setSteps(seq);
-      setFirstSettled(true);
-      setRunning(false);
-      return;
-    }
-    seq.forEach((s, i) => {
-      const t = window.setTimeout(() => {
-        setSteps((prev) => [...prev, s]);
-        if (i === seq.length - 1) {
-          setFirstSettled(true);
-          setRunning(false);
-        }
-      }, 520 * (i + 1));
-      timers.current.push(t);
-    });
-  }
-
-  function replay() {
-    if (running) return;
-    clearTimers();
-    setRunning(true);
-    const out = decide(body, state);
-    setOutcome(null);
-    const seq: Step[] = [
-      { k: 'recv', text: 'POST /payment_intents  Idempotency-Key: idem_a1 (replay)' },
-      {
-        k: 'lookup',
-        text:
-          state === 'inflight'
-            ? 'key found in-flight, no second charge'
-            : body === 'same'
-              ? 'key found, body hash matches the original'
-              : 'key found, body hash does NOT match the original',
-      },
-      { k: 'branch', text: out.line },
-    ];
-    setSteps([]);
-    if (reduce) {
-      setSteps(seq);
-      setOutcome(out);
-      setRunning(false);
-      return;
-    }
-    seq.forEach((s, i) => {
-      const t = window.setTimeout(() => {
-        setSteps((prev) => [...prev, s]);
-        if (i === seq.length - 1) {
-          setOutcome(out);
-          setRunning(false);
-        }
-      }, 560 * (i + 1));
-      timers.current.push(t);
-    });
-  }
-
-  function reset() {
-    clearTimers();
-    setRunning(false);
-    setSteps([]);
-    setOutcome(null);
-    setFirstSettled(false);
-    setWhVerified(null);
-  }
-
-  function sendWebhook(kind: 'first' | 'dup') {
-    if (running) return;
-    setWhVerified(kind);
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const err = onCreate(amount, currency);
+    setError(err);
+    if (!err) setAmount('');
   }
 
   return (
-    <div className="demo" aria-label="PayFlow idempotency and webhook demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Idempotent payments, verified webhooks</h3>
-      <p className="demo__lede">
-        Send a payment intent, then replay its key. A matching body replays the
-        original response, a different body returns 422, and an in-flight key
-        returns 409 with Retry-After. The webhook track HMAC-verifies and dedupes
-        provider events.
-      </p>
-
-      <div className="pf__grid">
-        <section className="pf__col" aria-label="idempotency layer">
-          <div className="pf__col-head">Idempotency layer</div>
-
-          <div className="pf__key">
-            <span className="pf__key-label">Idempotency-Key</span>
-            <span className="pf__key-val">idem_a1</span>
-            <span
-              className={
-                'pf__key-state' +
-                (state === 'settled' ? ' pf__key-state--settled' : ' pf__key-state--inflight')
-              }
-            >
-              {firstSettled ? 'settled' : steps.length ? 'in-flight' : 'unused'}
-            </span>
-          </div>
-
-          <div className="pf__bodysel" role="radiogroup" aria-label="replay body">
-            <span className="pf__bodysel-label">Replay body</span>
-            <button
-              role="radio"
-              aria-checked={body === 'same'}
-              className={'pf__chip' + (body === 'same' ? ' pf__chip--on' : '')}
-              onClick={() => !running && setBody('same')}
-              disabled={running}
-            >
-              same body
-            </button>
-            <button
-              role="radio"
-              aria-checked={body === 'different'}
-              className={'pf__chip' + (body === 'different' ? ' pf__chip--on' : '')}
-              onClick={() => !running && setBody('different')}
-              disabled={running}
-            >
-              different body
-            </button>
-          </div>
-
-          <ol className="pf__log" aria-live="polite">
-            <AnimatePresence initial={false}>
-              {steps.map((s) => (
-                <motion.li
-                  key={s.k + s.text}
-                  className="pf__log-line"
-                  initial={{ opacity: reduce ? 1 : 0, x: reduce ? 0 : -6 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: reduce ? 0 : 0.28 }}
-                >
-                  <span className="pf__log-arrow">&rsaquo;</span>
-                  {s.text}
-                </motion.li>
-              ))}
-            </AnimatePresence>
-            {!steps.length && (
-              <li className="pf__log-empty">Send the original request to begin.</li>
-            )}
-          </ol>
-
-          <AnimatePresence>
-            {outcome && (
-              <motion.div
-                key={outcome.tag}
-                className={`pf__outcome pf__outcome--${outcome.tag}`}
-                initial={{ opacity: 0, y: reduce ? 0 : 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                role="status"
-              >
-                <span className="pf__outcome-code">{outcome.status}</span>
-                <span className="pf__outcome-tag">{outcome.tag}</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <div className="pf__btns">
-            <button
-              className="demo__btn"
-              onClick={sendFirst}
-              disabled={running || firstSettled}
-            >
-              Send original
-            </button>
-            <button
-              className="demo__btn demo__btn--ghost"
-              onClick={replay}
-              disabled={running || !steps.length}
-            >
-              Replay key
-            </button>
-          </div>
-        </section>
-
-        <section className="pf__col" aria-label="stripe webhook verification">
-          <div className="pf__col-head">Stripe webhook</div>
-          <p className="pf__wh-note">
-            HMAC-SHA256 over raw bytes, 5-minute replay window, dedupe on
-            provider_event_id.
-          </p>
-
-          <div className="pf__wh-track">
-            <WhRow
-              label="signature"
-              ok={whVerified !== null}
-              text={whVerified ? 'HMAC matches, within window' : 'awaiting event'}
-            />
-            <WhRow
-              label="dedupe"
-              ok={whVerified === 'first'}
-              warn={whVerified === 'dup'}
-              text={
-                whVerified === 'dup'
-                  ? 'provider_event_id seen, returns duplicate: true'
-                  : whVerified === 'first'
-                    ? 'new provider_event_id, processed once'
-                    : 'awaiting event'
-              }
-            />
-            <WhRow
-              label="audit log"
-              ok={whVerified === 'first'}
-              text={
-                whVerified === 'first'
-                  ? 'append-only row written (REQUIRES_NEW)'
-                  : whVerified === 'dup'
-                    ? 'no new row, idempotent'
-                    : 'awaiting event'
-              }
-            />
-          </div>
-
-          <AnimatePresence>
-            {whVerified && (
-              <motion.div
-                className={
-                  'pf__wh-result' + (whVerified === 'dup' ? ' pf__wh-result--dup' : '')
-                }
-                initial={{ opacity: 0, y: reduce ? 0 : 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                role="status"
-              >
-                {whVerified === 'dup'
-                  ? '200 OK { "duplicate": true }'
-                  : '200 OK, event processed'}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <div className="pf__btns">
-            <button
-              className="demo__btn"
-              onClick={() => sendWebhook('first')}
-              disabled={running}
-            >
-              Deliver event
-            </button>
-            <button
-              className="demo__btn demo__btn--ghost"
-              onClick={() => sendWebhook('dup')}
-              disabled={running}
-            >
-              Redeliver (dup)
-            </button>
-          </div>
-        </section>
-      </div>
-
-      <div className="demo__controls">
-        <button className="demo__btn demo__btn--ghost" onClick={reset} disabled={running}>
-          Reset
+    <form className="pf-form glass" onSubmit={submit} aria-label="Create payment">
+      <h3 className="pf-form__title">New payment</h3>
+      <div className="pf-form__row">
+        <label className="pf-field">
+          <span className="pf-field__label">Amount</span>
+          <input
+            className="pf-input"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.00"
+            aria-describedby={error ? 'pf-amount-err' : undefined}
+          />
+        </label>
+        <label className="pf-field">
+          <span className="pf-field__label">Currency</span>
+          <select
+            className="pf-input"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value as Currency)}
+          >
+            {CURRENCIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" className="demo__btn pf-form__submit">
+          Create intent
         </button>
-        <span className="demo__hint">
-          same body replays, different returns 422, in-flight returns 409
-        </span>
       </div>
+      {error && (
+        <p className="pf-form__error" id="pf-amount-err" role="alert">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
+// The state diagram: the pipeline nodes, with reached ones highlighted and the
+// current one marked. Side states (voided, failed) get their own chip.
+function StateDiagram({ intent }: { intent: PaymentIntent }) {
+  const reached = pipelineIndex(intent.status);
+  const side = intent.status === 'voided' || intent.status === 'failed';
+  return (
+    <div className="pf-diagram" aria-label="Payment lifecycle">
+      <ol className="pf-diagram__track">
+        {PIPELINE.map((s, i) => {
+          const isCurrent = s === intent.status;
+          const isReached = !side && i <= reached;
+          return (
+            <li
+              key={s}
+              className={
+                'pf-node' +
+                (isReached ? ' pf-node--reached' : '') +
+                (isCurrent ? ' pf-node--current' : '')
+              }
+              aria-current={isCurrent ? 'step' : undefined}
+            >
+              <span className="pf-node__dot" aria-hidden="true" />
+              <span className="pf-node__label">{STATUS_LABEL[s]}</span>
+            </li>
+          );
+        })}
+      </ol>
+      {side && (
+        <p className={`pf-diagram__side pf-diagram__side--${intent.status}`}>
+          Terminal: {STATUS_LABEL[intent.status]}
+        </p>
+      )}
     </div>
   );
 }
 
-function WhRow({
-  label,
-  text,
-  ok,
-  warn,
-}: {
-  label: string;
-  text: string;
-  ok?: boolean;
-  warn?: boolean;
-}) {
-  const cls = warn ? 'pf__wh-row--warn' : ok ? 'pf__wh-row--ok' : '';
+function Timeline({ events }: { events: IntentEvent[] }) {
+  if (events.length === 0) {
+    return <p className="pf-timeline__empty">No events yet.</p>;
+  }
   return (
-    <div className={'pf__wh-row ' + cls}>
-      <span className="pf__wh-dot" aria-hidden="true" />
-      <span className="pf__wh-label">{label}</span>
-      <span className="pf__wh-text">{text}</span>
+    <ol className="pf-timeline" aria-label="Event timeline">
+      {events.map((e) => (
+        <li
+          key={e.id}
+          className={
+            'pf-event' +
+            (e.ok ? ' pf-event--ok' : ' pf-event--err') +
+            (e.replayed ? ' pf-event--replay' : '')
+          }
+        >
+          <span className="pf-event__dot" aria-hidden="true" />
+          <span className="pf-event__action mono">
+            {e.action}
+            {e.replayed ? ' (replay)' : ''}
+          </span>
+          {typeof e.amount === 'number' && (
+            <span className="pf-event__amount mono">{e.amount}</span>
+          )}
+          <span className="pf-event__reason">
+            {e.ok ? (e.reason ?? 'accepted') : (e.reason ?? 'rejected')}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// The detail panel for a selected intent: diagram, the legal actions as buttons,
+// a decline toggle to exercise the failure + retry path, and the timeline.
+function Detail({ intent }: { intent: PaymentIntent }) {
+  const [decline, setDecline] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const events = eventsFor(intent.id);
+  const legal = legalActions(intent.status);
+
+  // A partial capture/refund uses half the relevant balance so the UI can show
+  // captured vs partially_refunded without a second input field.
+  function run(action: Action, partial: boolean) {
+    let amount: number | undefined;
+    if (action === 'capture') {
+      amount = partial ? Math.max(1, Math.floor(intent.amount / 2)) : intent.amount;
+    } else if (action === 'refund') {
+      const refundable = intent.capturedAmount - intent.refundedAmount;
+      amount = partial ? Math.max(1, Math.floor(refundable / 2)) : refundable;
+    }
+    const ev = act(intent.id, action, {
+      amount,
+      processorMode: action === 'authorize' && decline ? 'decline' : 'approve',
+      maxRetries: 2,
+    });
+    if (ev && !ev.ok) {
+      setNote(ev.reason ?? 'Action rejected.');
+    } else {
+      setNote(null);
+    }
+  }
+
+  const canAuthorize = legal.includes('authorize');
+
+  return (
+    <div className="pf-detail glass" aria-label={`Intent ${intent.id}`}>
+      <div className="pf-detail__head">
+        <span className="pf-detail__id mono">{intent.id}</span>
+        <StatusBadge status={intent.status} />
+      </div>
+
+      <dl className="pf-detail__amounts">
+        <div>
+          <dt>Authorized</dt>
+          <dd className="mono">{formatMoney(intent.amount, intent.currency)}</dd>
+        </div>
+        <div>
+          <dt>Captured</dt>
+          <dd className="mono">{formatMoney(intent.capturedAmount, intent.currency)}</dd>
+        </div>
+        <div>
+          <dt>Refunded</dt>
+          <dd className="mono">{formatMoney(intent.refundedAmount, intent.currency)}</dd>
+        </div>
+      </dl>
+
+      <StateDiagram intent={intent} />
+
+      {canAuthorize && (
+        <label className="pf-toggle">
+          <input
+            type="checkbox"
+            checked={decline}
+            onChange={(e) => setDecline(e.target.checked)}
+          />
+          <span>Simulate processor decline (exercises retry, then fails)</span>
+        </label>
+      )}
+
+      <div className="pf-actions" role="group" aria-label="Available transitions">
+        {legal.length === 0 && (
+          <span className="pf-actions__none">No further transitions (terminal).</span>
+        )}
+        {legal.map((action) => (
+          <span key={action} className="pf-actions__group">
+            <button className="demo__btn" onClick={() => run(action, false)}>
+              {ACTION_LABEL[action]}
+            </button>
+            {(action === 'capture' || action === 'refund') && (
+              <button
+                className="demo__btn demo__btn--ghost"
+                onClick={() => run(action, true)}
+              >
+                {ACTION_LABEL[action]} half
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+
+      {note && (
+        <p className="pf-detail__note" role="alert">
+          {note}
+        </p>
+      )}
+
+      <div className="pf-detail__retries mono">
+        declines {intent.declines} · retries {intent.retries}
+      </div>
+
+      <h4 className="pf-detail__sub">Event timeline</h4>
+      <Timeline events={events} />
+    </div>
+  );
+}
+
+function ReconcileRow({ row }: { row: CurrencyTotals }) {
+  return (
+    <tr>
+      <th scope="row" className="mono">
+        {row.currency}
+      </th>
+      <td className="mono">{formatMoney(row.authorized, row.currency)}</td>
+      <td className="mono">{formatMoney(row.captured, row.currency)}</td>
+      <td className="mono">{formatMoney(row.refunded, row.currency)}</td>
+      <td className="mono pf-recon__net">{formatMoney(row.net, row.currency)}</td>
+    </tr>
+  );
+}
+
+function Reconciliation({ intents }: { intents: PaymentIntent[] }) {
+  const r = reconcile(intents);
+  return (
+    <section className="pf-recon glass" aria-label="Reconciliation">
+      <div className="pf-recon__head">
+        <h3 className="pf-recon__title">Reconciliation</h3>
+        <button
+          className="demo__btn demo__btn--ghost"
+          onClick={() => resetAll()}
+          aria-label="Clear all payments and the event log"
+        >
+          Reset all
+        </button>
+      </div>
+
+      {r.byCurrency.length === 0 ? (
+        <p className="pf-recon__empty">Nothing to reconcile yet.</p>
+      ) : (
+        <table className="pf-recon__table">
+          <caption className="pf-sr-only">
+            Authorized, captured, refunded and net settled totals per currency.
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Currency</th>
+              <th scope="col">Authorized</th>
+              <th scope="col">Captured</th>
+              <th scope="col">Refunded</th>
+              <th scope="col">Net</th>
+            </tr>
+          </thead>
+          <tbody>
+            {r.byCurrency.map((row) => (
+              <ReconcileRow key={row.currency} row={row} />
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <dl className="pf-recon__counts">
+        <div>
+          <dt>Intents</dt>
+          <dd className="mono">{r.intentCount}</dd>
+        </div>
+        <div>
+          <dt>Declined</dt>
+          <dd className="mono">{r.declined}</dd>
+        </div>
+        <div>
+          <dt>Retried</dt>
+          <dd className="mono">{r.retried}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+export default function PayflowDemo() {
+  const { intents } = useStore();
+  const [selected, setSelected] = useState<string | null>(null);
+
+  function handleCreate(amount: string, currency: Currency): string | null {
+    // money.parseMajor is the only float bridge; reject anything it rejects.
+    const minor = parseMajor(amount, currency);
+    if (minor === null) return 'Enter a positive amount with valid decimals.';
+    // The store owns the clock; the component never reads it during render.
+    const created = createPayment(minor, currency);
+    if (!created) return 'Could not create the payment intent.';
+    setSelected(created.id);
+    return null;
+  }
+
+  const active = intents.find((i) => i.id === selected) ?? null;
+
+  return (
+    <div className="demo" aria-label="PayFlow payment orchestration">
+      <span className="demo__tag">Interactive app</span>
+      <h3 className="demo__title">PayFlow payment orchestration</h3>
+      <p className="demo__lede">
+        Create a payment intent, then move it through authorize, capture, refund
+        and void using only the transitions the state machine allows. Every
+        action is recorded to an immutable event log in your browser.
+      </p>
+
+      <CreateForm onCreate={handleCreate} />
+
+      <div className="pf-layout">
+        <section className="pf-list" aria-label="Payment intents">
+          <div className="pf-list__head">
+            <h3 className="pf-list__title">Intents</h3>
+            <span className="pf-list__count">{intents.length} total</span>
+          </div>
+          {intents.length === 0 ? (
+            <p className="pf-list__empty">No payments yet. Create one above.</p>
+          ) : (
+            <ul className="pf-list__items">
+              {intents.map((it) => (
+                <li key={it.id}>
+                  <button
+                    className={
+                      'pf-row glass' + (it.id === selected ? ' pf-row--active' : '')
+                    }
+                    onClick={() => setSelected(it.id)}
+                    aria-pressed={it.id === selected}
+                  >
+                    <span className="pf-row__id mono">{it.id}</span>
+                    <span className="pf-row__amount mono">
+                      {formatMoney(it.amount, it.currency)}
+                    </span>
+                    <StatusBadge status={it.status} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {active ? (
+          <Detail key={active.id} intent={active} />
+        ) : (
+          <p className="pf-detail__placeholder">Select an intent to act on it.</p>
+        )}
+      </div>
+
+      <Reconciliation intents={intents} />
     </div>
   );
 }

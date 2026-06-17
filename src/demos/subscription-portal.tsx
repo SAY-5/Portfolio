@@ -1,317 +1,404 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
+import { useMemo, useState } from 'react';
 import '../styles/demo.css';
 import './subscription-portal.css';
+import { useStore } from './subscription-portal/state';
+import {
+  PLANS,
+  cancelAtPeriodEnd,
+  changePlan,
+  changeSeats,
+  findPlan,
+  pause,
+  reactivate,
+  resetAll,
+  resume,
+} from './subscription-portal/store';
+import {
+  clampSeats,
+  money,
+  planTotalCents,
+  prorate,
+} from './subscription-portal/engine';
+import { formatDate, statusLabel } from './subscription-portal/format';
+import type { Invoice, Subscription } from './subscription-portal/types';
 
-// Real numbers from the project: state changes fan out as HMAC-SHA256 signed
-// webhooks, retried on a 1, 2, 4, 8, 16 minute schedule before a dead-letter
-// queue. Each order also has a byte-deterministic PDF receipt.
-const RETRY_SCHEDULE = [1, 2, 4, 8, 16]; // minutes
-const ease = [0.22, 1, 0.36, 1] as const;
-
-type Action = { id: string; label: string; verb: string; event: string };
-
-const actions: Action[] = [
-  { id: 'skip', label: 'Skip next order', verb: 'skipped', event: 'order.skipped' },
-  { id: 'resch', label: 'Reschedule to Fri', verb: 'rescheduled', event: 'order.rescheduled' },
-  { id: 'pause', label: 'Pause plan', verb: 'paused', event: 'subscription.paused' },
-];
-
-// Three tenant endpoints the webhook fans out to. The flaky one drives the
-// retry-then-DLQ path so the schedule is visible.
-type Endpoint = { id: string; name: string; behavior: 'ok' | 'flaky' };
-const endpoints: Endpoint[] = [
-  { id: 'crm', name: 'crm.tenant-a', behavior: 'ok' },
-  { id: 'billing', name: 'billing.tenant-b', behavior: 'flaky' },
-  { id: 'analytics', name: 'analytics.tenant-c', behavior: 'ok' },
-];
-
-type Phase = 'idle' | 'signing' | 'delivering' | 'done';
-type EpStatus = 'idle' | 'pending' | 'ok' | 'retry' | 'dlq';
-type EpState = {
-  status: Exclude<EpStatus, 'idle'>;
-  attempt: number;
+const KIND_LABEL: Record<Invoice['kind'], string> = {
+  signup: 'Signup',
+  plan_change: 'Plan change',
+  seat_change: 'Seat change',
+  renewal: 'Renewal',
+  pause: 'Pause',
+  resume: 'Resume',
+  cancel: 'Cancel',
+  reactivate: 'Reactivate',
 };
 
-// A small deterministic signature stub so the UI shows a stable HMAC-shaped
-// hex string per event without any crypto at runtime.
-function fakeSig(event: string, nonce: number) {
-  let h = 0x811c9dc5;
-  const s = `${event}:${nonce}`;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
+function Amount({ cents }: { cents: number }) {
+  if (cents === 0) {
+    return <span className="sp-amt sp-amt--zero">included</span>;
   }
-  let out = '';
-  for (let i = 0; i < 16; i++) {
-    h ^= h << 13;
-    h ^= h >>> 17;
-    h ^= h << 5;
-    h >>>= 0;
-    out += (h & 0xff).toString(16).padStart(2, '0');
-  }
-  return out;
+  const credit = cents < 0;
+  return (
+    <span className={`sp-amt ${credit ? 'sp-amt--credit' : 'sp-amt--charge'}`}>
+      {credit ? '-' : '+'}
+      {money(Math.abs(cents))}
+    </span>
+  );
 }
 
-export default function SubscriptionPortalDemo() {
-  const reduce = useReducedMotion();
-  const [action, setAction] = useState<Action>(actions[0]);
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [nonce, setNonce] = useState(1);
-  const [eps, setEps] = useState<Record<string, EpState>>({});
-  const [pdfRenders, setPdfRenders] = useState<string[]>([]);
-  const timers = useRef<number[]>([]);
+function PlanManagement({ sub }: { sub: Subscription }) {
+  const current = findPlan(sub.planId);
+  const [draftPlanId, setDraftPlanId] = useState(sub.planId);
+  const [draftSeats, setDraftSeats] = useState(sub.seats);
+  // A render-time snapshot of the clock so the preview proration is stable
+  // across re-renders; the committed action re-reads the real clock.
+  const [now] = useState(() => Date.now());
 
-  function clearTimers() {
-    timers.current.forEach((t) => window.clearTimeout(t));
-    timers.current = [];
-  }
-  useEffect(() => clearTimers, []);
+  const draftPlan = findPlan(draftPlanId);
+  const seatClamp = draftPlan
+    ? clampSeats(draftPlan, draftSeats)
+    : { seats: draftSeats, reason: null };
+  const effectiveSeats = seatClamp.seats;
 
-  const sig = fakeSig(action.event, nonce);
+  const preview = useMemo(() => {
+    if (!current || !draftPlan) return null;
+    return prorate(sub, current, draftPlan, effectiveSeats, now);
+  }, [current, draftPlan, sub, effectiveSeats, now]);
 
-  function reset() {
-    clearTimers();
-    setPhase('idle');
-    setEps({});
-  }
+  const unchanged =
+    draftPlanId === sub.planId && effectiveSeats === sub.seats;
+  const disabled = sub.status === 'canceled';
 
-  function selectAction(a: Action) {
-    if (phase === 'signing' || phase === 'delivering') return;
-    setAction(a);
-    setPhase('idle');
-    setEps({});
-  }
-
-  function run() {
-    if (phase === 'signing' || phase === 'delivering') return;
-    clearTimers();
-    const base: Record<string, EpState> = {};
-    endpoints.forEach((e) => (base[e.id] = { status: 'pending', attempt: 0 }));
-    setEps(base);
-    setPhase('signing');
-
-    const step = (fn: () => void, ms: number) => {
-      timers.current.push(window.setTimeout(fn, reduce ? 0 : ms));
-    };
-
-    // Sign, then deliver. Healthy endpoints land on attempt 1. The flaky one
-    // fails attempts 1 and 2 (showing the 1 then 2 minute backoff) then lands
-    // on attempt 3, while a separate run could exhaust to the DLQ.
-    step(() => setPhase('delivering'), 650);
-
-    step(() => {
-      setEps((prev) => ({
-        ...prev,
-        crm: { status: 'ok', attempt: 1 },
-        analytics: { status: 'ok', attempt: 1 },
-        billing: { status: 'retry', attempt: 1 },
-      }));
-    }, 1100);
-
-    step(() => {
-      setEps((prev) => ({ ...prev, billing: { status: 'retry', attempt: 2 } }));
-    }, 1900);
-
-    step(() => {
-      setEps((prev) => ({ ...prev, billing: { status: 'ok', attempt: 3 } }));
-      setPhase('done');
-    }, 2700);
+  function confirm() {
+    if (unchanged || disabled) return;
+    // Seats-only change keeps the running cycle through the seat path; a tier
+    // change rebases the period through the plan path.
+    if (draftPlanId === sub.planId) {
+      changeSeats(effectiveSeats);
+    } else {
+      changePlan(draftPlanId, effectiveSeats);
+    }
   }
 
-  // Render the receipt: push two identical hashes to show byte-determinism.
-  function renderReceipt() {
-    // SOURCE_DATE_EPOCH pinned and canvas invariant means the same bytes every
-    // time, so both renders hash identically.
-    const digest = fakeSig(`receipt:${action.id}`, 7).slice(0, 12);
-    setPdfRenders((prev) => [...prev, digest].slice(-2));
+  function applySeats(next: number) {
+    setDraftSeats(next);
   }
 
-  const identical =
-    pdfRenders.length === 2 && pdfRenders[0] === pdfRenders[1];
+  // Seat stepper bounds follow the drafted plan.
+  const min = draftPlan ? draftPlan.minSeats : 1;
+  const max = draftPlan ? draftPlan.maxSeats : 99;
 
   return (
-    <div className="demo" aria-label="subscription portal webhook demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">A state change, signed and fanned out</h3>
-      <p className="demo__lede">
-        Skip or reschedule an order from the account dashboard. The change is
-        signed with HMAC-SHA256 and fanned out to tenant endpoints. A flaky
-        endpoint retries on a 1, 2, 4, 8, 16 minute schedule before the
-        dead-letter queue.
-      </p>
+    <section className="sp-section" aria-labelledby="sp-plans-h">
+      <h4 id="sp-plans-h" className="sp-section__title">
+        Change plan
+      </h4>
 
-      <div className="sp__stage">
-        <div className="sp__panel sp__account">
-          <div className="sp__panel-head">Account dashboard</div>
-          <div className="sp__plan">
-            <div className="sp__plan-row">
-              <span className="sp__plan-k">Plan</span>
-              <span className="sp__plan-v">Weekly box</span>
-            </div>
-            <div className="sp__plan-row">
-              <span className="sp__plan-k">Next order</span>
-              <span className="sp__plan-v">Tue, 8:00</span>
-            </div>
-            <div className="sp__plan-row">
-              <span className="sp__plan-k">Payment</span>
-              <span className="sp__plan-v">card ending 4242</span>
-            </div>
-          </div>
-          <div className="sp__actions" role="group" aria-label="Order actions">
-            {actions.map((a) => (
-              <button
-                key={a.id}
-                className={`sp__action${action.id === a.id ? ' sp__action--on' : ''}`}
-                aria-pressed={action.id === a.id}
-                onClick={() => selectAction(a)}
-              >
-                {a.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="sp__panel sp__event">
-          <div className="sp__panel-head">Signed payload</div>
-          <pre className="sp__payload" aria-label="webhook payload">
-            <span className="sp__pl-line">{'{'}</span>
-            <span className="sp__pl-line">
-              {'  '}"event": <span className="sp__hi">"{action.event}"</span>,
-            </span>
-            <span className="sp__pl-line">
-              {'  '}"nonce": <span className="sp__num">{nonce}</span>
-            </span>
-            <span className="sp__pl-line">{'}'}</span>
-          </pre>
-          <div className="sp__sig">
-            <span className="sp__sig-k">X-Signature</span>
-            <code className="sp__sig-v">
-              sha256={phase === 'idle' ? '-'.repeat(8) : sig}
-            </code>
-          </div>
-        </div>
-      </div>
-
-      <div className="sp__fanout" role="group" aria-label="webhook fan-out">
-        {endpoints.map((e) => {
-          const st: EpState | undefined = eps[e.id];
-          const status: EpStatus = st ? st.status : 'idle';
+      <div className="sp-grid" role="radiogroup" aria-label="available plans">
+        {PLANS.map((p) => {
+          const selected = p.id === draftPlanId;
+          const isCurrent = p.id === sub.planId;
           return (
-            <motion.div
-              key={e.id}
-              className={`sp__ep sp__ep--${status}`}
-              initial={false}
-              animate={{
-                scale:
-                  !reduce && (status === 'ok' || status === 'retry') ? [1, 1.02, 1] : 1,
+            <button
+              key={p.id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              className={`glass sp-plan${selected ? ' sp-plan--on' : ''}`}
+              onClick={() => {
+                setDraftPlanId(p.id);
+                setDraftSeats(clampSeats(p, draftSeats).seats);
               }}
-              transition={{ duration: 0.35, ease }}
+              disabled={disabled}
             >
-              <div className="sp__ep-top">
-                <span className="sp__ep-name">{e.name}</span>
-                <span className="sp__ep-state">
-                  {status === 'idle' && 'waiting'}
-                  {status === 'pending' && 'POST...'}
-                  {status === 'ok' && '200 OK'}
-                  {status === 'retry' && '503 retry'}
-                  {status === 'dlq' && 'DLQ'}
-                </span>
+              <div className="sp-plan__head">
+                <span className="sp-plan__name">{p.name}</span>
+                {isCurrent ? (
+                  <span className="sp-plan__current">Current</span>
+                ) : null}
               </div>
-              <div className="sp__ep-retries" aria-hidden="true">
-                {RETRY_SCHEDULE.map((m, i) => {
-                  const reached = st ? st.attempt > i : false;
-                  const failing =
-                    st && status === 'retry' && st.attempt === i + 1;
-                  return (
-                    <span
-                      key={m}
-                      className={`sp__retry${reached ? ' sp__retry--hit' : ''}${
-                        failing ? ' sp__retry--live' : ''
-                      }`}
-                      title={`attempt after ${m} min`}
-                    >
-                      {m}m
-                    </span>
-                  );
-                })}
-                <span className="sp__retry sp__retry--dlq">DLQ</span>
+              <div className="sp-plan__price">
+                <strong>{money(p.priceCents)}</strong>
+                <span>/ seat / {p.interval}</span>
               </div>
-            </motion.div>
+              <p className="sp-plan__blurb">{p.blurb}</p>
+              <ul className="sp-plan__features">
+                {p.features.slice(0, 4).map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+            </button>
           );
         })}
       </div>
 
-      <AnimatePresence>
-        {phase === 'done' && (
-          <motion.div
-            className="sp__verdict"
-            initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.4, ease }}
-          >
-            Order {action.verb}. Two endpoints accepted on the first attempt;
-            billing.tenant-b cleared on attempt 3 after the 1 and 2 minute
-            backoffs. The signature on every delivery is the same HMAC, so a
-            tampered body fails verification.
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="sp__receipt">
-        <div className="sp__panel-head">Deterministic receipt</div>
-        <p className="sp__receipt-note">
-          The PDF pins SOURCE_DATE_EPOCH and a canvas invariant, so it is
-          byte-identical on every render. Render it twice and compare the
-          digest.
-        </p>
-        <div className="sp__receipt-row">
-          {[0, 1].map((i) => (
-            <div
-              key={i}
-              className={`sp__digest${pdfRenders[i] ? ' sp__digest--set' : ''}`}
+      <div className="glass sp-reprice">
+        <div className="sp-stepper" aria-label="seat count">
+          <span className="sp-stepper__label">Seats</span>
+          <div className="sp-stepper__ctrl">
+            <button
+              type="button"
+              className="sp-stepper__btn"
+              aria-label="remove a seat"
+              onClick={() => applySeats(effectiveSeats - 1)}
+              disabled={disabled || effectiveSeats <= min}
             >
-              <span className="sp__digest-label">render {i + 1}</span>
-              <code className="sp__digest-val">
-                {pdfRenders[i] ?? 'not rendered'}
-              </code>
-            </div>
-          ))}
-          {identical && (
-            <span className="sp__digest-match">bytes match</span>
-          )}
+              -
+            </button>
+            <output className="sp-stepper__val" aria-live="polite">
+              {effectiveSeats}
+            </output>
+            <button
+              type="button"
+              className="sp-stepper__btn"
+              aria-label="add a seat"
+              onClick={() => applySeats(effectiveSeats + 1)}
+              disabled={disabled || effectiveSeats >= max}
+            >
+              +
+            </button>
+          </div>
+          {seatClamp.reason ? (
+            <span className="sp-stepper__note">{seatClamp.reason}</span>
+          ) : null}
+        </div>
+
+        <div className="sp-preview" aria-live="polite">
+          {preview && draftPlan ? (
+            <>
+              <div className="sp-preview__row">
+                <span>New total</span>
+                <span className="sp-preview__v">
+                  {money(planTotalCents(draftPlan, effectiveSeats))} /{' '}
+                  {draftPlan.interval}
+                </span>
+              </div>
+              <div className="sp-preview__row sp-preview__row--muted">
+                <span>
+                  Credit for {preview.daysRemaining} of {preview.daysInPeriod}{' '}
+                  days
+                </span>
+                <span className="sp-preview__v">
+                  -{money(preview.creditCents)}
+                </span>
+              </div>
+              <div className="sp-preview__row sp-preview__row--muted">
+                <span>Charge for remaining days</span>
+                <span className="sp-preview__v">
+                  +{money(preview.chargeCents)}
+                </span>
+              </div>
+              <div className="sp-preview__row sp-preview__row--total">
+                <span>
+                  {preview.amountCents >= 0 ? 'Due now' : 'Account credit'}
+                </span>
+                <span
+                  className={`sp-preview__v ${
+                    preview.amountCents < 0 ? 'sp-amt--credit' : ''
+                  }`}
+                >
+                  {preview.amountCents < 0 ? '-' : ''}
+                  {money(Math.abs(preview.amountCents))}
+                </span>
+              </div>
+            </>
+          ) : null}
+          <button
+            type="button"
+            className="demo__btn sp-confirm"
+            onClick={confirm}
+            disabled={unchanged || disabled}
+          >
+            {unchanged ? 'No change' : 'Confirm change'}
+          </button>
         </div>
       </div>
+    </section>
+  );
+}
+
+function Lifecycle({ sub }: { sub: Subscription }) {
+  const { status } = sub;
+
+  return (
+    <section className="sp-section" aria-labelledby="sp-life-h">
+      <h4 id="sp-life-h" className="sp-section__title">
+        Lifecycle
+      </h4>
+
+      <div className="glass sp-life">
+        <div className="sp-life__state">
+          <span className="sp-life__label">Status</span>
+          <span className={`sp-status sp-status--${status}`}>
+            {statusLabel(status)}
+          </span>
+          {status === 'pending_cancel' && sub.cancelAt ? (
+            <span className="sp-life__effective">
+              Ends {formatDate(sub.cancelAt)}
+            </span>
+          ) : null}
+        </div>
+
+        <div className="sp-life__actions" role="group" aria-label="lifecycle actions">
+          {status === 'active' ? (
+            <button
+              type="button"
+              className="demo__btn demo__btn--ghost"
+              onClick={pause}
+            >
+              Pause subscription
+            </button>
+          ) : null}
+
+          {status === 'paused' ? (
+            <button type="button" className="demo__btn" onClick={resume}>
+              Resume subscription
+            </button>
+          ) : null}
+
+          {status === 'active' ? (
+            <button
+              type="button"
+              className="demo__btn demo__btn--ghost"
+              onClick={cancelAtPeriodEnd}
+            >
+              Cancel at period end
+            </button>
+          ) : null}
+
+          {status === 'pending_cancel' ? (
+            <button type="button" className="demo__btn" onClick={reactivate}>
+              Keep subscription
+            </button>
+          ) : null}
+
+          {status === 'canceled' ? (
+            <button type="button" className="demo__btn" onClick={reactivate}>
+              Reactivate subscription
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export default function SubscriptionPortalDemo() {
+  const { sub, invoices } = useStore();
+  const plan = findPlan(sub.planId);
+
+  return (
+    <div className="demo" aria-label="subscription self-service portal">
+      <span className="demo__tag">Interactive demo</span>
+      <h3 className="demo__title">Manage your subscription</h3>
+      <p className="demo__lede">
+        View your current plan, change tier or seats and preview the prorated
+        amount, and pause, cancel, or reactivate. Every action posts an invoice
+        line and persists in your browser.
+      </p>
+
+      <section className="sp-section" aria-labelledby="sp-overview-h">
+        <h4 id="sp-overview-h" className="sp-section__title">
+          Overview
+        </h4>
+        <div className="sp-overview">
+          <article className="glass sp-card" aria-label="current plan">
+            <div className="sp-card__head">
+              <div>
+                <span className="sp-card__eyebrow">Current plan</span>
+                <h5 className="sp-card__plan">{plan ? plan.name : 'Unknown'}</h5>
+              </div>
+              <span className={`sp-status sp-status--${sub.status}`}>
+                {statusLabel(sub.status)}
+              </span>
+            </div>
+
+            <dl className="sp-meta">
+              <div className="sp-meta__row">
+                <dt>Price</dt>
+                <dd>
+                  {plan
+                    ? `${money(planTotalCents(plan, sub.seats))} / ${plan.interval}`
+                    : '-'}
+                </dd>
+              </div>
+              <div className="sp-meta__row">
+                <dt>Seats</dt>
+                <dd>{sub.seats}</dd>
+              </div>
+              <div className="sp-meta__row">
+                <dt>{sub.status === 'pending_cancel' ? 'Ends' : 'Renews'}</dt>
+                <dd>
+                  {sub.status === 'paused'
+                    ? 'Paused'
+                    : sub.status === 'canceled'
+                      ? 'Ended'
+                      : formatDate(sub.periodEnd)}
+                </dd>
+              </div>
+              {plan ? (
+                <div className="sp-meta__row">
+                  <dt>Per seat</dt>
+                  <dd>
+                    {money(plan.priceCents)} / {plan.interval}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+
+            {plan ? (
+              <ul className="sp-features" aria-label="plan features">
+                {plan.features.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+            ) : null}
+          </article>
+
+          <article className="glass sp-card" aria-label="invoice history">
+            <div className="sp-card__head">
+              <span className="sp-card__eyebrow">Invoice history</span>
+            </div>
+            <ul className="sp-invoices">
+              {invoices.map((inv) => (
+                <li key={inv.id} className="sp-invoice">
+                  <div className="sp-invoice__main">
+                    <span className={`sp-tagk sp-tagk--${inv.kind}`}>
+                      {KIND_LABEL[inv.kind]}
+                    </span>
+                    <span className="sp-invoice__desc">{inv.description}</span>
+                  </div>
+                  <div className="sp-invoice__side">
+                    <Amount cents={inv.amountCents} />
+                    <time
+                      className="sp-invoice__date"
+                      dateTime={new Date(inv.at).toISOString()}
+                    >
+                      {formatDate(inv.at)}
+                    </time>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <PlanManagement sub={sub} />
+
+      <Lifecycle sub={sub} />
 
       <div className="demo__controls">
         <button
-          className="demo__btn"
-          onClick={run}
-          disabled={phase === 'signing' || phase === 'delivering'}
-        >
-          {phase === 'signing'
-            ? 'Signing...'
-            : phase === 'delivering'
-              ? 'Delivering...'
-              : 'Apply and fan out'}
-        </button>
-        <button
+          type="button"
           className="demo__btn demo__btn--ghost"
-          onClick={renderReceipt}
+          onClick={resetAll}
         >
-          Render receipt
+          Reset portal
         </button>
-        <button
-          className="demo__btn demo__btn--ghost"
-          onClick={() => {
-            reset();
-            setNonce((n) => n + 1);
-          }}
-          disabled={phase === 'signing' || phase === 'delivering'}
-        >
-          Reset
-        </button>
+        <span className="demo__hint">
+          Clears the subscription and invoices saved in your browser.
+        </span>
       </div>
     </div>
   );

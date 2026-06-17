@@ -1,313 +1,556 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
+import { useMemo, useState } from 'react';
 import '../styles/demo.css';
 import './testforge.css';
+import { useStore } from './testforge/state';
+import {
+  addCase,
+  deleteCase,
+  recordRun,
+  resetAll,
+  selectSuite,
+  simulateRun,
+  updateCase,
+} from './testforge/store';
+import {
+  flakyCases,
+  lastStatus,
+  passRateTrend,
+  slowestCases,
+  suiteHealth,
+} from './testforge/engine';
+import type { CaseStatus, TestCase } from './testforge/types';
 
-// testforge proposes candidate pytest cases for a target function, then compiles
-// and runs each under pytest in an isolated subprocess with a wall-clock
-// timeout. Candidates that error, time out, or fail are discarded; a candidate
-// that passes and fails across repeated runs is flagged flaky instead of kept.
-// Kept tests extend the coverage map; the gap report ranks the worst-covered
-// function first. On a local run (5 rounds, 3 candidates per round) the
-// bundled bench measured about 6 candidates per second.
+// In-browser test-suite manager. Suites group cases; each case carries its
+// steps and expectation. A run records one status per case and a duration, kept
+// in localStorage so suites, cases, and history survive a reload. A run is data
+// the engine aggregates, never code it executes, so there is no eval anywhere.
+// You can record a run by marking each case by hand, or simulate one from a
+// deterministic seeded pattern that produces occasional flaky flips. Insights
+// derive a pass-rate trend, flaky cases with their flip history, and the
+// slowest cases, all from recorded runs.
 
-const ROUNDS = 5;
-const PER_ROUND = 3;
-const CANDIDATES = ROUNDS * PER_ROUND; // 15
-const RATE = 6; // candidates per second, measured
+function pct(rate: number | null): string {
+  if (rate === null) return 'n/a';
+  return `${Math.round(rate * 100)}%`;
+}
 
-type Verdict = 'kept' | 'failed' | 'flaky';
-
-type Candidate = {
-  id: number;
-  round: number;
-  name: string;
-  verdict: Verdict;
-  reason: string;
-  // Source lines this candidate exercises when kept (indices into LINES).
-  covers: number[];
+const STATUS_LABEL: Record<CaseStatus, string> = {
+  pass: 'pass',
+  fail: 'fail',
+  skip: 'skip',
 };
 
-// The target function under test, shown as a coverage map. Each entry is a line
-// of source; `branch` marks the two arms of the single conditional.
-const LINES: { text: string; branch?: 'then' | 'else' }[] = [
-  { text: 'def classify(n):' },
-  { text: '    if n < 0:', branch: undefined },
-  { text: '        return "neg"', branch: 'then' },
-  { text: '    if n == 0:' },
-  { text: '        return "zero"', branch: 'then' },
-  { text: '    return "pos"', branch: 'else' },
-];
+type Draft = { name: string; steps: string; expected: string };
 
-// Scripted candidate stream. Each kept candidate covers specific lines so the
-// map fills in believably; two are discarded, one is flagged flaky.
-const SCRIPT: Omit<Candidate, 'round'>[] = [
-  { id: 1, name: 'test_positive', verdict: 'kept', reason: 'passed', covers: [0, 1, 3, 5] },
-  { id: 2, name: 'test_zero', verdict: 'kept', reason: 'passed', covers: [0, 1, 3, 4] },
-  { id: 3, name: 'test_none_input', verdict: 'failed', reason: 'TypeError, discarded', covers: [] },
-  { id: 4, name: 'test_negative', verdict: 'kept', reason: 'passed', covers: [0, 1, 2] },
-  { id: 5, name: 'test_large', verdict: 'kept', reason: 'passed', covers: [0, 1, 3, 5] },
-  { id: 6, name: 'test_sleep_timing', verdict: 'flaky', reason: 'flaky across runs', covers: [] },
-  { id: 7, name: 'test_float_pos', verdict: 'kept', reason: 'passed', covers: [0, 1, 3, 5] },
-  { id: 8, name: 'test_bad_assert', verdict: 'failed', reason: 'AssertionError, discarded', covers: [] },
-  { id: 9, name: 'test_neg_edge', verdict: 'kept', reason: 'passed', covers: [0, 1, 2] },
-  { id: 10, name: 'test_zero_again', verdict: 'kept', reason: 'passed', covers: [0, 1, 3, 4] },
-  { id: 11, name: 'test_timeout_loop', verdict: 'failed', reason: 'timed out, discarded', covers: [] },
-  { id: 12, name: 'test_pos_chain', verdict: 'kept', reason: 'passed', covers: [0, 1, 3, 5] },
-  { id: 13, name: 'test_neg_two', verdict: 'kept', reason: 'passed', covers: [0, 1, 2] },
-  { id: 14, name: 'test_zero_repr', verdict: 'kept', reason: 'passed', covers: [0, 1, 3, 4] },
-  { id: 15, name: 'test_pos_repr', verdict: 'kept', reason: 'passed', covers: [0, 1, 3, 5] },
-];
+const EMPTY_DRAFT: Draft = { name: '', steps: '', expected: '' };
 
-const ease = [0.22, 1, 0.36, 1] as const;
-const stepMs = Math.round(1000 / RATE); // ~167ms per candidate at 6/sec
+export default function Testforge() {
+  const { suites, cases, runs, selectedSuiteId } = useStore();
 
-export default function TestforgeDemo() {
-  const reduce = useReducedMotion();
-  const [processed, setProcessed] = useState(0); // candidates resolved so far
-  const [inGate, setInGate] = useState<number | null>(null); // id currently in sandbox
-  const [running, setRunning] = useState(false);
-  const timers = useRef<number[]>([]);
-
-  const clearTimers = useCallback(() => {
-    timers.current.forEach((t) => window.clearTimeout(t));
-    timers.current = [];
-  }, []);
-
-  useEffect(() => clearTimers, [clearTimers]);
-
-  const resolved = SCRIPT.slice(0, processed);
-  const covered = new Set<number>();
-  resolved.forEach((c) => {
-    if (c.verdict === 'kept') c.covers.forEach((l) => covered.add(l));
-  });
-  const kept = resolved.filter((c) => c.verdict === 'kept').length;
-  const failed = resolved.filter((c) => c.verdict === 'failed').length;
-  const flaky = resolved.filter((c) => c.verdict === 'flaky').length;
-
-  // Uncovered code lines (exclude the def header from the gap, like a report).
-  const codeLines = LINES.map((_, i) => i).filter((i) => i > 0);
-  const uncovered = codeLines.filter((i) => !covered.has(i));
-  const branchLines = LINES.map((l, i) => ({ l, i })).filter((x) => x.l.branch);
-  const branchesCovered = branchLines.filter((x) => covered.has(x.i)).length;
-  const allDone = processed >= CANDIDATES;
-
-  const reset = useCallback(() => {
-    clearTimers();
-    setProcessed(0);
-    setInGate(null);
-    setRunning(false);
-  }, [clearTimers]);
-
-  // Holds the latest advance so the scheduled follow-up can recurse without
-  // referencing the callback before it is declared.
-  const advanceRef = useRef<(i: number) => void>(() => {});
-
-  const advance = useCallback(
-    (i: number) => {
-      if (i >= CANDIDATES) {
-        setInGate(null);
-        setRunning(false);
-        return;
-      }
-      setInGate(SCRIPT[i].id);
-      const settle = window.setTimeout(
-        () => {
-          setProcessed(i + 1);
-          setInGate(null);
-          const next = window.setTimeout(() => advanceRef.current(i + 1), stepMs * 0.4);
-          timers.current.push(next);
-        },
-        stepMs * 0.6,
-      );
-      timers.current.push(settle);
-    },
-    [],
+  const suite = suites.find((s) => s.id === selectedSuiteId) ?? suites[0];
+  const suiteCases = useMemo(
+    () => (suite ? cases.filter((c) => suite.caseIds.includes(c.id)) : []),
+    [suite, cases],
   );
 
-  useEffect(() => {
-    advanceRef.current = advance;
-  }, [advance]);
+  // Add-case form state.
+  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
+  // Inline edit target.
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Draft>(EMPTY_DRAFT);
 
-  const run = useCallback(() => {
-    if (running) return;
-    clearTimers();
-    setProcessed(0);
-    setInGate(null);
-    if (reduce) {
-      setProcessed(CANDIDATES);
-      return;
+  // Manual run marks, keyed by case id; absent means skip.
+  const [marks, setMarks] = useState<Record<string, CaseStatus>>({});
+  // Id of the most recent run to summarize after recording.
+  const [lastRunId, setLastRunId] = useState<string | null>(null);
+
+  const health = useMemo(
+    () => (suite ? suiteHealth(runs, suites, cases, suite.id) : null),
+    [runs, suites, cases, suite],
+  );
+  const trend = useMemo(
+    () => (suite ? passRateTrend(runs, suite.id) : []),
+    [runs, suite],
+  );
+  const flaky = useMemo(
+    () => (suite ? flakyCases(runs, cases, suite.id) : []),
+    [runs, cases, suite],
+  );
+  const slow = useMemo(
+    () => (suite ? slowestCases(runs, cases, suite.id) : []),
+    [runs, cases, suite],
+  );
+
+  const lastRun = lastRunId ? runs.find((r) => r.id === lastRunId) ?? null : null;
+  const lastRunSummary = lastRun
+    ? {
+        passed: lastRun.results.filter((r) => r.status === 'pass').length,
+        failed: lastRun.results.filter((r) => r.status === 'fail').length,
+        skipped: lastRun.results.filter((r) => r.status === 'skip').length,
+      }
+    : null;
+
+  if (!suite) {
+    return (
+      <div className="demo" aria-label="testforge test-suite manager">
+        <span className="demo__tag">Interactive demo</span>
+        <h3 className="demo__title">No suites</h3>
+        <p className="demo__lede">Reset to restore the seeded suites.</p>
+      </div>
+    );
+  }
+
+  function beginEdit(tc: TestCase) {
+    setEditId(tc.id);
+    setEditDraft({ name: tc.name, steps: tc.steps, expected: tc.expected });
+  }
+
+  function commitEdit() {
+    if (!editId) return;
+    updateCase(editId, editDraft);
+    setEditId(null);
+  }
+
+  function setMark(caseId: string, status: CaseStatus) {
+    setMarks((m) => ({ ...m, [caseId]: status }));
+  }
+
+  function doRecordManual() {
+    const run = recordRun(suite.id, marks);
+    if (run) {
+      setLastRunId(run.id);
+      setMarks({});
     }
-    setRunning(true);
-    const t = window.setTimeout(() => advance(0), 60);
-    timers.current.push(t);
-  }, [running, reduce, clearTimers, advance]);
+  }
 
-  const current = inGate ? SCRIPT.find((c) => c.id === inGate) : null;
+  function doSimulate() {
+    const run = simulateRun(suite.id);
+    if (run) setLastRunId(run.id);
+  }
+
+  function doReset() {
+    resetAll();
+    setMarks({});
+    setEditId(null);
+    setLastRunId(null);
+    setDraft(EMPTY_DRAFT);
+  }
+
+  const activeCases = suiteCases.filter((c) => c.state === 'active');
+  const trendCount = trend.length;
 
   return (
-    <div className="demo" aria-label="testforge candidate test demo">
+    <div className="demo" aria-label="testforge test-suite manager">
       <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Propose, prove, measure the gap</h3>
+      <h3 className="demo__title">Manage suites, record runs, watch for flakes</h3>
       <p className="demo__lede">
-        Run {ROUNDS} rounds of {PER_ROUND} candidates. Each candidate passes
-        through a sandbox that compiles and runs it under pytest in a separate
-        subprocess. It is kept on a pass, discarded on a failure or timeout, or
-        flagged flaky when it passes and fails across runs. Kept tests fill in
-        the coverage map; uncovered lines and branches stay highlighted.
+        Group test cases into suites, record a run by marking each case or by
+        simulating a seeded run, and read the pass-rate trend, flaky cases, and
+        slowest cases the engine derives. Everything persists in your browser;
+        nothing here executes code, so a run is recorded data, not evaluation.
       </p>
 
-      <div className="tf__stage">
-        <div className="tf__gate-col">
-          <div className="tf__gate-head">sandbox gate</div>
-          <div className={`tf__gate ${current ? 'tf__gate--busy' : ''}`}>
-            <AnimatePresence mode="wait">
-              {current ? (
-                <motion.div
-                  key={current.id}
-                  className="tf__gate-item"
-                  initial={{ opacity: 0, y: reduce ? 0 : 14, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.96 }}
-                  transition={{ duration: reduce ? 0 : 0.18, ease }}
-                >
-                  <span className="tf__gate-name">{current.name}</span>
-                  <span className="tf__gate-run">compiling · pytest run…</span>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="idle"
-                  className="tf__gate-idle"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                >
-                  {allDone ? 'all candidates resolved' : 'awaiting candidates'}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          <ul className="tf__stream" aria-label="candidate verdicts">
-            <AnimatePresence initial={false}>
-              {resolved
-                .slice()
-                .reverse()
-                .map((c) => (
-                  <motion.li
-                    key={c.id}
-                    className={`tf__cand tf__cand--${c.verdict}`}
-                    initial={{ opacity: 0, x: reduce ? 0 : -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: reduce ? 0 : 0.22, ease }}
-                  >
-                    <span className="tf__cand-dot" />
-                    <span className="tf__cand-name">{c.name}</span>
-                    <span className="tf__cand-reason">{c.reason}</span>
-                    <span className="tf__cand-verdict">{c.verdict}</span>
-                  </motion.li>
-                ))}
-            </AnimatePresence>
-            {resolved.length === 0 && (
-              <li className="tf__stream-empty">No candidates yet.</li>
-            )}
-          </ul>
-        </div>
-
-        <div className="tf__cov-col">
-          <div className="tf__cov-head">coverage map · classify()</div>
-          <div className="tf__code" role="img" aria-label="coverage of target function">
-            {LINES.map((ln, i) => {
-              const isCovered = covered.has(i);
-              const isUncovered = i > 0 && !isCovered;
+      <div className="tf__grid">
+        {/* ---- suite list ---- */}
+        <section className="glass tf__panel tf__suites" aria-label="Suites">
+          <h4 className="tf__panel-head">Suites</h4>
+          <ul className="tf__suite-list">
+            {suites.map((s) => {
+              const h = suiteHealth(runs, suites, cases, s.id);
+              const selected = s.id === suite.id;
               return (
-                <div
-                  key={i}
-                  className={`tf__codeline ${
-                    isCovered ? 'tf__codeline--hit' : ''
-                  } ${isUncovered ? 'tf__codeline--miss' : ''}`}
-                >
-                  <span className="tf__gutter">{i + 1}</span>
-                  <span className="tf__src">{ln.text}</span>
-                  {ln.branch && (
-                    <span className="tf__branch">
-                      {isCovered ? 'branch hit' : 'branch missing'}
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    className={`tf__suite ${selected ? 'tf__suite--on' : ''}`}
+                    aria-pressed={selected}
+                    onClick={() => selectSuite(s.id)}
+                  >
+                    <span className="tf__suite-name">{s.name}</span>
+                    <span className="tf__suite-meta">
+                      {h.caseCount} cases · {pct(h.lastPassRate)} last
                     </span>
-                  )}
-                </div>
+                    {h.flakyCount > 0 && (
+                      <span className="tf__suite-flaky">{h.flakyCount} flaky</span>
+                    )}
+                  </button>
+                </li>
               );
             })}
+          </ul>
+          {health && (
+            <dl className="tf__health" aria-label="Suite health">
+              <div>
+                <dt>Runs</dt>
+                <dd>{health.runs}</dd>
+              </div>
+              <div>
+                <dt>Active</dt>
+                <dd>
+                  {health.activeCount}/{health.caseCount}
+                </dd>
+              </div>
+              <div>
+                <dt>Mean pass</dt>
+                <dd>{pct(health.meanPassRate)}</dd>
+              </div>
+              <div>
+                <dt>Flaky</dt>
+                <dd>{health.flakyCount}</dd>
+              </div>
+            </dl>
+          )}
+        </section>
+
+        {/* ---- cases ---- */}
+        <section className="glass tf__panel tf__cases" aria-label="Test cases">
+          <h4 className="tf__panel-head">
+            {suite.name}{' '}
+            <span className="tf__panel-sub">{suite.description}</span>
+          </h4>
+
+          <table className="tf__table">
+            <thead>
+              <tr>
+                <th scope="col">Case</th>
+                <th scope="col">Expected</th>
+                <th scope="col">State</th>
+                <th scope="col">Last</th>
+                <th scope="col">
+                  <span className="tf__sr">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {suiteCases.map((tc) => {
+                const last = lastStatus(runs, suite.id, tc.id);
+                const editing = editId === tc.id;
+                if (editing) {
+                  return (
+                    <tr key={tc.id} className="tf__row tf__row--edit">
+                      <td colSpan={5}>
+                        <div className="tf__edit">
+                          <label className="tf__field">
+                            <span>Name</span>
+                            <input
+                              value={editDraft.name}
+                              onChange={(e) =>
+                                setEditDraft((d) => ({ ...d, name: e.target.value }))
+                              }
+                            />
+                          </label>
+                          <label className="tf__field">
+                            <span>Steps</span>
+                            <input
+                              value={editDraft.steps}
+                              onChange={(e) =>
+                                setEditDraft((d) => ({ ...d, steps: e.target.value }))
+                              }
+                            />
+                          </label>
+                          <label className="tf__field">
+                            <span>Expected</span>
+                            <input
+                              value={editDraft.expected}
+                              onChange={(e) =>
+                                setEditDraft((d) => ({
+                                  ...d,
+                                  expected: e.target.value,
+                                }))
+                              }
+                            />
+                          </label>
+                          <div className="tf__edit-actions">
+                            <button
+                              type="button"
+                              className="demo__btn"
+                              onClick={commitEdit}
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              className="demo__btn demo__btn--ghost"
+                              onClick={() => setEditId(null)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+                return (
+                  <tr key={tc.id} className="tf__row">
+                    <td>
+                      <span className="tf__case-name">{tc.name}</span>
+                      <span className="tf__case-steps">{tc.steps}</span>
+                    </td>
+                    <td className="tf__case-exp">{tc.expected}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className={`tf__state tf__state--${tc.state}`}
+                        aria-label={`Toggle ${tc.name} state, currently ${tc.state}`}
+                        onClick={() =>
+                          updateCase(tc.id, {
+                            state: tc.state === 'active' ? 'skipped' : 'active',
+                          })
+                        }
+                      >
+                        {tc.state}
+                      </button>
+                    </td>
+                    <td>
+                      {last ? (
+                        <span className={`tf__pill tf__pill--${last}`}>
+                          {STATUS_LABEL[last]}
+                        </span>
+                      ) : (
+                        <span className="tf__pill tf__pill--none">never</span>
+                      )}
+                    </td>
+                    <td className="tf__row-actions">
+                      <button
+                        type="button"
+                        className="tf__icon"
+                        onClick={() => beginEdit(tc)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="tf__icon tf__icon--danger"
+                        onClick={() => deleteCase(tc.id)}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {suiteCases.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="tf__empty">
+                    No cases yet. Add one below.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+
+          <form
+            className="tf__add"
+            onSubmit={(e) => {
+              e.preventDefault();
+              addCase(suite.id, draft);
+              setDraft(EMPTY_DRAFT);
+            }}
+          >
+            <h5 className="tf__add-head">Add a case</h5>
+            <div className="tf__add-fields">
+              <label className="tf__field">
+                <span>Name</span>
+                <input
+                  required
+                  value={draft.name}
+                  placeholder="describes the behavior"
+                  onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                />
+              </label>
+              <label className="tf__field">
+                <span>Steps</span>
+                <input
+                  value={draft.steps}
+                  placeholder="what the run does"
+                  onChange={(e) => setDraft((d) => ({ ...d, steps: e.target.value }))}
+                />
+              </label>
+              <label className="tf__field">
+                <span>Expected</span>
+                <input
+                  value={draft.expected}
+                  placeholder="what should hold"
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, expected: e.target.value }))
+                  }
+                />
+              </label>
+            </div>
+            <button type="submit" className="demo__btn">
+              Add case
+            </button>
+          </form>
+        </section>
+
+        {/* ---- run ---- */}
+        <section className="glass tf__panel tf__run" aria-label="Record a run">
+          <h4 className="tf__panel-head">Record a run</h4>
+          <p className="tf__run-lede">
+            Mark each active case, or simulate a seeded run. Skipped cases are
+            recorded as skips automatically.
+          </p>
+          <ul className="tf__marks">
+            {activeCases.map((tc) => {
+              const mark = marks[tc.id];
+              return (
+                <li key={tc.id} className="tf__mark">
+                  <span className="tf__mark-name">{tc.name}</span>
+                  <div
+                    className="tf__mark-btns"
+                    role="group"
+                    aria-label={`Mark ${tc.name}`}
+                  >
+                    {(['pass', 'fail', 'skip'] as CaseStatus[]).map((st) => (
+                      <button
+                        key={st}
+                        type="button"
+                        className={`tf__mark-btn tf__mark-btn--${st} ${
+                          mark === st ? 'tf__mark-btn--on' : ''
+                        }`}
+                        aria-pressed={mark === st}
+                        onClick={() => setMark(tc.id, st)}
+                      >
+                        {st}
+                      </button>
+                    ))}
+                  </div>
+                </li>
+              );
+            })}
+            {activeCases.length === 0 && (
+              <li className="tf__empty">No active cases to run.</li>
+            )}
+          </ul>
+
+          <div className="tf__run-actions">
+            <button
+              type="button"
+              className="demo__btn"
+              onClick={doRecordManual}
+              disabled={activeCases.length === 0}
+            >
+              Record marks
+            </button>
+            <button
+              type="button"
+              className="demo__btn demo__btn--ghost"
+              onClick={doSimulate}
+            >
+              Simulate run
+            </button>
           </div>
 
-          <div className="tf__gap">
-            <div className="tf__gap-head">gap report · worst first</div>
-            {uncovered.length === 0 && branchesCovered === branchLines.length ? (
-              <div className="tf__gap-clear">classify(): no remaining gaps</div>
+          {lastRunSummary && lastRun && (
+            <div className="tf__run-summary" role="status">
+              <span className="tf__run-summary-head">
+                Run #{lastRun.seq} recorded
+              </span>
+              <span className="tf__run-summary-line">
+                {lastRunSummary.passed} pass · {lastRunSummary.failed} fail ·{' '}
+                {lastRunSummary.skipped} skip
+              </span>
+            </div>
+          )}
+        </section>
+
+        {/* ---- insights ---- */}
+        <section className="glass tf__panel tf__insights" aria-label="Insights">
+          <h4 className="tf__panel-head">Insights</h4>
+
+          <div className="tf__insight">
+            <h5 className="tf__insight-head">Pass-rate trend</h5>
+            {trend.length === 0 ? (
+              <p className="tf__empty">No runs recorded.</p>
             ) : (
-              <div className="tf__gap-row">
-                <span className="tf__gap-fn">classify()</span>
-                <span className="tf__gap-detail">
-                  {uncovered.length} line{uncovered.length === 1 ? '' : 's'},{' '}
-                  {branchLines.length - branchesCovered} branch
-                  {branchLines.length - branchesCovered === 1 ? '' : 'es'} uncovered
-                </span>
+              <div
+                className="tf__trend"
+                role="img"
+                aria-label={`Pass rate over ${trendCount} runs, latest ${pct(
+                  trend[trend.length - 1].passRate,
+                )}`}
+              >
+                {trend.map((p) => (
+                  <div
+                    key={p.runId}
+                    className="tf__bar-wrap"
+                    title={`#${p.seq}: ${pct(p.passRate)}`}
+                  >
+                    <div
+                      className="tf__bar"
+                      style={{ height: `${Math.round(p.passRate * 100)}%` }}
+                    />
+                    <span className="tf__bar-label">{p.seq}</span>
+                  </div>
+                ))}
               </div>
             )}
-          </div>
-        </div>
-      </div>
-
-      <div className="tf__metrics">
-        <div className="tf__metric">
-          <span className="tf__metric-val">{kept}</span>
-          <span className="tf__metric-label">kept</span>
-        </div>
-        <div className="tf__metric">
-          <span className="tf__metric-val">{failed}</span>
-          <span className="tf__metric-label">discarded</span>
-        </div>
-        <div className="tf__metric">
-          <span className="tf__metric-val">{flaky}</span>
-          <span className="tf__metric-label">flaky</span>
-        </div>
-        <div className="tf__metric tf__metric--rate">
-          <span className="tf__metric-val">{RATE}</span>
-          <span className="tf__metric-label">candidates / sec</span>
-        </div>
-      </div>
-
-      <AnimatePresence>
-        {allDone && (
-          <motion.div
-            className="tf__verdict"
-            initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.4, ease }}
-          >
-            <span className="tf__verdict-head">Run complete</span>
-            <span className="tf__verdict-text">
-              {kept} of {CANDIDATES} candidates passed the sandbox and were kept,{' '}
-              {failed} were discarded, and {flaky} was flagged flaky. Because the
-              bundled provider is deterministic, the run is hermetic and
-              repeatable at about {RATE} candidates per second.
+            <span className="tf__trend-note" aria-hidden="true">
+              {trendCount} run{trendCount === 1 ? '' : 's'}, oldest left
             </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+
+          <div className="tf__insight">
+            <h5 className="tf__insight-head">Flaky cases</h5>
+            {flaky.length === 0 ? (
+              <p className="tf__empty">No flaky cases in the recent window.</p>
+            ) : (
+              <ul className="tf__flaky">
+                {flaky.map((f) => (
+                  <li key={f.caseId} className="tf__flaky-row">
+                    <span className="tf__flaky-name">{f.name}</span>
+                    <span className="tf__flaky-count">
+                      {f.passes} pass / {f.fails} fail
+                    </span>
+                    <span
+                      className="tf__flips"
+                      aria-label="flip history, oldest first"
+                    >
+                      {f.history.map((s, i) => (
+                        <span
+                          key={i}
+                          className={`tf__flip tf__flip--${s}`}
+                          title={s}
+                        />
+                      ))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="tf__insight">
+            <h5 className="tf__insight-head">Slowest cases</h5>
+            {slow.length === 0 ? (
+              <p className="tf__empty">No timing recorded.</p>
+            ) : (
+              <ol className="tf__slow">
+                {slow.slice(0, 5).map((s) => (
+                  <li key={s.caseId} className="tf__slow-row">
+                    <span className="tf__slow-name">{s.name}</span>
+                    <span className="tf__slow-ms">
+                      {s.medianMs} ms median · {s.maxMs} ms max
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </section>
+      </div>
 
       <div className="demo__controls">
-        <button className="demo__btn" onClick={run} disabled={running}>
-          {running ? 'Running…' : allDone ? 'Replay run' : 'Run rounds'}
-        </button>
         <button
+          type="button"
           className="demo__btn demo__btn--ghost"
-          onClick={reset}
-          disabled={running}
+          onClick={doReset}
         >
-          Reset
+          Reset to seed
         </button>
         <span className="demo__hint">
-          {processed} of {CANDIDATES} candidates resolved
+          Clears stored suites, cases, and run history.
         </span>
       </div>
     </div>

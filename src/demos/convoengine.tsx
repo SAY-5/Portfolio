@@ -1,505 +1,521 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
+import { useMemo, useState } from 'react';
+import '../styles/demo.css';
 import './convoengine.css';
+import type { ChoiceNode, Flow, FlowNode, MessageNode } from './convoengine/types';
+import { advance, getNode, validate } from './convoengine/engine';
+import {
+  addNode,
+  addOption,
+  deleteNode,
+  deleteOption,
+  resetFlow,
+  setMessageNext,
+  setNodeLabel,
+  setNodeText,
+  setOptionLabel,
+  setOptionTarget,
+  setStart,
+  useFlow,
+} from './convoengine/store';
 
-// Real mechanism from the project: one conversation spans email (polled inbox)
-// and chat (HTTP webhook), continued by sender identity. A per-conversation
-// state machine moves over six states. Every model turn returns a validated
-// {action, response_text, confidence, suggested_state}. Three consecutive
-// low-confidence turns, or one very-low turn, flips the conversation to
-// escalated and posts a structured summary to an operator queue.
-const LOW = 0.55; // below this counts as a low-confidence turn
-const VERY_LOW = 0.3; // a single turn this low escalates immediately
-const STREAK_TO_ESCALATE = 3; // consecutive low turns that trip escalation
-
-type StateId =
-  | 'greeting'
-  | 'clarifying'
-  | 'answering'
-  | 'escalated'
-  | 'operator_active'
-  | 'closed';
-
-type Channel = 'email' | 'chat';
-
-type Turn = {
-  channel: Channel;
-  text: string;
-  confidence: number;
-  // where the machine should head next on a normal (non-escalating) turn
-  to: StateId;
-};
-
-// A scripted thread that continues across both channels by sender identity.
-// Confidence values are what drive the action and the suggested state.
-const SCRIPT: Turn[] = [
-  { channel: 'email', text: 'Hi, my invoice total looks wrong this month.', confidence: 0.91, to: 'answering' },
-  { channel: 'chat', text: 'It is the same account, just messaging here now.', confidence: 0.74, to: 'answering' },
-  { channel: 'chat', text: 'Wait, which of my three projects is this charge on?', confidence: 0.48, to: 'clarifying' },
-  { channel: 'email', text: 'And why did the per-seat rate change mid-cycle?', confidence: 0.41, to: 'clarifying' },
-  { channel: 'chat', text: 'This contradicts the contract PDF you sent in March.', confidence: 0.37, to: 'clarifying' },
-];
-
-const STATES: { id: StateId; label: string; x: number; y: number }[] = [
-  { id: 'greeting', label: 'greeting', x: 80, y: 60 },
-  { id: 'clarifying', label: 'clarifying', x: 270, y: 60 },
-  { id: 'answering', label: 'answering', x: 460, y: 60 },
-  { id: 'escalated', label: 'escalated', x: 270, y: 170 },
-  { id: 'operator_active', label: 'operator_active', x: 80, y: 170 },
-  { id: 'closed', label: 'closed', x: 460, y: 170 },
-];
-
-const POS: Record<StateId, { x: number; y: number }> = STATES.reduce(
-  (acc, s) => ((acc[s.id] = { x: s.x, y: s.y }), acc),
-  {} as Record<StateId, { x: number; y: number }>,
-);
-
-// Directed edges of the machine, drawn as the static graph skeleton.
-const EDGES: [StateId, StateId][] = [
-  ['greeting', 'clarifying'],
-  ['greeting', 'answering'],
-  ['clarifying', 'answering'],
-  ['answering', 'clarifying'],
-  ['clarifying', 'escalated'],
-  ['answering', 'escalated'],
-  ['escalated', 'operator_active'],
-  ['answering', 'closed'],
-  ['operator_active', 'closed'],
-];
-
-type Action = 'respond' | 'template_fallback' | 'escalate';
-
-type Result = {
-  index: number;
-  turn: Turn;
-  from: StateId;
-  to: StateId;
-  action: Action;
-  confidence: number;
-  responseText: string;
-  lowStreak: number;
-};
-
-function classify(turn: Turn, lowStreakBefore: number, fromState: StateId): Result {
-  const low = turn.confidence < LOW;
-  const veryLow = turn.confidence < VERY_LOW;
-  const lowStreak = low ? lowStreakBefore + 1 : 0;
-  const trip = veryLow || lowStreak >= STREAK_TO_ESCALATE;
-
-  if (trip) {
-    return {
-      index: 0,
-      turn,
-      from: fromState,
-      to: 'escalated',
-      action: 'escalate',
-      confidence: turn.confidence,
-      responseText: 'Summary posted to operator queue. A person will take this over.',
-      lowStreak,
-    };
-  }
-  if (low) {
-    return {
-      index: 0,
-      turn,
-      from: fromState,
-      to: turn.to,
-      action: 'template_fallback',
-      confidence: turn.confidence,
-      responseText: 'Confidence below threshold, sending a safe template and asking to confirm.',
-      lowStreak,
-    };
-  }
-  return {
-    index: 0,
-    turn,
-    from: fromState,
-    to: turn.to,
-    action: 'respond',
-    confidence: turn.confidence,
-    responseText: 'Model answer validated against the schema and returned.',
-    lowStreak,
-  };
+// A target picker shared by message `next` and choice option targets. It lists
+// every node in the flow plus an explicit "ends here" entry (null target).
+function TargetSelect({
+  value,
+  nodes,
+  selfId,
+  onChange,
+  label,
+}: {
+  value: string | null;
+  nodes: FlowNode[];
+  selfId: string;
+  onChange: (to: string | null) => void;
+  label: string;
+}) {
+  return (
+    <label className="ceb__target">
+      <span className="ceb__target-label">{label}</span>
+      <select
+        className="ceb__select"
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}
+      >
+        <option value="">ends here</option>
+        {nodes.map((n) => (
+          <option key={n.id} value={n.id}>
+            {n.label} ({n.id}){n.id === selfId ? ' [self]' : ''}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }
 
-const ease = [0.22, 1, 0.36, 1] as const;
-
-export default function ConvoengineDemo() {
-  const reduce = useReducedMotion();
-  const [step, setStep] = useState(0); // how many turns have been processed
-  const [playing, setPlaying] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const feedRef = useRef<HTMLOListElement | null>(null);
-
-  // Replay the whole script up to `step` so state and streaks are derived,
-  // never stored ad hoc. This keeps the machine a pure function of inputs.
-  const { results, current, lowStreak } = useMemo(() => {
-    let state: StateId = 'greeting';
-    let streak = 0;
-    const out: Result[] = [];
-    for (let i = 0; i < step; i++) {
-      const r = classify(SCRIPT[i], streak, state);
-      r.index = i;
-      state = r.to;
-      streak = r.action === 'escalate' ? 0 : r.lowStreak;
-      out.push(r);
-      if (r.to === 'escalated') break;
-    }
-    const last = out[out.length - 1];
-    const cur: StateId = last ? last.to : 'greeting';
-    return { results: out, current: cur, lowStreak: streak };
-  }, [step]);
-
-  const escalated = current === 'escalated' || current === 'operator_active';
-  const atEnd = step >= SCRIPT.length || escalated;
-
-  function clearTimer() {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-  }
-  useEffect(() => clearTimer, []);
-
-  useEffect(() => {
-    if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
-  }, [results.length]);
-
-  function next() {
-    setStep((s) => Math.min(SCRIPT.length, s + 1));
-  }
-
-  function play() {
-    if (atEnd) {
-      reset();
-      // restart from a clean slate on the next frame
-      setPlaying(true);
-      schedule(0);
-      return;
-    }
-    setPlaying(true);
-    schedule(step);
-  }
-
-  function schedule(from: number) {
-    clearTimer();
-    const run = (i: number) => {
-      if (i >= SCRIPT.length) {
-        setPlaying(false);
-        return;
-      }
-      setStep(i + 1);
-      // Stop the autoplay the moment the machine escalates.
-      const wouldEscalate = simulateTo(i + 1).escalated;
-      if (wouldEscalate) {
-        setPlaying(false);
-        return;
-      }
-      timer.current = setTimeout(() => run(i + 1), reduce ? 0 : 1150);
-    };
-    timer.current = setTimeout(() => run(from), reduce ? 0 : 200);
-  }
-
-  function pause() {
-    clearTimer();
-    setPlaying(false);
-  }
-
-  function reset() {
-    clearTimer();
-    setPlaying(false);
-    setStep(0);
-  }
-
-  const meterConf = results.length ? results[results.length - 1].confidence : 1;
-  const lastAction = results.length ? results[results.length - 1].action : null;
-
+function MessageEditor({ node, nodes }: { node: MessageNode; nodes: FlowNode[] }) {
   return (
-    <div className="demo" aria-label="convoengine state machine demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">One conversation, two channels, six states</h3>
-      <p className="demo__lede">
-        Step through a thread that moves between email and chat for the same
-        sender. Each turn returns a validated action and confidence; watch the
-        token walk the state machine, and watch a low-confidence run flip it to
-        the operator queue.
-      </p>
-
-      <div className="ce__stage">
-        <div className="ce__graph">
-          <svg
-            className="ce__svg"
-            viewBox="0 0 600 240"
-            role="group"
-            aria-label="conversation state machine"
-          >
-            <defs>
-              <marker
-                id="ce-arrow"
-                viewBox="0 0 8 8"
-                refX="7"
-                refY="4"
-                markerWidth="6"
-                markerHeight="6"
-                orient="auto"
-              >
-                <path d="M0,0 L8,4 L0,8 Z" fill="var(--line)" />
-              </marker>
-              <marker
-                id="ce-arrow-hot"
-                viewBox="0 0 8 8"
-                refX="7"
-                refY="4"
-                markerWidth="7"
-                markerHeight="7"
-                orient="auto"
-              >
-                <path d="M0,0 L8,4 L0,8 Z" fill="var(--accent)" />
-              </marker>
-            </defs>
-
-            {EDGES.map(([a, b]) => {
-              const pa = POS[a];
-              const pb = POS[b];
-              const lastResult = results[results.length - 1];
-              const hot =
-                lastResult && lastResult.from === a && lastResult.to === b;
-              return (
-                <line
-                  key={`${a}-${b}`}
-                  x1={pa.x + 56}
-                  y1={pa.y + 16}
-                  x2={pb.x + (pb.x > pa.x ? -4 : 56)}
-                  y2={pb.y + 16}
-                  stroke={hot ? 'var(--accent)' : 'var(--line)'}
-                  strokeWidth={hot ? 2 : 1}
-                  strokeOpacity={hot ? 0.9 : 0.55}
-                  markerEnd={hot ? 'url(#ce-arrow-hot)' : 'url(#ce-arrow)'}
-                />
-              );
-            })}
-
-            {STATES.map((s) => {
-              const isCur = s.id === current;
-              const isEsc = s.id === 'escalated' || s.id === 'operator_active';
-              return (
-                <g key={s.id}>
-                  <rect
-                    x={s.x}
-                    y={s.y}
-                    width={112}
-                    height={32}
-                    rx={8}
-                    fill={
-                      isCur
-                        ? isEsc
-                          ? 'var(--accent-glow)'
-                          : 'var(--ink-700)'
-                        : 'var(--ink-850)'
-                    }
-                    stroke={
-                      isCur
-                        ? 'var(--accent)'
-                        : isEsc
-                          ? 'var(--accent-line)'
-                          : 'var(--line)'
-                    }
-                    strokeWidth={isCur ? 2 : 1}
-                  />
-                  <text
-                    x={s.x + 56}
-                    y={s.y + 20}
-                    textAnchor="middle"
-                    className="ce__node-label"
-                  >
-                    {s.label}
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* the conversation token sitting on the current state */}
-            <motion.circle
-              r={7}
-              fill="var(--accent)"
-              stroke="var(--ink-900)"
-              strokeWidth={2}
-              animate={{ cx: POS[current].x + 56, cy: POS[current].y - 2 }}
-              transition={{ duration: reduce ? 0 : 0.5, ease }}
-            />
-          </svg>
-        </div>
-
-        <div className="ce__panel">
-          <div className="ce__meter">
-            <div className="ce__meter-head">
-              <span className="ce__meter-name">turn confidence</span>
-              <span className="ce__meter-val">{meterConf.toFixed(2)}</span>
-            </div>
-            <div className="ce__meter-track" aria-hidden="true">
-              <span
-                className="ce__meter-mark ce__meter-mark--low"
-                style={{ left: `${LOW * 100}%` }}
-              />
-              <span
-                className="ce__meter-mark ce__meter-mark--vlow"
-                style={{ left: `${VERY_LOW * 100}%` }}
-              />
-              <motion.span
-                className="ce__meter-fill"
-                data-band={
-                  meterConf < VERY_LOW ? 'vlow' : meterConf < LOW ? 'low' : 'ok'
-                }
-                animate={{ width: `${meterConf * 100}%` }}
-                transition={{ duration: reduce ? 0 : 0.45, ease }}
-              />
-            </div>
-            <div className="ce__meter-legend">
-              <span>
-                template below <b>{LOW.toFixed(2)}</b>
-              </span>
-              <span>
-                escalate below <b>{VERY_LOW.toFixed(2)}</b> or {STREAK_TO_ESCALATE} in a row
-              </span>
-            </div>
-            <div className="ce__streak" aria-live="polite">
-              low-confidence streak
-              <span className="ce__streak-dots">
-                {[0, 1, 2].map((i) => (
-                  <span
-                    key={i}
-                    className="ce__streak-dot"
-                    data-on={i < lowStreak}
-                  />
-                ))}
-              </span>
-              <span className="ce__streak-num">
-                {lowStreak} / {STREAK_TO_ESCALATE}
-              </span>
-            </div>
-          </div>
-
-          <AnimatePresence mode="wait">
-            {lastAction && (
-              <motion.div
-                key={results.length}
-                className="ce__payload"
-                data-action={lastAction}
-                initial={{ opacity: 0, y: reduce ? 0 : 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: reduce ? 0 : 0.3, ease }}
-              >
-                <div className="ce__payload-head">validated payload</div>
-                <pre className="ce__payload-body">
-{`{
-  "action": "${lastAction}",
-  "confidence": ${meterConf.toFixed(2)},
-  "suggested_state": "${current}"
-}`}
-                </pre>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
-
-      <div className="ce__feedwrap">
-        <div className="ce__feed-head">
-          conversation thread
-          <span className="ce__feed-meta">
-            {step} of {SCRIPT.length} turns
-          </span>
-        </div>
-        <ol className="ce__feed" ref={feedRef}>
-          {results.length === 0 && (
-            <li className="ce__feed-empty">
-              Step or play to receive the first turn.
-            </li>
-          )}
-          {results.map((r) => (
-            <motion.li
-              key={r.index}
-              className="ce__feed-line"
-              data-channel={r.turn.channel}
-              data-action={r.action}
-              initial={{ opacity: 0, x: reduce ? 0 : -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: reduce ? 0 : 0.3, ease }}
-            >
-              <span className="ce__feed-channel">{r.turn.channel}</span>
-              <span className="ce__feed-text">{r.turn.text}</span>
-              <span className="ce__feed-tag" data-action={r.action}>
-                {r.action === 'respond'
-                  ? 'respond'
-                  : r.action === 'template_fallback'
-                    ? 'template'
-                    : 'escalate'}
-                <em>{r.confidence.toFixed(2)}</em>
-              </span>
-            </motion.li>
-          ))}
-        </ol>
-      </div>
-
-      <AnimatePresence>
-        {escalated && (
-          <motion.div
-            className="ce__verdict"
-            initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: reduce ? 0 : 0.4, ease }}
-          >
-            <span className="ce__verdict-head">escalated to operator queue</span>
-            <span className="ce__verdict-text">
-              Three consecutive low-confidence turns tripped the threshold, so
-              the machine flipped to escalated and posted a structured summary
-              for a person to pick up. The thread stayed one conversation across
-              email and chat the whole time.
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="demo__controls">
-        <button
-          className="demo__btn"
-          onClick={playing ? pause : play}
-          aria-label={playing ? 'Pause autoplay' : 'Play the conversation'}
-        >
-          {playing ? 'Pause' : atEnd ? 'Replay' : 'Play'}
-        </button>
-        <button
-          className="demo__btn demo__btn--ghost"
-          onClick={next}
-          disabled={playing || atEnd}
-        >
-          Step turn
-        </button>
-        <button
-          className="demo__btn demo__btn--ghost"
-          onClick={reset}
-          disabled={playing}
-        >
-          Reset
-        </button>
-        <span className="demo__hint">
-          state: {current}
-        </span>
-      </div>
+    <div className="ceb__body">
+      <label className="ceb__field">
+        <span className="ceb__field-label">Message text</span>
+        <textarea
+          className="ceb__textarea"
+          value={node.text}
+          rows={2}
+          placeholder="What this step says"
+          onChange={(e) => setNodeText(node.id, e.target.value)}
+        />
+      </label>
+      <TargetSelect
+        label="Then go to"
+        value={node.next}
+        nodes={nodes}
+        selfId={node.id}
+        onChange={(to) => setMessageNext(node.id, to)}
+      />
     </div>
   );
 }
 
-// Lightweight re-simulation used only to peek whether the next step escalates,
-// so autoplay can stop on the handoff.
-function simulateTo(stepCount: number): { escalated: boolean } {
-  let state: StateId = 'greeting';
-  let streak = 0;
-  for (let i = 0; i < stepCount; i++) {
-    const r = classify(SCRIPT[i], streak, state);
-    state = r.to;
-    streak = r.action === 'escalate' ? 0 : r.lowStreak;
-    if (r.to === 'escalated') return { escalated: true };
+function ChoiceEditor({ node, nodes }: { node: ChoiceNode; nodes: FlowNode[] }) {
+  return (
+    <div className="ceb__body">
+      <label className="ceb__field">
+        <span className="ceb__field-label">Prompt text</span>
+        <textarea
+          className="ceb__textarea"
+          value={node.text}
+          rows={2}
+          placeholder="What this step asks"
+          onChange={(e) => setNodeText(node.id, e.target.value)}
+        />
+      </label>
+      <div className="ceb__options" role="group" aria-label="Choice options">
+        {node.options.map((opt) => (
+          <div className="ceb__option" key={opt.id}>
+            <label className="ceb__field ceb__field--grow">
+              <span className="ceb__field-label">Option label</span>
+              <input
+                className="ceb__input"
+                value={opt.label}
+                placeholder="Option label"
+                onChange={(e) => setOptionLabel(node.id, opt.id, e.target.value)}
+              />
+            </label>
+            <TargetSelect
+              label="Leads to"
+              value={opt.to}
+              nodes={nodes}
+              selfId={node.id}
+              onChange={(to) => setOptionTarget(node.id, opt.id, to)}
+            />
+            <button
+              type="button"
+              className="ceb__icon-btn"
+              aria-label={`Delete option ${opt.label}`}
+              onClick={() => deleteOption(node.id, opt.id)}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="demo__btn demo__btn--ghost"
+        onClick={() => addOption(node.id)}
+      >
+        Add option
+      </button>
+    </div>
+  );
+}
+
+function NodeCard({
+  node,
+  nodes,
+  isStart,
+}: {
+  node: FlowNode;
+  nodes: FlowNode[];
+  isStart: boolean;
+}) {
+  return (
+    <li className="ceb__node" data-kind={node.kind} data-start={isStart}>
+      <div className="ceb__node-head">
+        <span className="ceb__kind" data-kind={node.kind}>
+          {node.kind}
+        </span>
+        <input
+          className="ceb__input ceb__node-label"
+          value={node.label}
+          aria-label={`Label for node ${node.id}`}
+          onChange={(e) => setNodeLabel(node.id, e.target.value)}
+        />
+        <code className="ceb__id">{node.id}</code>
+        <div className="ceb__node-actions">
+          <button
+            type="button"
+            className="ceb__pill"
+            data-on={isStart}
+            aria-pressed={isStart}
+            onClick={() => setStart(node.id)}
+          >
+            {isStart ? 'Start node' : 'Set start'}
+          </button>
+          <button
+            type="button"
+            className="ceb__icon-btn"
+            aria-label={`Delete node ${node.label}`}
+            onClick={() => deleteNode(node.id)}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+      {node.kind === 'message' && <MessageEditor node={node} nodes={nodes} />}
+      {node.kind === 'choice' && <ChoiceEditor node={node} nodes={nodes} />}
+      {node.kind === 'end' && (
+        <div className="ceb__body">
+          <label className="ceb__field">
+            <span className="ceb__field-label">Closing text</span>
+            <textarea
+              className="ceb__textarea"
+              value={node.text}
+              rows={2}
+              placeholder="Final message"
+              onChange={(e) => setNodeText(node.id, e.target.value)}
+            />
+          </label>
+        </div>
+      )}
+    </li>
+  );
+}
+
+// Live validation summary. Re-derives from the flow on every change and lists
+// the offending node ids for each problem class so the author can fix them.
+function ValidationPanel({ nodes }: { nodes: FlowNode[] }) {
+  const flow = useFlow();
+  const report = useMemo(() => validate(flow), [flow]);
+  const labelOf = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const n of nodes) map.set(n.id, n.label);
+    return (id: string) => map.get(id) ?? id;
+  }, [nodes]);
+
+  const clean =
+    report.unreachable.length === 0 &&
+    report.deadEnds.length === 0 &&
+    report.brokenRefs.length === 0 &&
+    flow.start !== null;
+
+  return (
+    <section className="ceb__validation" aria-label="Validation issues">
+      <div className="ceb__val-head">
+        <h4 className="ceb__val-title">Validation</h4>
+        <span
+          className="ceb__val-status"
+          data-ok={report.ok}
+          role="status"
+          aria-live="polite"
+        >
+          {clean ? 'No issues' : 'Issues found'}
+          {report.hasCycle && <em className="ceb__val-cycle">contains a loop</em>}
+        </span>
+      </div>
+
+      {clean ? (
+        <p className="ceb__val-clean">
+          Every node is reachable, no node is a dead end, and all targets
+          resolve. The flow is ready to play.
+        </p>
+      ) : (
+        <ul className="ceb__val-list">
+          {flow.start === null && (
+            <li className="ceb__val-item" data-kind="start">
+              <span className="ceb__val-kind">no start</span>
+              <span>Pick a node to start the script from.</span>
+            </li>
+          )}
+          {report.unreachable.map((id) => (
+            <li className="ceb__val-item" data-kind="unreachable" key={`u-${id}`}>
+              <span className="ceb__val-kind">unreachable</span>
+              <span>
+                {labelOf(id)} <code className="ceb__id">{id}</code> cannot be
+                reached from the start node.
+              </span>
+            </li>
+          ))}
+          {report.deadEnds.map((id) => (
+            <li className="ceb__val-item" data-kind="deadend" key={`d-${id}`}>
+              <span className="ceb__val-kind">dead end</span>
+              <span>
+                {labelOf(id)} <code className="ceb__id">{id}</code> has no way
+                out and is not an end node.
+              </span>
+            </li>
+          ))}
+          {report.brokenRefs.map((ref) => (
+            <li
+              className="ceb__val-item"
+              data-kind="broken"
+              key={`b-${ref.nodeId}-${ref.optionId ?? 'next'}-${ref.missingId}`}
+            >
+              <span className="ceb__val-kind">broken link</span>
+              <span>
+                {labelOf(ref.nodeId)} <code className="ceb__id">{ref.nodeId}</code>
+                {ref.optionId ? ' has an option that points' : ' points'} at a
+                missing node <code className="ceb__id">{ref.missingId}</code>.
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// One entry in the path the player has walked: the node visited and, for a
+// choice, the option label they picked to leave it.
+interface PathEntry {
+  nodeId: string;
+  label: string;
+  text: string;
+  choice: string | null;
+}
+
+// The play view. It walks the flow from the start node using the same pure
+// engine the validator uses: message nodes advance on Continue, choice nodes
+// advance on the selected option, and the walk ends at an end node or a null
+// target. The path taken is shown so the player can see the branch they made.
+function Runner({ flow }: { flow: Flow }) {
+  const [currentId, setCurrentId] = useState<string | null>(flow.start);
+  const [path, setPath] = useState<PathEntry[]>([]);
+  const [done, setDone] = useState(false);
+
+  const current = getNode(flow, currentId);
+
+  function restart() {
+    setCurrentId(flow.start);
+    setPath([]);
+    setDone(false);
   }
-  return { escalated: false };
+
+  function step(node: FlowNode, optionId: string | null, choiceLabel: string | null) {
+    const entry: PathEntry = {
+      nodeId: node.id,
+      label: node.label,
+      text: node.text,
+      choice: choiceLabel,
+    };
+    const nextId = advance(node, optionId);
+    setPath((p) => [...p, entry]);
+    if (nextId === null || getNode(flow, nextId) === undefined) {
+      setCurrentId(null);
+      setDone(true);
+      return;
+    }
+    // Land on the next node. If it is an end node its closing text shows and
+    // the Finish button completes the walk.
+    setCurrentId(nextId);
+  }
+
+  const noStart = flow.start === null || getNode(flow, flow.start) === undefined;
+
+  return (
+    <section className="ceb__runner glass" aria-label="Play the flow">
+      <div className="ceb__runner-head">
+        <h4 className="ceb__val-title ceb__runner-title">Play through</h4>
+        <button type="button" className="demo__btn demo__btn--ghost" onClick={restart}>
+          Restart
+        </button>
+      </div>
+
+      {noStart ? (
+        <p className="ceb__runner-empty">
+          Set a start node above to play the flow.
+        </p>
+      ) : (
+        <>
+          {current && (
+            <div className="ceb__bubble" data-kind={current.kind}>
+              <span className="ceb__bubble-kind">{current.kind}</span>
+              <p className="ceb__bubble-text">
+                {current.text || <em className="ceb__muted">No text yet.</em>}
+              </p>
+
+              {current.kind === 'message' && (
+                <button
+                  type="button"
+                  className="demo__btn"
+                  onClick={() => step(current, null, null)}
+                >
+                  Continue
+                </button>
+              )}
+
+              {current.kind === 'choice' && (
+                <div className="ceb__choices" role="group" aria-label="Choices">
+                  {current.options.length === 0 && (
+                    <span className="ceb__muted">This choice has no options.</span>
+                  )}
+                  {current.options.map((opt) => (
+                    <button
+                      type="button"
+                      key={opt.id}
+                      className="demo__btn"
+                      onClick={() => step(current, opt.id, opt.label)}
+                    >
+                      {opt.label || 'Untitled option'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {current.kind === 'end' && (
+                <button
+                  type="button"
+                  className="demo__btn demo__btn--ghost"
+                  onClick={() => {
+                    setPath((p) => [
+                      ...p,
+                      {
+                        nodeId: current.id,
+                        label: current.label,
+                        text: current.text,
+                        choice: null,
+                      },
+                    ]);
+                    setCurrentId(null);
+                    setDone(true);
+                  }}
+                >
+                  Finish
+                </button>
+              )}
+            </div>
+          )}
+
+          {done && (
+            <p className="ceb__runner-done" role="status">
+              The script ended here. Restart to play it again.
+            </p>
+          )}
+
+          {path.length > 0 && (
+            <ol className="ceb__path" aria-label="Path taken">
+              {path.map((entry, i) => (
+                <li className="ceb__path-step" key={`${entry.nodeId}-${i}`}>
+                  <code className="ceb__id">{entry.nodeId}</code>
+                  <span className="ceb__path-label">{entry.label}</span>
+                  {entry.choice && (
+                    <span className="ceb__path-choice">chose: {entry.choice}</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+export default function ConvoengineDemo() {
+  const flow = useFlow();
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  return (
+    <div className="demo ceb" aria-label="conversation flow builder">
+      <span className="demo__tag">Interactive demo</span>
+      <h3 className="demo__title">Build a branching conversation flow</h3>
+      <p className="demo__lede">
+        Author a scripted support flow as a graph of nodes. Add message, choice,
+        and end nodes, wire each option to the node it leads to, and pick the
+        node the script starts from. Everything is saved in your browser.
+      </p>
+
+      <div className="ceb__toolbar" role="group" aria-label="Add nodes">
+        <button
+          type="button"
+          className="demo__btn"
+          onClick={() => addNode('message')}
+        >
+          Add message
+        </button>
+        <button
+          type="button"
+          className="demo__btn"
+          onClick={() => addNode('choice')}
+        >
+          Add choice
+        </button>
+        <button
+          type="button"
+          className="demo__btn"
+          onClick={() => addNode('end')}
+        >
+          Add end
+        </button>
+        <span className="demo__hint">
+          start: <code className="ceb__id">{flow.start ?? 'none'}</code>
+        </span>
+        {confirmReset ? (
+          <span className="ceb__confirm">
+            Reset to the seed flow?
+            <button
+              type="button"
+              className="demo__btn demo__btn--ghost"
+              onClick={() => {
+                resetFlow();
+                setConfirmReset(false);
+              }}
+            >
+              Confirm reset
+            </button>
+            <button
+              type="button"
+              className="demo__btn demo__btn--ghost"
+              onClick={() => setConfirmReset(false)}
+            >
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="demo__btn demo__btn--ghost"
+            onClick={() => setConfirmReset(true)}
+          >
+            Reset flow
+          </button>
+        )}
+      </div>
+
+      <ValidationPanel nodes={flow.nodes} />
+
+      <Runner key={flow.start ?? 'no-start'} flow={flow} />
+
+      <section aria-label="Flow nodes">
+        <h4 className="ceb__section-title">
+          Nodes <span className="demo__hint">{flow.nodes.length} total</span>
+        </h4>
+        <ol className="ceb__nodes">
+          {flow.nodes.length === 0 && (
+            <li className="ceb__empty">
+              No nodes yet. Add a message, choice, or end node to begin.
+            </li>
+          )}
+          {flow.nodes.map((node) => (
+            <NodeCard
+              key={node.id}
+              node={node}
+              nodes={flow.nodes}
+              isStart={node.id === flow.start}
+            />
+          ))}
+        </ol>
+      </section>
+    </div>
+  );
 }

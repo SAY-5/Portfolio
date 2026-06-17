@@ -40,6 +40,19 @@
   --glass-border: rgba(255, 222, 150, 0.12);
   --glass-blur: 16px;
 
+  /* Compatibility tokens for the vendored full apps: the standalone showcase
+     apps reference these names; map them onto the hub's cinematic palette so
+     the apps adopt the gold screening-room look inline. */
+  --font-display: var(--display);
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
+  --magenta: var(--ember);
+  --magenta-soft: var(--ember-soft);
+  --magenta-glow: var(--ember-glow);
+  --text-dim: var(--paper-dim);
+  --ok: #3ddc91;
+  --warn: #ffcf5c;
+
   --maxw: 1280px;
   --gutter: clamp(20px, 5vw, 72px);
   --radius: 14px;

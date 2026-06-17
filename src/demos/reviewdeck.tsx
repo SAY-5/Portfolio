@@ -1,280 +1,513 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
 import { useReducedMotion } from 'framer-motion';
+import { useRef, useState } from 'react';
 import '../styles/demo.css';
 import './reviewdeck.css';
+import { SAMPLE_DIFF, diffStats } from './reviewdeck/diff';
+import {
+  addChangeset,
+  addVerdict,
+  evaluatePolicy,
+  mergeChangeset,
+  resetStore,
+  useReviewStore,
+} from './reviewdeck/store';
+import type { Changeset, FilePatch, HunkLine } from './reviewdeck/types';
 
-// Real mechanism: a virtualized list that stays smooth at 100k rows, with
-// faceted search and cursor pagination. This builds a real 100k-row dataset and
-// renders only the rows in the scroll window, so the DOM holds a few dozen
-// nodes no matter the total. Facets narrow the set; the cursor reports where
-// the next page would load from.
+// ---- Queue view ----
 
-const TOTAL = 100000;
-const ROW_H = 40;
-const OVERSCAN = 6;
+type QueueViewProps = {
+  onSelect: (id: string) => void;
+};
 
-type Status = 'open' | 'cleared' | 'flagged';
-type Kind = 'pdf' | 'docx' | 'email' | 'html';
+function QueueView({ onSelect }: QueueViewProps) {
+  const { changesets, verdicts } = useReviewStore();
+  const [title, setTitle] = useState('');
+  const [author, setAuthor] = useState('');
+  const [diffText, setDiffText] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
 
-const STATUSES: Status[] = ['open', 'cleared', 'flagged'];
-const KINDS: Kind[] = ['pdf', 'docx', 'email', 'html'];
-
-type Doc = { id: number; title: string; status: Status; kind: Kind };
-
-// Deterministic synthetic corpus so the demo is stable across renders.
-function buildCorpus(): Doc[] {
-  const subjects = [
-    'invoice', 'contract', 'statement', 'memo', 'receipt',
-    'agreement', 'filing', 'transcript', 'ledger', 'notice',
-  ];
-  const out: Doc[] = new Array(TOTAL);
-  for (let i = 0; i < TOTAL; i++) {
-    const subject = subjects[i % subjects.length];
-    out[i] = {
-      id: i + 1,
-      title: `${subject} batch ${String((i % 9000) + 1).padStart(4, '0')}`,
-      status: STATUSES[i % 3],
-      kind: KINDS[i % 4],
-    };
+  function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (!title.trim()) { setError('Title is required.'); return; }
+    if (!author.trim()) { setError('Author is required.'); return; }
+    if (!diffText.trim()) { setError('Diff text is required.'); return; }
+    addChangeset(title, author, diffText);
+    setTitle('');
+    setAuthor('');
+    setDiffText('');
+    setCreating(false);
   }
-  return out;
+
+  function loadSample() {
+    setDiffText(SAMPLE_DIFF);
+  }
+
+  const open = changesets.filter((c) => c.status === 'open');
+  const merged = changesets.filter((c) => c.status === 'merged');
+
+  return (
+    <div className="rq__root">
+      <div className="rq__header">
+        <h4 className="rq__h4">Review queue</h4>
+        <button
+          type="button"
+          className="demo__btn rq__new-btn"
+          onClick={() => { setCreating((v) => !v); setError(''); }}
+          aria-expanded={creating}
+        >
+          {creating ? 'Cancel' : '+ New changeset'}
+        </button>
+      </div>
+
+      {creating && (
+        <form className="rq__form glass" onSubmit={handleCreate} noValidate>
+          <div className="rq__field">
+            <label className="rq__label" htmlFor="rd-title">Title</label>
+            <input
+              id="rd-title"
+              className="rq__input"
+              type="text"
+              placeholder="e.g. refactor: session management"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="rq__field">
+            <label className="rq__label" htmlFor="rd-author">Author</label>
+            <input
+              id="rd-author"
+              className="rq__input"
+              type="text"
+              placeholder="e.g. alice"
+              value={author}
+              onChange={(e) => setAuthor(e.target.value)}
+            />
+          </div>
+          <div className="rq__field">
+            <label className="rq__label" htmlFor="rd-diff">
+              Diff (unified format)
+              <button
+                type="button"
+                className="rq__sample-btn"
+                onClick={loadSample}
+                tabIndex={0}
+              >
+                load sample
+              </button>
+            </label>
+            <textarea
+              id="rd-diff"
+              className="rq__textarea"
+              placeholder="Paste a unified diff here..."
+              value={diffText}
+              onChange={(e) => setDiffText(e.target.value)}
+              rows={8}
+              spellCheck={false}
+            />
+          </div>
+          {error && <p className="rq__error" role="alert">{error}</p>}
+          <div className="rq__form-actions">
+            <button type="submit" className="demo__btn">Create</button>
+          </div>
+        </form>
+      )}
+
+      {changesets.length === 0 && !creating && (
+        <p className="rq__empty">No changesets yet. Create one above.</p>
+      )}
+
+      {open.length > 0 && (
+        <section aria-label="Open changesets">
+          <h5 className="rq__section-label">Open ({open.length})</h5>
+          <ul className="rq__list" role="list">
+            {open.map((cs) => (
+              <ChangesetRow
+                key={cs.id}
+                cs={cs}
+                verdicts={verdicts}
+                onClick={() => onSelect(cs.id)}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {merged.length > 0 && (
+        <section aria-label="Merged changesets">
+          <h5 className="rq__section-label rq__section-label--merged">Merged ({merged.length})</h5>
+          <ul className="rq__list" role="list">
+            {merged.map((cs) => (
+              <ChangesetRow
+                key={cs.id}
+                cs={cs}
+                verdicts={verdicts}
+                onClick={() => onSelect(cs.id)}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
 }
 
-export default function ReviewdeckDemo() {
-  const reduce = useReducedMotion();
-  const corpus = useMemo(() => buildCorpus(), []);
+type ChangesetRowProps = {
+  cs: Changeset;
+  verdicts: ReturnType<typeof useReviewStore>['verdicts'];
+  onClick: () => void;
+};
 
-  const [status, setStatus] = useState<Status | null>(null);
-  const [kind, setKind] = useState<Kind | null>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportH, setViewportH] = useState(320);
-  const [maxDom, setMaxDom] = useState(0);
-  const viewportRef = useRef<HTMLDivElement | null>(null);
+function ChangesetRow({ cs, verdicts, onClick }: ChangesetRowProps) {
+  const stats = diffStats(cs.patches);
+  const policy = evaluatePolicy(cs.id, verdicts);
 
-  // facet counts over the full corpus (cheap modular arithmetic)
-  const statusCounts = useMemo(() => {
-    const base = Math.floor(TOTAL / 3);
-    return { open: base + 1, cleared: base, flagged: base } as Record<Status, number>;
-  }, []);
-  const kindCounts = useMemo(() => {
-    const base = TOTAL / 4;
-    return { pdf: base, docx: base, email: base, html: base } as Record<Kind, number>;
-  }, []);
+  return (
+    <li className="rq__row glass" role="listitem">
+      <button
+        type="button"
+        className="rq__row-btn"
+        onClick={onClick}
+        aria-label={`Open changeset: ${cs.title}`}
+      >
+        <span className="rq__row-title">{cs.title}</span>
+        <span className="rq__row-meta">
+          <span className="rq__row-author">{cs.author}</span>
+          <span className="rq__row-files">
+            {cs.patches.length} file{cs.patches.length !== 1 ? 's' : ''}
+          </span>
+          <span className="rq__row-added">+{stats.added}</span>
+          <span className="rq__row-removed">-{stats.removed}</span>
+          {cs.status === 'merged' ? (
+            <span className="rq__badge rq__badge--merged">merged</span>
+          ) : policy.eligible ? (
+            <span className="rq__badge rq__badge--ready">ready</span>
+          ) : (
+            <span className="rq__badge rq__badge--pending">
+              {policy.approvals}/2
+            </span>
+          )}
+        </span>
+      </button>
+    </li>
+  );
+}
 
-  const filtered = useMemo(() => {
-    if (!status && !kind) return corpus;
-    return corpus.filter(
-      (d) => (!status || d.status === status) && (!kind || d.kind === kind),
-    );
-  }, [corpus, status, kind]);
+// ---- Diff renderer ----
 
-  // Reset scroll when the filter changes the set. The scrollTop state is reset
-  // during render against the last seen filter (React's adjust-on-input
-  // pattern); the matching DOM scroll reset stays in the effect below.
-  const filterKey = `${status ?? ''}|${kind ?? ''}`;
-  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
-  if (filterKey !== lastFilterKey) {
-    setLastFilterKey(filterKey);
-    setScrollTop(0);
-  }
-  useEffect(() => {
-    if (viewportRef.current) viewportRef.current.scrollTop = 0;
-  }, [status, kind]);
+function HunkLineRow({ line }: { line: HunkLine }) {
+  return (
+    <div className={`rd-diff__line rd-diff__line--${line.kind}`}>
+      <span className="rd-diff__sigil">
+        {line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : ' '}
+      </span>
+      <span className="rd-diff__text">{line.text || '\u00a0'}</span>
+    </div>
+  );
+}
 
-  // measure the viewport once mounted (browser-only, kept out of render)
-  useEffect(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    setViewportH(el.clientHeight || 320);
-  }, []);
+function PatchBlock({ patch }: { patch: FilePatch }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="rd-diff__file">
+      <button
+        type="button"
+        className="rd-diff__file-header"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="rd-diff__file-path">{patch.path}</span>
+        <span className="rd-diff__file-stats">
+          <span className="rd-diff__file-added">+{patch.added}</span>
+          <span className="rd-diff__file-removed">-{patch.removed}</span>
+        </span>
+        <span className="rd-diff__chevron" aria-hidden="true">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="rd-diff__hunks">
+          {patch.hunks.map((hunk, hi) => (
+            <div key={hi} className="rd-diff__hunk">
+              {hunk.map((line, li) => (
+                <HunkLineRow key={li} line={line} />
+              ))}
+            </div>
+          ))}
+          {patch.hunks.length === 0 && (
+            <div className="rd-diff__empty-hunk">No hunks parsed</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
-  const total = filtered.length;
-  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
-  const visibleCount = Math.ceil(viewportH / ROW_H) + OVERSCAN * 2;
-  const endIdx = Math.min(total, startIdx + visibleCount);
-  const visibleRows = filtered.slice(startIdx, endIdx);
-  const domCount = visibleRows.length;
+// ---- Verdict form ----
 
-  // Track the high-water mark of rows actually in the DOM. It only grows, so
-  // raise it during render rather than in a cascading effect.
-  if (domCount > maxDom) {
-    setMaxDom(domCount);
-  }
+type VerdictFormProps = {
+  changesetId: string;
+  onDone: () => void;
+};
 
-  // cursor pagination: the next page would start after the last windowed row
-  const pageSize = 50;
-  const cursorIdx = Math.min(total, startIdx + domCount);
-  const nextCursor =
-    cursorIdx < total
-      ? filtered[Math.min(total - 1, cursorIdx)].id
-      : null;
-  const pageNumber = Math.floor(startIdx / pageSize) + 1;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+function VerdictForm({ changesetId, onDone }: VerdictFormProps) {
+  const [reviewer, setReviewer] = useState('');
+  const [kind, setKind] = useState<'approve' | 'request-changes'>('approve');
+  const [comment, setComment] = useState('');
+  const [error, setError] = useState('');
+  const reviewerRef = useRef<HTMLInputElement>(null);
 
-  function onScroll(e: React.UIEvent<HTMLDivElement>) {
-    setScrollTop(e.currentTarget.scrollTop);
-  }
-
-  function toggleStatus(s: Status) {
-    setStatus((cur) => (cur === s ? null : s));
-  }
-  function toggleKind(k: Kind) {
-    setKind((cur) => (cur === k ? null : k));
-  }
-  function clearFacets() {
-    setStatus(null);
-    setKind(null);
-    setMaxDom(0);
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (!reviewer.trim()) { setError('Reviewer name is required.'); return; }
+    addVerdict(changesetId, reviewer, kind, comment);
+    onDone();
   }
 
   return (
-    <div className="demo" aria-label="reviewdeck virtualized list demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">100k rows, a few dozen in the DOM</h3>
-      <p className="demo__lede">
-        Scroll the list of {TOTAL.toLocaleString()} documents and watch the DOM
-        node count stay tiny while the scrollbar spans the full set. Toggle the
-        faceted filters to narrow the corpus, and read the cursor that marks
-        where the next page would load.
-      </p>
+    <form className="rv__form glass" onSubmit={handleSubmit} noValidate>
+      <h5 className="rv__form-title">Add review</h5>
+      <div className="rq__field">
+        <label className="rq__label" htmlFor="rv-reviewer">Your name</label>
+        <input
+          id="rv-reviewer"
+          ref={reviewerRef}
+          className="rq__input"
+          type="text"
+          placeholder="e.g. bob"
+          value={reviewer}
+          onChange={(e) => setReviewer(e.target.value)}
+          autoFocus
+        />
+      </div>
+      <div className="rv__radios" role="radiogroup" aria-label="Verdict">
+        <label className={`rv__radio-label ${kind === 'approve' ? 'rv__radio-label--active' : ''}`}>
+          <input
+            type="radio"
+            name="rv-kind"
+            value="approve"
+            checked={kind === 'approve'}
+            onChange={() => setKind('approve')}
+            className="rv__radio-input"
+          />
+          Approve
+        </label>
+        <label className={`rv__radio-label rv__radio-label--req ${kind === 'request-changes' ? 'rv__radio-label--active rv__radio-label--req-active' : ''}`}>
+          <input
+            type="radio"
+            name="rv-kind"
+            value="request-changes"
+            checked={kind === 'request-changes'}
+            onChange={() => setKind('request-changes')}
+            className="rv__radio-input"
+          />
+          Request changes
+        </label>
+      </div>
+      <div className="rq__field">
+        <label className="rq__label" htmlFor="rv-comment">Comment (optional)</label>
+        <textarea
+          id="rv-comment"
+          className="rq__textarea rq__textarea--sm"
+          rows={3}
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Looks good! / Please address..."
+        />
+      </div>
+      {error && <p className="rq__error" role="alert">{error}</p>}
+      <div className="rq__form-actions">
+        <button type="submit" className="demo__btn">Submit review</button>
+      </div>
+    </form>
+  );
+}
 
-      <div className="rd__stage">
-        <div className="rd__facets">
-          <div className="rd__facet">
-            <div className="rd__facet-head">Status facet</div>
-            <div className="rd__chips" role="group" aria-label="filter by status">
-              {STATUSES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className="rd__chip"
-                  aria-pressed={status === s}
-                  onClick={() => toggleStatus(s)}
-                >
-                  {s}
-                  <span className="rd__chip-n">
-                    {statusCounts[s].toLocaleString()}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="rd__facet">
-            <div className="rd__facet-head">Type facet</div>
-            <div className="rd__chips" role="group" aria-label="filter by type">
-              {KINDS.map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  className="rd__chip"
-                  aria-pressed={kind === k}
-                  onClick={() => toggleKind(k)}
-                >
-                  {k}
-                  <span className="rd__chip-n">
-                    {kindCounts[k].toLocaleString()}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+// ---- Detail view ----
+
+type DetailViewProps = {
+  changesetId: string;
+  onBack: () => void;
+  reduce: boolean | null;
+};
+
+function DetailView({ changesetId, onBack, reduce }: DetailViewProps) {
+  const { changesets, verdicts } = useReviewStore();
+  const cs = changesets.find((c) => c.id === changesetId);
+  const [showForm, setShowForm] = useState(false);
+
+  if (!cs) {
+    return (
+      <div className="rv__missing">
+        <p>Changeset not found.</p>
+        <button type="button" className="demo__btn demo__btn--ghost" onClick={onBack}>Back</button>
+      </div>
+    );
+  }
+
+  const csVerdicts = verdicts.filter((v) => v.changesetId === cs.id);
+  const policy = evaluatePolicy(cs.id, verdicts);
+  const stats = diffStats(cs.patches);
+
+  function handleMerge() {
+    if (!policy.eligible || cs!.status === 'merged') return;
+    mergeChangeset(cs!.id);
+    setShowForm(false);
+  }
+
+  return (
+    <div className="rv__root">
+      <div className="rv__topbar">
+        <button
+          type="button"
+          className="demo__btn demo__btn--ghost rv__back"
+          onClick={onBack}
+          aria-label="Back to queue"
+        >
+          ← Back
+        </button>
+        <span className={`rq__badge ${cs.status === 'merged' ? 'rq__badge--merged' : policy.eligible ? 'rq__badge--ready' : 'rq__badge--pending'}`}>
+          {cs.status === 'merged' ? 'merged' : cs.status}
+        </span>
+      </div>
+
+      <div className="rv__hero glass">
+        <h4 className="rv__title">{cs.title}</h4>
+        <div className="rv__meta">
+          <span className="rv__author">{cs.author}</span>
+          <span className="rv__stat rv__stat--added">+{stats.added}</span>
+          <span className="rv__stat rv__stat--removed">-{stats.removed}</span>
+          <span className="rv__files">{cs.patches.length} file{cs.patches.length !== 1 ? 's' : ''}</span>
         </div>
+      </div>
 
-        <div className="rd__listwrap">
-          <div className="rd__listbar">
-            <span className="rd__listbar-label">Matches</span>
-            <span className="rd__listbar-count">
-              {total.toLocaleString()} rows
-            </span>
-            <span className="rd__listbar-dom">
-              in DOM now <b>{domCount}</b> rows
-            </span>
-          </div>
+      {cs.patches.length > 0 ? (
+        <section className="rv__diff" aria-label="Diff">
+          {cs.patches.map((p, i) => (
+            <PatchBlock key={i} patch={p} />
+          ))}
+        </section>
+      ) : (
+        <p className="rv__no-diff">No parseable hunks in this diff.</p>
+      )}
 
-          <div
-            className="rd__viewport"
-            ref={viewportRef}
-            onScroll={onScroll}
-            role="list"
-            aria-label={`${total} document rows, virtualized`}
-            tabIndex={0}
-          >
-            {total === 0 ? (
-              <div className="rd__empty">No documents match these facets.</div>
-            ) : (
-              <div
-                className="rd__spacer"
-                style={{ height: total * ROW_H }}
-                aria-hidden={false}
-              >
-                {visibleRows.map((d, i) => {
-                  const rowIndex = startIdx + i;
-                  return (
-                    <div
-                      className="rd__row"
-                      role="listitem"
-                      key={d.id}
-                      style={{
-                        top: rowIndex * ROW_H,
-                        transition: reduce ? 'none' : undefined,
-                      }}
-                    >
-                      <span className="rd__row-id">
-                        #{d.id.toString().padStart(6, '0')}
-                      </span>
-                      <span className="rd__row-title">{d.title}</span>
-                      <span className="rd__row-status" data-s={d.status}>
-                        {d.status}
-                      </span>
-                      <span className="rd__row-kind">{d.kind}</span>
-                    </div>
-                  );
-                })}
-              </div>
+      <section className="rv__verdicts" aria-label="Reviews">
+        <h5 className="rv__section-label">
+          Reviews ({csVerdicts.length})
+        </h5>
+        {csVerdicts.length === 0 && (
+          <p className="rv__no-reviews">No reviews yet.</p>
+        )}
+        <ul className="rv__verdict-list">
+          {csVerdicts.map((v) => (
+            <li
+              key={v.id}
+              className={`rv__verdict-item glass ${v.kind === 'approve' ? 'rv__verdict-item--approve' : 'rv__verdict-item--request'}`}
+            >
+              <span className="rv__verdict-reviewer">{v.reviewer}</span>
+              <span className={`rv__verdict-kind ${v.kind === 'approve' ? 'rv__verdict-kind--approve' : 'rv__verdict-kind--request'}`}>
+                {v.kind === 'approve' ? 'Approved' : 'Requested changes'}
+              </span>
+              {v.comment && (
+                <span className="rv__verdict-comment">{v.comment}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {cs.status === 'open' && (
+        <div className="rv__actions">
+          {!showForm && (
+            <button
+              type="button"
+              className="demo__btn demo__btn--ghost"
+              onClick={() => setShowForm(true)}
+            >
+              Add review
+            </button>
+          )}
+
+          {showForm && (
+            <VerdictForm
+              changesetId={cs.id}
+              onDone={() => setShowForm(false)}
+            />
+          )}
+
+          <div className="rv__merge-gate">
+            <button
+              type="button"
+              className={`demo__btn rv__merge-btn ${policy.eligible ? '' : 'rv__merge-btn--blocked'}`}
+              disabled={!policy.eligible}
+              onClick={handleMerge}
+              aria-disabled={!policy.eligible}
+              style={{ transition: reduce ? 'none' : undefined }}
+            >
+              Merge
+            </button>
+            {policy.blockedReason && (
+              <span className="rv__blocked-reason" role="status">
+                Blocked: {policy.blockedReason}
+              </span>
+            )}
+            {policy.eligible && (
+              <span className="rv__eligible-msg" role="status">
+                {policy.approvals} approvals, no open requests
+              </span>
             )}
           </div>
-
-          <div className="rd__pager">
-            <span className="rd__pager-cursor">
-              page {pageNumber.toLocaleString()} / {totalPages.toLocaleString()},
-              cursor{' '}
-              <b>{nextCursor ? `after #${nextCursor.toString().padStart(6, '0')}` : 'end of set'}</b>
-            </span>
-            <span className="rd__pager-spin">
-              {nextCursor ? 'next page loads on scroll' : 'all pages loaded'}
-            </span>
-          </div>
         </div>
+      )}
 
-        <div className="rd__stats">
-          <div className="rd__stat">
-            <span className="rd__stat-val">{TOTAL.toLocaleString()}</span>
-            <span className="rd__stat-label">rows in the set</span>
-          </div>
-          <div className="rd__stat rd__stat--win">
-            <span className="rd__stat-val">{Math.max(domCount, maxDom)}</span>
-            <span className="rd__stat-label">peak rows mounted</span>
-          </div>
-          <div className="rd__stat">
-            <span className="rd__stat-val">
-              {((Math.max(domCount, maxDom, 1) / TOTAL) * 100).toFixed(3)}%
-            </span>
-            <span className="rd__stat-label">of nodes rendered</span>
-          </div>
+      {cs.status === 'merged' && (
+        <div className="rv__merged-banner" role="status">
+          This changeset was merged.
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Root component ----
+
+export default function ReviewdeckDemo() {
+  const reduce = useReducedMotion();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  return (
+    <div className="demo" aria-label="reviewdeck code-review board">
+      <span className="demo__tag">Interactive demo</span>
+      <h3 className="demo__title">Code review board</h3>
+      <p className="demo__lede">
+        Create a changeset by pasting a unified diff, then add reviewer verdicts.
+        The merge button enables only when 2 approvals exist and there are no
+        open change requests. State persists in localStorage.
+      </p>
+
+      <div className="rq__stage">
+        {selectedId === null ? (
+          <QueueView onSelect={setSelectedId} />
+        ) : (
+          <DetailView
+            changesetId={selectedId}
+            onBack={() => setSelectedId(null)}
+            reduce={reduce}
+          />
+        )}
       </div>
 
       <div className="demo__controls">
         <button
           type="button"
           className="demo__btn demo__btn--ghost"
-          onClick={clearFacets}
-          disabled={!status && !kind}
+          onClick={() => { resetStore(); setSelectedId(null); }}
         >
-          Clear facets
+          Reset all data
         </button>
         <span className="demo__hint">
-          windowed render at {ROW_H}px rows, only the visible slice is mounted
+          data saved to localStorage; reload to persist
         </span>
       </div>
     </div>

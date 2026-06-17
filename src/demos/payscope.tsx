@@ -1,390 +1,563 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
+import { useState } from 'react';
 import '../styles/demo.css';
 import './payscope.css';
+import {
+  useStore,
+  addMeter,
+  removeMeter,
+  addPlan,
+  removePlan,
+  addEvent,
+  createInvoice,
+  resetAll,
+} from './payscope/store';
+import type { PlanMeter } from './payscope/types';
 
-// Real mechanism: rank-based percentiles (p10/p25/p50/p75/p90) from order
-// statistics, so one extreme salary moves p90 by at most a single order
-// statistic and never drags the median. Cells below a minimum sample count are
-// suppressed and labeled low-sample; cells at or below a widen threshold fall
-// p10/p90 back to the observed min and max. Incremental ingestion recomputes
-// only the (role, market) cells the new records touch and refreshes their
-// updated_at stamp while unaffected cells stay unchanged.
-
-const ease = [0.22, 1, 0.36, 1] as const;
-
-const MIN_SAMPLE = 5; // below this, a cell is suppressed as low-sample
-const WIDEN_THRESHOLD = 8; // at or below this, p10/p90 fall back to min/max
-
-const ROLES = ['Engineer', 'Designer', 'Analyst'] as const;
-const MARKETS = ['SF', 'NYC', 'Remote'] as const;
-type Role = (typeof ROLES)[number];
-type Market = (typeof MARKETS)[number];
-
-// Seeded salary samples per (role, market) cell, in thousands. Some cells are
-// deliberately sparse to show suppression and tail widening.
-const SEED: Record<string, number[]> = {
-  'Engineer|SF': [142, 158, 165, 171, 180, 188, 195, 210, 224, 240, 268, 305],
-  'Engineer|NYC': [128, 140, 150, 162, 170, 178, 190, 205, 222],
-  'Engineer|Remote': [110, 125, 138, 150, 168, 182],
-  'Designer|SF': [120, 132, 144, 155, 168, 180, 196, 215],
-  'Designer|NYC': [112, 126, 140, 158, 175],
-  'Designer|Remote': [98, 116, 134],
-  'Analyst|SF': [105, 118, 128, 138, 150, 162, 176, 190, 208, 230],
-  'Analyst|NYC': [98, 110, 120, 132, 145, 158, 172],
-  'Analyst|Remote': [88, 102],
-};
-
-function key(role: Role, market: Market) {
-  return `${role}|${market}`;
-}
-
-// Rank-based percentile via linear interpolation over order statistics.
-function percentile(sorted: number[], p: number): number {
-  if (sorted.length === 0) return 0;
-  if (sorted.length === 1) return sorted[0];
-  const rank = (p / 100) * (sorted.length - 1);
-  const lo = Math.floor(rank);
-  const hi = Math.ceil(rank);
-  if (lo === hi) return sorted[lo];
-  const frac = rank - lo;
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * frac;
-}
-
-type Bands = {
-  n: number;
-  suppressed: boolean;
-  widened: boolean;
-  p10: number;
-  p25: number;
-  p50: number;
-  p75: number;
-  p90: number;
-  min: number;
-  max: number;
-};
-
-function bandsFor(values: number[]): Bands {
-  const sorted = [...values].sort((a, b) => a - b);
-  const n = sorted.length;
-  const suppressed = n < MIN_SAMPLE;
-  const widened = n <= WIDEN_THRESHOLD;
-  const min = n ? sorted[0] : 0;
-  const max = n ? sorted[n - 1] : 0;
-  return {
-    n,
-    suppressed,
-    widened,
-    // At or below the widen threshold, p10/p90 fall back to the min/max
-    // envelope instead of the interpolated order statistic.
-    p10: widened ? min : percentile(sorted, 10),
-    p25: percentile(sorted, 25),
-    p50: percentile(sorted, 50),
-    p75: percentile(sorted, 75),
-    p90: widened ? max : percentile(sorted, 90),
-    min,
-    max,
-  };
-}
+type Tab = 'setup' | 'usage' | 'invoices';
 
 export default function PayscopeDemo() {
-  const reduce = useReducedMotion();
-  const [data, setData] = useState<Record<string, number[]>>(() => ({ ...SEED }));
-  const [selected, setSelected] = useState<string>('Engineer|SF');
-  // Cells touched by the most recent incremental ingest, for the highlight.
-  const [touched, setTouched] = useState<Set<string>>(new Set());
-  // A monotonic ingest counter standing in for per-cell updated_at stamps.
-  const [stamp, setStamp] = useState<Record<string, number>>({});
-  const [newSalary, setNewSalary] = useState(195);
-  const [targetRole, setTargetRole] = useState<Role>('Engineer');
-  const [targetMarket, setTargetMarket] = useState<Market>('SF');
-  const touchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (touchTimer.current) clearTimeout(touchTimer.current);
-    };
-  }, []);
-
-  const cells = useMemo(() => {
-    const out: Record<string, Bands> = {};
-    for (const role of ROLES) {
-      for (const market of MARKETS) {
-        const k = key(role, market);
-        out[k] = bandsFor(data[k] ?? []);
-      }
-    }
-    return out;
-  }, [data]);
-
-  const sel = cells[selected];
-  const [selRole, selMarket] = selected.split('|') as [Role, Market];
-
-  function ingest() {
-    const k = key(targetRole, targetMarket);
-    setData((prev) => ({ ...prev, [k]: [...(prev[k] ?? []), newSalary] }));
-    setStamp((prev) => ({ ...prev, [k]: (prev[k] ?? 0) + 1 }));
-    setTouched(new Set([k]));
-    setSelected(k);
-    if (touchTimer.current) clearTimeout(touchTimer.current);
-    touchTimer.current = setTimeout(() => setTouched(new Set()), reduce ? 0 : 1600);
-  }
-
-  function resetData() {
-    setData({ ...SEED });
-    setStamp({});
-    setTouched(new Set());
-  }
+  const [tab, setTab] = useState<Tab>('setup');
 
   return (
-    <div className="demo" aria-label="PayScope percentile benchmark demo">
+    <div className="demo" aria-label="PayScope usage metering and invoicing demo">
       <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Percentile bands, recomputed per cell</h3>
+      <h3 className="demo__title">Usage metering and invoicing</h3>
       <p className="demo__lede">
-        Each cell is a role and market with rank-based pay percentiles. Pick a
-        cell to see its p10 to p90 band. Drop a new salary into the pipeline:
-        only the cell it touches recomputes and restamps, the rest stay put.
-        Low-sample cells are suppressed, and thin cells widen p10/p90 to the
-        observed min and max.
+        Define meters to track consumption, create plans with included quotas
+        and overage rates, record usage events, then generate detailed invoices
+        with line-item overage calculations. All data persists in localStorage.
       </p>
 
-      <div className="ps__layout">
-        <div className="ps__matrix" role="group" aria-label="role and market cells">
-          <div className="ps__matrix-corner" aria-hidden="true" />
-          {MARKETS.map((m) => (
-            <div key={m} className="ps__matrix-colhead">
-              {m}
-            </div>
-          ))}
-          {ROLES.map((role) => (
-            <FragmentRow
-              key={role}
-              role={role}
-              cells={cells}
-              selected={selected}
-              touched={touched}
-              onSelect={setSelected}
-            />
-          ))}
-        </div>
-
-        <div className="ps__chart-wrap">
-          <div className="ps__chart-head">
-            <div>
-              <div className="ps__chart-title">
-                {selRole} <span className="ps__sep">/</span> {selMarket}
-              </div>
-              <div className="ps__chart-sub">
-                {sel.n} sample{sel.n === 1 ? '' : 's'}
-                {stamp[selected] ? ` · updated_at +${stamp[selected]}` : ''}
-              </div>
-            </div>
-            <div className="ps__badges">
-              {sel.suppressed && <span className="ps__badge ps__badge--sup">low-sample</span>}
-              {!sel.suppressed && sel.widened && (
-                <span className="ps__badge ps__badge--widen">tail widened</span>
-              )}
-              {!sel.suppressed && !sel.widened && (
-                <span className="ps__badge ps__badge--ok">full bands</span>
-              )}
-            </div>
-          </div>
-          <BandChart bands={sel} suppressed={sel.suppressed} reduce={!!reduce} />
-        </div>
-      </div>
-
-      <div className="ps__pipeline">
-        <div className="ps__pipe-head">incremental ingest</div>
-        <div className="ps__pipe-row">
-          <label className="ps__field">
-            <span className="ps__field-label">role</span>
-            <select
-              className="ps__select"
-              value={targetRole}
-              onChange={(e) => setTargetRole(e.target.value as Role)}
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="ps__field">
-            <span className="ps__field-label">market</span>
-            <select
-              className="ps__select"
-              value={targetMarket}
-              onChange={(e) => setTargetMarket(e.target.value as Market)}
-            >
-              {MARKETS.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="ps__field ps__field--grow">
-            <span className="ps__field-label">
-              new salary <b>${newSalary}k</b>
-            </span>
-            <input
-              className="ps__slider"
-              type="range"
-              min={70}
-              max={400}
-              step={5}
-              value={newSalary}
-              onChange={(e) => setNewSalary(Number(e.target.value))}
-              aria-label="new salary in thousands"
-            />
-          </label>
-        </div>
-        <div className="demo__controls">
-          <button className="demo__btn" onClick={ingest}>
-            Ingest record
+      <nav className="ps__tabs" aria-label="sections">
+        {(['setup', 'usage', 'invoices'] as const).map((t) => (
+          <button
+            key={t}
+            className={`ps__tab ${tab === t ? 'ps__tab--on' : ''}`}
+            onClick={() => setTab(t)}
+            aria-current={tab === t ? 'page' : undefined}
+          >
+            {t}
           </button>
-          <button className="demo__btn demo__btn--ghost" onClick={resetData}>
-            Reset data
-          </button>
-          <span className="demo__hint">
-            one extreme salary moves p90 by at most one order statistic
-          </span>
-        </div>
+        ))}
+      </nav>
+
+      {tab === 'setup' && <SetupPanel />}
+      {tab === 'usage' && <UsagePanel />}
+      {tab === 'invoices' && <InvoicePanel />}
+
+      <div className="demo__controls">
+        <button className="demo__btn demo__btn--ghost" onClick={resetAll}>
+          Reset all data
+        </button>
       </div>
     </div>
   );
 }
 
-function FragmentRow(props: {
-  role: Role;
-  cells: Record<string, Bands>;
-  selected: string;
-  touched: Set<string>;
-  onSelect: (k: string) => void;
-}) {
-  const { role, cells, selected, touched, onSelect } = props;
+function UsagePanel() {
+  const store = useStore();
+  const [meterId, setMeterId] = useState(store.meters[0]?.id ?? '');
+  const [qty, setQty] = useState('1');
+  const [lastDup, setLastDup] = useState(false);
+
+  const meterMap = new Map(store.meters.map((m) => [m.id, m]));
+
+  function freshKey(): string {
+    return `k-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  const [idempKey, setIdempKey] = useState(freshKey);
+
+  function handleRecord() {
+    const q = parseFloat(qty);
+    if (!meterId || isNaN(q) || q <= 0) return;
+    const added = addEvent(meterId, q, idempKey);
+    setLastDup(!added);
+    if (added) {
+      setIdempKey(freshKey());
+      setQty('1');
+    }
+  }
+
+  function handleReplay() {
+    if (!meterId) return;
+    const q = parseFloat(qty);
+    if (isNaN(q) || q <= 0) return;
+    const added = addEvent(meterId, q, idempKey);
+    setLastDup(!added);
+  }
+
   return (
-    <>
-      <div className="ps__matrix-rowhead">{role}</div>
-      {MARKETS.map((m) => {
-        const k = key(role, m);
-        const b = cells[k];
-        const isSel = selected === k;
-        const isTouched = touched.has(k);
-        return (
-          <button
-            key={k}
-            className={`ps__cell ${isSel ? 'ps__cell--sel' : ''} ${
-              b.suppressed ? 'ps__cell--sup' : ''
-            } ${isTouched ? 'ps__cell--touched' : ''}`}
-            onClick={() => onSelect(k)}
-            aria-pressed={isSel}
-            aria-label={`${role} ${m}, ${b.n} samples${
-              b.suppressed ? ', low-sample' : ''
-            }`}
-          >
-            <span className="ps__cell-median">
-              {b.suppressed ? '-' : `$${Math.round(b.p50)}k`}
-            </span>
-            <span className="ps__cell-n">n={b.n}</span>
-          </button>
-        );
-      })}
-    </>
+    <section className="ps__stage" aria-label="usage recording">
+      {store.meters.length === 0 ? (
+        <p className="ps__empty">
+          No meters defined. Go to the setup tab to create meters first.
+        </p>
+      ) : (
+        <fieldset className="ps__fieldset glass">
+          <legend className="ps__legend">Record event</legend>
+          <div className="ps__form-row">
+            <label className="ps__field">
+              <span className="ps__field-label">Meter</span>
+              <select
+                className="ps__select"
+                value={meterId}
+                onChange={(e) => setMeterId(e.target.value)}
+              >
+                {store.meters.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.unit})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="ps__field">
+              <span className="ps__field-label">Quantity</span>
+              <input
+                className="ps__input"
+                type="number"
+                min="0"
+                step="1"
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+              />
+            </label>
+            <label className="ps__field">
+              <span className="ps__field-label">Idempotency key</span>
+              <input
+                className="ps__input"
+                type="text"
+                value={idempKey}
+                onChange={(e) => setIdempKey(e.target.value)}
+                aria-describedby="idemp-hint"
+              />
+            </label>
+          </div>
+          <p id="idemp-hint" className="ps__empty" style={{ padding: 0, marginTop: -6 }}>
+            Replaying the same key is a no-op (duplicate detection).
+          </p>
+          <div className="demo__controls" style={{ marginTop: 0 }}>
+            <button className="demo__btn" onClick={handleRecord}>
+              Record event
+            </button>
+            <button className="demo__btn demo__btn--ghost" onClick={handleReplay}>
+              Replay same key
+            </button>
+            {lastDup && <span className="ps__event-dup">duplicate, no-op</span>}
+          </div>
+        </fieldset>
+      )}
+
+      <EventLog events={store.events} meterMap={meterMap} />
+    </section>
   );
 }
 
-function BandChart({
-  bands,
-  suppressed,
-  reduce,
+function EventLog({
+  events,
+  meterMap,
 }: {
-  bands: Bands;
-  suppressed: boolean;
-  reduce: boolean;
+  events: ReturnType<typeof useStore>['events'];
+  meterMap: Map<string, ReturnType<typeof useStore>['meters'][number]>;
 }) {
-  // Fixed salary axis so bands across cells are visually comparable.
-  const AXIS_MIN = 70;
-  const AXIS_MAX = 340;
-  const W = 100; // percent-based positions
-  const pos = (v: number) =>
-    Math.max(0, Math.min(W, ((v - AXIS_MIN) / (AXIS_MAX - AXIS_MIN)) * W));
+  if (events.length === 0) {
+    return <p className="ps__empty">No events recorded yet.</p>;
+  }
 
-  const x10 = pos(bands.p10);
-  const x25 = pos(bands.p25);
-  const x50 = pos(bands.p50);
-  const x75 = pos(bands.p75);
-  const x90 = pos(bands.p90);
-
-  const ticks = [100, 150, 200, 250, 300];
+  const sorted = [...events].reverse();
 
   return (
-    <div className={`ps__chart ${suppressed ? 'ps__chart--sup' : ''}`}>
-      <div className="ps__track" aria-hidden="true">
-        {ticks.map((t) => (
-          <div key={t} className="ps__tick" style={{ left: `${pos(t)}%` }}>
-            <span className="ps__tick-label">{t}</span>
+    <div className="ps__event-log" role="log" aria-label="event log">
+      {sorted.map((ev) => {
+        const m = meterMap.get(ev.meterId);
+        return (
+          <div key={ev.id} className="ps__event-row">
+            <span className="ps__event-meter">{m?.name ?? ev.meterId}</span>
+            <span className="ps__event-qty">
+              +{ev.quantity} {m?.unit ?? ''}
+            </span>
+            <span className="ps__event-time">
+              {new Date(ev.timestamp).toLocaleTimeString()}
+            </span>
           </div>
-        ))}
+        );
+      })}
+    </div>
+  );
+}
 
-        {/* whisker p10 to p90 */}
-        <motion.div
-          className="ps__whisker"
-          animate={{ left: `${x10}%`, width: `${x90 - x10}%` }}
-          transition={{ duration: reduce ? 0 : 0.5, ease }}
-        />
-        {/* inter-quartile box p25 to p75 */}
-        <motion.div
-          className="ps__box"
-          animate={{ left: `${x25}%`, width: `${x75 - x25}%` }}
-          transition={{ duration: reduce ? 0 : 0.5, ease }}
-        />
-        {/* median marker */}
-        <motion.div
-          className="ps__median"
-          animate={{ left: `${x50}%` }}
-          transition={{ duration: reduce ? 0 : 0.5, ease }}
-        />
-      </div>
+function InvoicePanel() {
+  const store = useStore();
+  const [planId, setPlanId] = useState(store.plans[0]?.id ?? '');
 
-      <AnimatePresence mode="wait">
-        {suppressed ? (
-          <motion.div
-            key="sup"
-            className="ps__sup-note"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            Suppressed below the {MIN_SAMPLE}-sample minimum. Add records to
-            publish bands for this cell.
-          </motion.div>
-        ) : (
-          <motion.div
-            key="vals"
-            className="ps__band-vals"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            {(
-              [
-                ['p10', bands.p10],
-                ['p25', bands.p25],
-                ['p50', bands.p50],
-                ['p75', bands.p75],
-                ['p90', bands.p90],
-              ] as const
-            ).map(([label, v]) => (
-              <div key={label} className="ps__band-val">
-                <span className="ps__band-label">{label}</span>
-                <span className="ps__band-num">${Math.round(v)}k</span>
+  // Default period: current day start to end
+  const now = new Date();
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const dayEnd = dayStart + 86400000 - 1;
+  const [periodStart, setPeriodStart] = useState(dayStart);
+  const [periodEnd, setPeriodEnd] = useState(dayEnd);
+
+  function handleGenerate() {
+    if (!planId) return;
+    createInvoice(planId, periodStart, periodEnd);
+  }
+
+  function formatDate(ts: number): string {
+    return new Date(ts).toLocaleDateString();
+  }
+
+  return (
+    <section className="ps__stage" aria-label="invoices">
+      {store.plans.length === 0 ? (
+        <p className="ps__empty">
+          No plans defined. Go to the setup tab to create plans first.
+        </p>
+      ) : (
+        <fieldset className="ps__fieldset glass">
+          <legend className="ps__legend">Generate invoice</legend>
+          <div className="ps__period-row">
+            <label className="ps__field">
+              <span className="ps__field-label">Plan</span>
+              <select
+                className="ps__select"
+                value={planId}
+                onChange={(e) => setPlanId(e.target.value)}
+              >
+                {store.plans.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="ps__field">
+              <span className="ps__field-label">Period start</span>
+              <input
+                className="ps__input"
+                type="date"
+                value={new Date(periodStart).toISOString().split('T')[0]}
+                onChange={(e) => setPeriodStart(new Date(e.target.value).getTime())}
+              />
+            </label>
+            <label className="ps__field">
+              <span className="ps__field-label">Period end</span>
+              <input
+                className="ps__input"
+                type="date"
+                value={new Date(periodEnd).toISOString().split('T')[0]}
+                onChange={(e) =>
+                  setPeriodEnd(new Date(e.target.value).getTime() + 86400000 - 1)
+                }
+              />
+            </label>
+          </div>
+          <button className="demo__btn" onClick={handleGenerate}>
+            Generate invoice
+          </button>
+        </fieldset>
+      )}
+
+      {store.invoices.length > 0 && (
+        <div className="ps__invoices-list" aria-label="generated invoices">
+          {[...store.invoices].reverse().map((inv) => (
+            <article key={inv.id} className="ps__invoice glass">
+              <div className="ps__invoice-head">
+                <span className="ps__invoice-id">{inv.id}</span>
+                <span className="ps__invoice-plan">
+                  {inv.planName} | {formatDate(inv.periodStart)} to {formatDate(inv.periodEnd)}
+                </span>
               </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+              <table className="ps__invoice-table" aria-label={`Invoice ${inv.id} details`}>
+                <thead>
+                  <tr>
+                    <th scope="col">Meter</th>
+                    <th scope="col">Usage</th>
+                    <th scope="col">Included</th>
+                    <th scope="col">Overage</th>
+                    <th scope="col">Rate</th>
+                    <th scope="col" className="ps__td-right">Charge</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inv.lineItems.map((li, i) => (
+                    <tr key={i}>
+                      <td>{li.meterName}</td>
+                      <td>
+                        {li.totalUsage} {li.meterUnit}
+                      </td>
+                      <td>{li.includedQuota}</td>
+                      <td>{li.overageUsage}</td>
+                      <td>${li.overageRate}</td>
+                      <td className="ps__td-right">${li.charge.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="ps__invoice-total">
+                <span className="ps__invoice-total-label">subtotal</span>
+                <span className="ps__invoice-total-val">${inv.subtotal.toFixed(2)}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SetupPanel() {
+  const store = useStore();
+  return (
+    <section className="ps__stage" aria-label="setup">
+      <MeterForm />
+      <MeterList meters={store.meters} />
+      <PlanForm meters={store.meters} />
+      <PlanList plans={store.plans} meters={store.meters} />
+    </section>
+  );
+}
+
+function MeterForm() {
+  const [name, setName] = useState('');
+  const [unit, setUnit] = useState('');
+  const [rate, setRate] = useState('');
+
+  function handleAdd() {
+    const n = name.trim();
+    const u = unit.trim();
+    const r = parseFloat(rate);
+    if (!n || !u || isNaN(r) || r < 0) return;
+    addMeter(n, u, r);
+    setName('');
+    setUnit('');
+    setRate('');
+  }
+
+  return (
+    <fieldset className="ps__fieldset glass">
+      <legend className="ps__legend">New meter</legend>
+      <div className="ps__form-row">
+        <label className="ps__field">
+          <span className="ps__field-label">Name</span>
+          <input
+            className="ps__input"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="API calls"
+          />
+        </label>
+        <label className="ps__field">
+          <span className="ps__field-label">Unit</span>
+          <input
+            className="ps__input"
+            type="text"
+            value={unit}
+            onChange={(e) => setUnit(e.target.value)}
+            placeholder="requests"
+          />
+        </label>
+        <label className="ps__field">
+          <span className="ps__field-label">Rate per unit ($)</span>
+          <input
+            className="ps__input"
+            type="number"
+            min="0"
+            step="0.001"
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
+            placeholder="0.002"
+          />
+        </label>
+      </div>
+      <button className="demo__btn" onClick={handleAdd} disabled={!name.trim()}>
+        Add meter
+      </button>
+    </fieldset>
+  );
+}
+
+function MeterList({ meters }: { meters: ReturnType<typeof useStore>['meters'] }) {
+  if (meters.length === 0) {
+    return <p className="ps__empty">No meters defined yet.</p>;
+  }
+  return (
+    <div className="ps__list" role="list" aria-label="defined meters">
+      {meters.map((m) => (
+        <div key={m.id} className="ps__list-item" role="listitem">
+          <div className="ps__list-main">
+            <span className="ps__list-name">{m.name}</span>
+            <span className="ps__list-meta">
+              {m.unit} at ${m.ratePerUnit}/unit
+            </span>
+          </div>
+          <button
+            className="ps__remove"
+            onClick={() => removeMeter(m.id)}
+            aria-label={`remove ${m.name}`}
+          >
+            x
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PlanForm({ meters }: { meters: ReturnType<typeof useStore>['meters'] }) {
+  const [name, setName] = useState('');
+  const [selected, setSelected] = useState<
+    Record<string, { included: string; overage: string }>
+  >({});
+
+  function toggleMeter(meterId: string) {
+    setSelected((prev) => {
+      const next = { ...prev };
+      if (next[meterId]) {
+        delete next[meterId];
+      } else {
+        next[meterId] = { included: '0', overage: '0' };
+      }
+      return next;
+    });
+  }
+
+  function updateSelected(meterId: string, field: 'included' | 'overage', value: string) {
+    setSelected((prev) => ({
+      ...prev,
+      [meterId]: { ...prev[meterId], [field]: value },
+    }));
+  }
+
+  function handleAdd() {
+    const n = name.trim();
+    if (!n) return;
+    const planMeters: PlanMeter[] = [];
+    for (const [meterId, cfg] of Object.entries(selected)) {
+      const included = parseFloat(cfg.included);
+      const overage = parseFloat(cfg.overage);
+      if (isNaN(included) || isNaN(overage)) continue;
+      planMeters.push({
+        meterId,
+        includedQuota: Math.max(0, included),
+        overageRate: Math.max(0, overage),
+      });
+    }
+    if (planMeters.length === 0) return;
+    addPlan(n, planMeters);
+    setName('');
+    setSelected({});
+  }
+
+  return (
+    <fieldset className="ps__fieldset glass">
+      <legend className="ps__legend">New plan</legend>
+      <label className="ps__field">
+        <span className="ps__field-label">Plan name</span>
+        <input
+          className="ps__input"
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Starter"
+        />
+      </label>
+
+      {meters.length === 0 && (
+        <p className="ps__empty">Add meters first to attach them to a plan.</p>
+      )}
+
+      {meters.length > 0 && (
+        <div className="ps__meter-picks" role="group" aria-label="attach meters">
+          {meters.map((m) => {
+            const active = !!selected[m.id];
+            return (
+              <div key={m.id} className={`ps__meter-pick ${active ? 'ps__meter-pick--on' : ''}`}>
+                <button
+                  className="ps__meter-pick-toggle"
+                  onClick={() => toggleMeter(m.id)}
+                  aria-pressed={active}
+                >
+                  {m.name} ({m.unit})
+                </button>
+                {active && (
+                  <div className="ps__meter-pick-fields">
+                    <label className="ps__field ps__field--sm">
+                      <span className="ps__field-label">Included</span>
+                      <input
+                        className="ps__input ps__input--sm"
+                        type="number"
+                        min="0"
+                        value={selected[m.id].included}
+                        onChange={(e) => updateSelected(m.id, 'included', e.target.value)}
+                      />
+                    </label>
+                    <label className="ps__field ps__field--sm">
+                      <span className="ps__field-label">Overage rate ($)</span>
+                      <input
+                        className="ps__input ps__input--sm"
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={selected[m.id].overage}
+                        onChange={(e) => updateSelected(m.id, 'overage', e.target.value)}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <button className="demo__btn" onClick={handleAdd} disabled={!name.trim()}>
+        Create plan
+      </button>
+    </fieldset>
+  );
+}
+
+function PlanList({
+  plans,
+  meters,
+}: {
+  plans: ReturnType<typeof useStore>['plans'];
+  meters: ReturnType<typeof useStore>['meters'];
+}) {
+  const meterMap = new Map(meters.map((m) => [m.id, m]));
+  if (plans.length === 0) {
+    return <p className="ps__empty">No plans defined yet.</p>;
+  }
+  return (
+    <div className="ps__list" role="list" aria-label="defined plans">
+      {plans.map((p) => (
+        <div key={p.id} className="ps__list-item ps__list-item--plan" role="listitem">
+          <div className="ps__list-main">
+            <span className="ps__list-name">{p.name}</span>
+            <span className="ps__list-meta">
+              {p.meters.length} meter{p.meters.length === 1 ? '' : 's'}
+            </span>
+            <div className="ps__plan-meters">
+              {p.meters.map((pm) => {
+                const m = meterMap.get(pm.meterId);
+                return (
+                  <span key={pm.meterId} className="ps__plan-meter-chip">
+                    {m?.name ?? pm.meterId}: {pm.includedQuota} free, ${pm.overageRate}/overage
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+          <button
+            className="ps__remove"
+            onClick={() => removePlan(p.id)}
+            aria-label={`remove plan ${p.name}`}
+          >
+            x
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

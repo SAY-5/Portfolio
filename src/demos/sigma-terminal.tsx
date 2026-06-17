@@ -1,449 +1,440 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useReducedMotion } from 'framer-motion';
+import { useMemo, useState } from 'react';
 import './sigma-terminal.css';
+import { universe } from './sigma-terminal/data';
+import { sparklinePath } from './sigma-terminal/engine';
+import { useStore } from './sigma-terminal/state';
+import {
+  addAlert,
+  addTicker,
+  clearTriggered,
+  quoteFor,
+  removeAlert,
+  removeTicker,
+  resetAll,
+  selectTicker,
+  seriesFor,
+  step,
+  stepAll,
+} from './sigma-terminal/store';
+import type { AlertDirection, Bar } from './sigma-terminal/types';
 
-// Sigma Terminal streams quotes over a Finnhub WebSocket and draws candlesticks
-// straight to a canvas with no chart library, then layers 15+ technical
-// indicators on top. This demo reproduces that path: a seeded random walk
-// stands in for the live feed, candles are drawn by hand on a 2D context,
-// SMA / EMA / Bollinger overlays toggle on, and a command-palette switches
-// tickers the way Cmd+K does in the terminal.
+const CHART_W = 460;
+const CHART_H = 180;
 
-type Candle = { o: number; h: number; l: number; c: number };
-type Ticker = { sym: string; co: string; seed: number; base: number; vol: number };
-
-const TICKERS: Ticker[] = [
-  { sym: 'AAPL', co: 'Apple Inc', seed: 11, base: 188.4, vol: 1.7 },
-  { sym: 'NVDA', co: 'NVIDIA Corp', seed: 29, base: 121.6, vol: 2.6 },
-  { sym: 'NVDA', co: 'Nvidia', seed: 7, base: 242.1, vol: 3.1 },
-  { sym: 'MSFT', co: 'Microsoft', seed: 41, base: 415.2, vol: 1.9 },
-];
-
-const INDICATOR_COUNT = 15; // SMA, EMA, RSI, MACD, Bollinger, Stochastic, ADX, ATR, OBV, CCI, VWAP, ...
-const CANDLE_COUNT = 48;
-const VIEW_W = 720;
-const VIEW_H = 300;
-const PAD = 14;
-
-// Deterministic pseudo-random so the server render and the client agree before
-// the live stream starts mutating the series.
-function makeRng(seed: number) {
-  let s = seed >>> 0 || 1;
-  return () => {
-    s ^= s << 13;
-    s ^= s >>> 17;
-    s ^= s << 5;
-    s >>>= 0;
-    return s / 4294967296;
-  };
-}
-
-function buildSeries(t: Ticker, count: number): Candle[] {
-  const rng = makeRng(t.seed * 2654435761);
-  const out: Candle[] = [];
-  let price = t.base;
-  for (let i = 0; i < count; i++) {
-    const o = price;
-    const drift = (rng() - 0.48) * t.vol;
-    const c = Math.max(1, o + drift);
-    const wick = (rng() * 0.6 + 0.2) * t.vol;
-    const h = Math.max(o, c) + wick * rng();
-    const l = Math.min(o, c) - wick * rng();
-    out.push({ o, h, l, c });
-    price = c;
-  }
-  return out;
-}
-
-function nextCandle(prev: Candle, t: Ticker, rng: () => number): Candle {
-  const o = prev.c;
-  const drift = (rng() - 0.48) * t.vol;
-  const c = Math.max(1, o + drift);
-  const wick = (rng() * 0.6 + 0.2) * t.vol;
-  const h = Math.max(o, c) + wick * rng();
-  const l = Math.min(o, c) - wick * rng();
-  return { o, h, l, c };
-}
-
-function sma(vals: number[], period: number): (number | null)[] {
-  const out: (number | null)[] = [];
-  let sum = 0;
-  for (let i = 0; i < vals.length; i++) {
-    sum += vals[i];
-    if (i >= period) sum -= vals[i - period];
-    out.push(i >= period - 1 ? sum / period : null);
-  }
-  return out;
-}
-
-function ema(vals: number[], period: number): (number | null)[] {
-  const out: (number | null)[] = [];
-  const k = 2 / (period + 1);
-  let prev: number | null = null;
-  for (let i = 0; i < vals.length; i++) {
-    if (prev === null) {
-      prev = vals[i];
-    } else {
-      prev = vals[i] * k + prev * (1 - k);
-    }
-    out.push(i >= period - 1 ? prev : null);
-  }
-  return out;
-}
-
-function bollinger(vals: number[], period: number, mult: number) {
-  const mid = sma(vals, period);
-  const upper: (number | null)[] = [];
-  const lower: (number | null)[] = [];
-  for (let i = 0; i < vals.length; i++) {
-    const m = mid[i];
-    if (m === null) {
-      upper.push(null);
-      lower.push(null);
-      continue;
-    }
-    let acc = 0;
-    for (let j = i - period + 1; j <= i; j++) acc += (vals[j] - m) ** 2;
-    const sd = Math.sqrt(acc / period);
-    upper.push(m + sd * mult);
-    lower.push(m - sd * mult);
-  }
-  return { mid, upper, lower };
-}
-
-type Overlay = 'sma' | 'ema' | 'boll';
-
-export default function SigmaTerminalDemo() {
-  const reduce = useReducedMotion();
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rngRef = useRef<() => number>(() => 0.5);
-  const timerRef = useRef<number | null>(null);
-
-  const [active, setActive] = useState(0);
-  const [series, setSeries] = useState<Candle[]>(() =>
-    buildSeries(TICKERS[0], CANDLE_COUNT),
+// A compact inline sparkline drawn from an instrument's close prices. The line
+// is coloured by net direction over the window so a glance reads the trend.
+function Sparkline({
+  series,
+  width,
+  height,
+  up,
+}: {
+  series: Bar[];
+  width: number;
+  height: number;
+  up: boolean;
+}) {
+  const d = sparklinePath(series, width, height);
+  if (!d) return <span className="st__spark-empty" aria-hidden="true" />;
+  return (
+    <svg
+      className="st__spark"
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-hidden="true"
+      preserveAspectRatio="none"
+    >
+      <path
+        d={d}
+        fill="none"
+        stroke={up ? 'var(--ok)' : 'var(--magenta)'}
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
   );
-  const [streaming, setStreaming] = useState(false);
-  const [overlays, setOverlays] = useState<Record<Overlay, boolean>>({
-    sma: true,
-    ema: false,
-    boll: false,
-  });
+}
 
-  const ticker = TICKERS[active];
-  const last = series[series.length - 1];
-  const first = series[0];
-  const change = last.c - first.o;
-  const changePct = (change / first.o) * 100;
-  const up = change >= 0;
+// In-browser Sigma Terminal. The watchlist, price alerts, and per-instrument
+// tick counts live in a small external store backed by localStorage, while the
+// price series for each instrument is rebuilt deterministically from its seed
+// through the engine, so the same instrument always charts the same way. There
+// is no network and no eval: advancing the series appends one deterministic bar
+// and re-evaluates alerts by plain numeric comparison. A captured clock value
+// keeps render pure while still timestamping triggered alerts.
 
-  // Switch ticker: rebuild the deterministic series and reseed the live walk.
-  function selectTicker(idx: number) {
-    setActive(idx);
-    const next = buildSeries(TICKERS[idx], CANDLE_COUNT);
-    setSeries(next);
-    rngRef.current = makeRng(TICKERS[idx].seed * 40503 + 99);
+// A larger area chart for the selected instrument: the close-price line with a
+// soft fill beneath it, drawn purely from the deterministic series.
+function AreaChart({ series, up }: { series: Bar[]; up: boolean }) {
+  const line = sparklinePath(series, CHART_W, CHART_H);
+  if (!line) {
+    return <div className="st__chart" style={{ height: CHART_H }} />;
+  }
+  const fill = `${line}L${CHART_W} ${CHART_H}L0 ${CHART_H}Z`;
+  const stroke = up ? 'var(--ok)' : 'var(--magenta)';
+  return (
+    <svg
+      className="st__chart"
+      viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+      role="img"
+      aria-label="Close price over the current series"
+      preserveAspectRatio="none"
+    >
+      <path d={fill} fill={up ? 'var(--accent-soft)' : 'var(--magenta-soft)'} />
+      <path
+        d={line}
+        fill="none"
+        stroke={stroke}
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+// The detail panel: selected instrument, area chart, OHLC and high/low/change
+// statistics, and the alerts editor for that instrument.
+function DetailPanel({ ticker }: { ticker: string }) {
+  const inst = universe.find((i) => i.ticker === ticker);
+  const series = seriesFor(ticker);
+  const q = quoteFor(ticker);
+  const up = q.change >= 0;
+  const state = useStore();
+  const alerts = state.alerts.filter((a) => a.ticker === ticker);
+  const firedIds = new Set(state.triggered.map((t) => t.alert.id));
+
+  const [dir, setDir] = useState<AlertDirection>('above');
+  const [threshold, setThreshold] = useState('');
+
+  if (!inst) {
+    return (
+      <section className="st__detail glass" aria-label="Instrument detail">
+        <p className="st__empty">Select an instrument to view its detail.</p>
+      </section>
+    );
   }
 
-  function toggleOverlay(key: Overlay) {
-    setOverlays((o) => ({ ...o, [key]: !o[key] }));
+  const stats: { label: string; value: string }[] = [
+    { label: 'Open', value: q.open.toFixed(2) },
+    { label: 'High', value: q.high.toFixed(2) },
+    { label: 'Low', value: q.low.toFixed(2) },
+    { label: 'Close', value: q.close.toFixed(2) },
+  ];
+
+  function onAddAlert(e: React.FormEvent) {
+    e.preventDefault();
+    const value = Number.parseFloat(threshold);
+    if (!Number.isFinite(value) || value <= 0) return;
+    addAlert(ticker, dir, value);
+    setThreshold('');
   }
-
-  // Live stream: push a new candle on an interval and drop the oldest.
-  useEffect(() => {
-    if (!streaming || reduce) return;
-    rngRef.current = makeRng(ticker.seed * 40503 + series.length);
-    timerRef.current = window.setInterval(() => {
-      setSeries((s) => {
-        const c = nextCandle(s[s.length - 1], ticker, rngRef.current);
-        return [...s.slice(1), c];
-      });
-    }, 700);
-    return () => {
-      if (timerRef.current !== null) window.clearInterval(timerRef.current);
-    };
-  }, [streaming, active, reduce]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const closes = useMemo(() => series.map((c) => c.c), [series]);
-  const smaLine = useMemo(() => sma(closes, 7), [closes]);
-  const emaLine = useMemo(() => ema(closes, 12), [closes]);
-  const boll = useMemo(() => bollinger(closes, 14, 2), [closes]);
-
-  // Hand-rolled canvas render, redrawn whenever the series or overlays change.
-  useEffect(() => {
-    const cv = canvasRef.current;
-    if (!cv) return;
-    const ctx = cv.getContext('2d');
-    if (!ctx) return;
-
-    const dpr =
-      typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
-    cv.width = VIEW_W * dpr;
-    cv.height = VIEW_H * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, VIEW_W, VIEW_H);
-
-    let hi = -Infinity;
-    let lo = Infinity;
-    for (const c of series) {
-      if (c.h > hi) hi = c.h;
-      if (c.l < lo) lo = c.l;
-    }
-    if (overlays.boll) {
-      for (let i = 0; i < boll.upper.length; i++) {
-        const u = boll.upper[i];
-        const l = boll.lower[i];
-        if (u !== null && u > hi) hi = u;
-        if (l !== null && l < lo) lo = l;
-      }
-    }
-    const range = hi - lo || 1;
-    const yOf = (v: number) =>
-      PAD + (1 - (v - lo) / range) * (VIEW_H - PAD * 2);
-    const plotW = VIEW_W - PAD * 2;
-    const step = plotW / series.length;
-    const xOf = (i: number) => PAD + i * step + step / 2;
-
-    // gridlines
-    ctx.strokeStyle = 'rgba(38, 38, 47, 0.7)';
-    ctx.lineWidth = 1;
-    for (let g = 0; g <= 4; g++) {
-      const y = PAD + (g / 4) * (VIEW_H - PAD * 2);
-      ctx.beginPath();
-      ctx.moveTo(PAD, y);
-      ctx.lineTo(VIEW_W - PAD, y);
-      ctx.stroke();
-    }
-
-    // Bollinger band fill + edges
-    if (overlays.boll) {
-      ctx.beginPath();
-      let started = false;
-      for (let i = 0; i < boll.upper.length; i++) {
-        const u = boll.upper[i];
-        if (u === null) continue;
-        const x = xOf(i);
-        const y = yOf(u);
-        if (!started) {
-          ctx.moveTo(x, y);
-          started = true;
-        } else ctx.lineTo(x, y);
-      }
-      for (let i = boll.lower.length - 1; i >= 0; i--) {
-        const l = boll.lower[i];
-        if (l === null) continue;
-        ctx.lineTo(xOf(i), yOf(l));
-      }
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(90, 169, 255, 0.10)';
-      ctx.fill();
-    }
-
-    // candles
-    const candleW = Math.max(2, step * 0.62);
-    for (let i = 0; i < series.length; i++) {
-      const c = series[i];
-      const x = xOf(i);
-      const bull = c.c >= c.o;
-      const col = bull ? '#4fd08a' : '#ff5b29';
-      ctx.strokeStyle = col;
-      ctx.fillStyle = col;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x, yOf(c.h));
-      ctx.lineTo(x, yOf(c.l));
-      ctx.stroke();
-      const yo = yOf(c.o);
-      const yc = yOf(c.c);
-      const top = Math.min(yo, yc);
-      const h = Math.max(1.5, Math.abs(yc - yo));
-      ctx.fillRect(x - candleW / 2, top, candleW, h);
-    }
-
-    const drawLine = (line: (number | null)[], color: string, w: number) => {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = w;
-      ctx.beginPath();
-      let started = false;
-      for (let i = 0; i < line.length; i++) {
-        const v = line[i];
-        if (v === null) continue;
-        const x = xOf(i);
-        const y = yOf(v);
-        if (!started) {
-          ctx.moveTo(x, y);
-          started = true;
-        } else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-    };
-
-    if (overlays.sma) drawLine(smaLine, '#ff7d52', 1.6);
-    if (overlays.ema) drawLine(emaLine, '#f4f2ec', 1.4);
-    if (overlays.boll) {
-      drawLine(boll.upper, 'rgba(90, 169, 255, 0.85)', 1.2);
-      drawLine(boll.lower, 'rgba(90, 169, 255, 0.85)', 1.2);
-    }
-  }, [series, overlays, smaLine, emaLine, boll]);
 
   return (
-    <div className="demo" aria-label="Sigma Terminal live chart demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Streaming candles, drawn by hand</h3>
-      <p className="demo__lede">
-        Press play to stream quotes tick by tick. Candlesticks are painted
-        straight to a canvas with no chart library, exactly like the terminal.
-        Toggle indicator overlays and jump between tickers from the palette.
-      </p>
-
-      <div className="sg__stage">
-        <div className="sg__bar">
-          <span className="sg__ticker">{ticker.sym}</span>
-          <span className="sg__price">{last.c.toFixed(2)}</span>
-          <span className={`sg__chg sg__chg--${up ? 'up' : 'down'}`}>
+    <section className="st__detail glass" aria-label={`${ticker} detail`}>
+      <div className="st__detail-head">
+        <div>
+          <span className="st__detail-sym">{ticker}</span>{' '}
+          <span className="st__detail-name">{inst.name}</span>
+        </div>
+        <div>
+          <span className="st__detail-price">{q.last.toFixed(2)}</span>{' '}
+          <span className={`st__chg ${up ? 'is-up' : 'is-down'}`}>
             {up ? '+' : ''}
-            {change.toFixed(2)} ({up ? '+' : ''}
-            {changePct.toFixed(2)}%)
-          </span>
-          <span className="sg__live" data-on={streaming ? 'true' : 'false'}>
-            <span className="sg__live-dot" />
-            {streaming ? 'streaming' : 'paused'}
+            {q.change.toFixed(2)} ({up ? '+' : ''}
+            {q.changePct.toFixed(2)}%)
           </span>
         </div>
+      </div>
 
-        <div className="sg__chartwrap">
-          <div className="sg__legend" aria-hidden="true">
-            {overlays.sma && (
-              <span className="sg__legend-row">
-                <span
-                  className="sg__legend-swatch"
-                  style={{ background: '#ff7d52' }}
-                />
-                SMA 7
-              </span>
-            )}
-            {overlays.ema && (
-              <span className="sg__legend-row">
-                <span
-                  className="sg__legend-swatch"
-                  style={{ background: '#f4f2ec' }}
-                />
-                EMA 12
-              </span>
-            )}
-            {overlays.boll && (
-              <span className="sg__legend-row">
-                <span
-                  className="sg__legend-swatch"
-                  style={{ background: '#5aa9ff' }}
-                />
-                Bollinger 14, 2
-              </span>
-            )}
+      <AreaChart series={series} up={up} />
+
+      <dl className="st__stats">
+        {stats.map((s) => (
+          <div className="st__stat" key={s.label}>
+            <dt>{s.label}</dt>
+            <dd>{s.value}</dd>
           </div>
-          <canvas
-            ref={canvasRef}
-            className="sg__canvas"
-            style={{ aspectRatio: `${VIEW_W} / ${VIEW_H}` }}
-            role="img"
-            aria-label={`${ticker.sym} candlestick chart, last close ${last.c.toFixed(
-              2,
-            )}`}
-          />
+        ))}
+      </dl>
+
+      <div className="st__alerts">
+        <h3 className="st__panel-title">Price alerts</h3>
+        <form className="st__alertform" onSubmit={onAddAlert}>
+          <div className="st__field">
+            <label className="st__label" htmlFor={`st-dir-${ticker}`}>
+              Trigger when price
+            </label>
+            <select
+              id={`st-dir-${ticker}`}
+              className="st__select"
+              value={dir}
+              onChange={(e) => setDir(e.target.value as AlertDirection)}
+            >
+              <option value="above">is at or above</option>
+              <option value="below">is at or below</option>
+            </select>
+          </div>
+          <div className="st__field">
+            <label className="st__label" htmlFor={`st-thr-${ticker}`}>
+              Threshold
+            </label>
+            <input
+              id={`st-thr-${ticker}`}
+              className="st__input"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={threshold}
+              onChange={(e) => setThreshold(e.target.value)}
+              placeholder={q.last.toFixed(2)}
+            />
+          </div>
+          <button type="submit" className="st__btn" disabled={!threshold}>
+            Add alert
+          </button>
+        </form>
+
+        {alerts.length === 0 ? (
+          <p className="st__empty">No alerts on {ticker} yet.</p>
+        ) : (
+          <ul className="st__alertlist">
+            {alerts.map((a) => {
+              const fired = firedIds.has(a.id);
+              return (
+                <li
+                  key={a.id}
+                  className={`st__alertitem${fired ? ' is-fired' : ''}`}
+                >
+                  <span className="st__alertmeta">
+                    {a.ticker} {a.direction === 'above' ? '>=' : '<='}{' '}
+                    {a.threshold.toFixed(2)}
+                    {fired ? <span className="st__badge">Fired</span> : null}
+                  </span>
+                  <button
+                    type="button"
+                    className="st__remove"
+                    aria-label={`Remove alert on ${a.ticker} at ${a.threshold}`}
+                    onClick={() => removeAlert(a.id)}
+                  >
+                    Remove
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export default function SigmaTerminalDemo() {
+  const state = useStore();
+
+  // Tickers in the universe not yet on the watchlist, for the add control.
+  const addable = useMemo(
+    () => universe.filter((i) => !state.watchlist.includes(i.ticker)),
+    [state.watchlist],
+  );
+  const [addPick, setAddPick] = useState('');
+
+  function onStep() {
+    stepAll(Date.now());
+  }
+
+  return (
+    <div className="st">
+      <header className="st__head">
+        <div>
+          <h2 className="st__title">Sigma Terminal</h2>
+          <p className="st__sub">
+            Seeded in-browser markets watchlist. Deterministic series, no
+            network.
+          </p>
+        </div>
+        <div className="st__actions">
+          <button type="button" className="st__btn" onClick={onStep}>
+            Advance series
+          </button>
+          <button
+            type="button"
+            className="st__btn st__btn--ghost"
+            onClick={resetAll}
+          >
+            Reset
+          </button>
+        </div>
+      </header>
+
+      <div className="st__grid">
+        <section className="st__watch glass" aria-label="Watchlist">
+          <h3 className="st__panel-title">Watchlist</h3>
+        <div className="st__addrow">
+          <div className="st__field">
+            <label className="st__label" htmlFor="st-add">
+              Add instrument
+            </label>
+            <select
+              id="st-add"
+              className="st__select"
+              value={addPick}
+              onChange={(e) => setAddPick(e.target.value)}
+            >
+              <option value="">Choose a ticker</option>
+              {addable.map((i) => (
+                <option key={i.ticker} value={i.ticker}>
+                  {i.ticker} - {i.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            className="st__btn"
+            disabled={!addPick}
+            onClick={() => {
+              if (addPick) {
+                addTicker(addPick);
+                setAddPick('');
+              }
+            }}
+          >
+            Add
+          </button>
         </div>
 
-        <div
-          className="sg__indicators"
-          role="group"
-          aria-label="Technical indicator overlays"
+        {state.watchlist.length === 0 ? (
+          <p className="st__empty">
+            Watchlist is empty. Add an instrument above to begin.
+          </p>
+        ) : (
+          <table className="st__table">
+            <caption className="st__caption">
+              Watchlist quotes and trend
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Symbol</th>
+                <th scope="col" className="st__num">
+                  Last
+                </th>
+                <th scope="col" className="st__num">
+                  Change
+                </th>
+                <th scope="col">Trend</th>
+                <th scope="col">
+                  <span className="st__sr">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.watchlist.map((ticker) => {
+                const series = seriesFor(ticker);
+                const q = quoteFor(ticker);
+                const up = q.change >= 0;
+                const selected = ticker === state.selected;
+                return (
+                  <tr
+                    key={ticker}
+                    className={selected ? 'is-selected' : undefined}
+                    aria-current={selected ? 'true' : undefined}
+                  >
+                    <th scope="row">
+                      <button
+                        type="button"
+                        className="st__symbtn"
+                        onClick={() => selectTicker(ticker)}
+                      >
+                        {ticker}
+                      </button>
+                    </th>
+                    <td className="st__num st__last">{q.last.toFixed(2)}</td>
+                    <td className="st__num">
+                      <span className={`st__chg ${up ? 'is-up' : 'is-down'}`}>
+                        {up ? '+' : ''}
+                        {q.change.toFixed(2)} ({up ? '+' : ''}
+                        {q.changePct.toFixed(2)}%)
+                      </span>
+                    </td>
+                    <td>
+                      <Sparkline
+                        series={series}
+                        width={96}
+                        height={28}
+                        up={up}
+                      />
+                    </td>
+                    <td className="st__rowactions">
+                      <button
+                        type="button"
+                        className="st__remove"
+                        aria-label={`Advance ${ticker} one tick`}
+                        onClick={() => step(ticker, Date.now())}
+                      >
+                        Tick
+                      </button>
+                      <button
+                        type="button"
+                        className="st__remove"
+                        aria-label={`Remove ${ticker} from watchlist`}
+                        onClick={() => removeTicker(ticker)}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          )}
+        </section>
+
+        {state.selected ? (
+          <DetailPanel ticker={state.selected} />
+        ) : (
+          <section className="st__detail glass" aria-label="Instrument detail">
+            <p className="st__empty">
+              Select an instrument from the watchlist.
+            </p>
+          </section>
+        )}
+      </div>
+
+      {state.triggered.length > 0 ? (
+        <section
+          className="st__triggered glass"
+          aria-label="Triggered alerts"
+          aria-live="polite"
         >
-          <button
-            className="sg__ind"
-            aria-pressed={overlays.sma}
-            onClick={() => toggleOverlay('sma')}
-          >
-            SMA 7
-          </button>
-          <button
-            className="sg__ind sg__ind--green"
-            aria-pressed={overlays.ema}
-            onClick={() => toggleOverlay('ema')}
-          >
-            EMA 12
-          </button>
-          <button
-            className="sg__ind sg__ind--blue"
-            aria-pressed={overlays.boll}
-            onClick={() => toggleOverlay('boll')}
-          >
-            Bollinger
-          </button>
-        </div>
-
-        <div className="sg__palette">
-          <div className="sg__palette-head">
-            <span className="sg__palette-key">Cmd K</span>
-            <span className="sg__palette-label">jump to ticker</span>
+          <div className="st__detail-head">
+            <h3 className="st__panel-title">
+              Triggered on last advance ({state.triggered.length})
+            </h3>
+            <button
+              type="button"
+              className="st__remove"
+              onClick={clearTriggered}
+            >
+              Dismiss
+            </button>
           </div>
-          <div className="sg__palette-list">
-            {TICKERS.map((t, i) => (
-              <button
-                key={t.sym}
-                className="sg__palette-item"
-                aria-current={i === active}
-                onClick={() => selectTicker(i)}
-              >
-                <span className="sg__palette-sym">{t.sym}</span>
-                <span className="sg__palette-co">{t.co}</span>
-              </button>
+          <ul className="st__triggered-list">
+            {state.triggered.map((t) => (
+              <li className="st__triggered-item" key={t.alert.id}>
+                <span className="st__dot" aria-hidden="true" />
+                {t.alert.ticker} {t.alert.direction === 'above' ? '>=' : '<='}{' '}
+                {t.alert.threshold.toFixed(2)} hit at {t.price.toFixed(2)}
+              </li>
             ))}
-          </div>
-        </div>
-
-        <div className="sg__readout">
-          <div className="sg__stat">
-            <div className="sg__stat-name">High</div>
-            <div className="sg__stat-val">
-              {Math.max(...series.map((c) => c.h)).toFixed(2)}
-            </div>
-          </div>
-          <div className="sg__stat">
-            <div className="sg__stat-name">Low</div>
-            <div className="sg__stat-val">
-              {Math.min(...series.map((c) => c.l)).toFixed(2)}
-            </div>
-          </div>
-          <div className="sg__stat">
-            <div className="sg__stat-name">Candles</div>
-            <div className="sg__stat-val">{series.length}</div>
-          </div>
-          <div className="sg__stat">
-            <div className="sg__stat-name">Indicators</div>
-            <div className="sg__stat-val">{INDICATOR_COUNT}+</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="demo__controls">
-        <button
-          className="demo__btn"
-          onClick={() => setStreaming((s) => !s)}
-          disabled={!!reduce}
-        >
-          {streaming ? 'Pause stream' : 'Play stream'}
-        </button>
-        <button
-          className="demo__btn demo__btn--ghost"
-          onClick={() => selectTicker(active)}
-        >
-          Reset series
-        </button>
-        <span className="demo__hint">
-          {reduce
-            ? 'Static frame; reduced motion is on'
-            : '15+ indicators, canvas candles, no chart library'}
-        </span>
-      </div>
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }

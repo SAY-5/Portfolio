@@ -1,309 +1,581 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
+import { useMemo, useState } from 'react';
 import '../styles/demo.css';
 import './promptforge.css';
+import type { Template, VarDef, VarType } from './promptforge/types';
+import {
+  diffLines,
+  diffStat,
+  formatTime,
+  isClean,
+  isDirty,
+  render,
+} from './promptforge/engine';
+import { useStore } from './promptforge/state';
+import {
+  activateVersion,
+  createTemplate,
+  deleteTemplate,
+  removeVar,
+  renameTemplate,
+  resetAll,
+  saveVersion,
+  selectedTemplate,
+  selectTemplate,
+  setBody,
+  updateVar,
+} from './promptforge/store';
 
-// Real facts from the project:
-// - Each (name, version) pair runs against a 200-example test suite.
-// - A new version is compared to the previous one with a two-proportion z-test,
-//   blocking when p < 0.05 AND the pass-rate delta exceeds 5 percentage points.
-// - Correctness is structured-output validation against a declared schema.
-// - Per-call cost and latency are recorded; per-example diff surfaces which
-//   examples are newly-passing versus newly-failing across versions.
+// In-browser PromptForge: author a text template with {{variable}}
+// placeholders, declare each variable's type and default, preview the rendered
+// output against your own inputs, snapshot immutable versions, and diff or
+// restore any prior version. Templates and versions persist in localStorage and
+// nothing leaves the page: rendering is a plain string substitution with no
+// eval and no network. The seed template is plain order-notice copy so a first
+// visitor has something concrete to edit.
 
-const SUITE = 200;
-const BLOCK_P = 0.05;
-const DELTA_GATE = 5; // percentage points
+type View = 'editor' | 'preview' | 'versions';
 
-type Matchup = {
-  id: string;
-  prev: { version: string; pass: number; cost: number; latency: number };
-  next: { version: string; pass: number; cost: number; latency: number };
-};
-
-// Two candidate runs the harness can replay. Pass counts are out of 200.
-const matchups: Matchup[] = [
-  {
-    id: 'win',
-    prev: { version: 'v2', pass: 168, cost: 0.41, latency: 820 },
-    next: { version: 'v3', pass: 187, cost: 0.39, latency: 760 },
-  },
-  {
-    id: 'noise',
-    prev: { version: 'v2', pass: 172, cost: 0.41, latency: 820 },
-    next: { version: 'v3', pass: 176, cost: 0.44, latency: 900 },
-  },
-];
-
-// Standard normal CDF via the Abramowitz-Stegun erf approximation.
-function normCdf(z: number) {
-  const t = 1 / (1 + 0.2316419 * Math.abs(z));
-  const d = 0.3989423 * Math.exp((-z * z) / 2);
-  let p =
-    d *
-    t *
-    (0.3193815 +
-      t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
-  if (z > 0) p = 1 - p;
-  return p;
-}
-
-// Two-proportion z-test on pass counts out of SUITE.
-function zTest(prevPass: number, nextPass: number) {
-  const p1 = prevPass / SUITE;
-  const p2 = nextPass / SUITE;
-  const pPool = (prevPass + nextPass) / (2 * SUITE);
-  const se = Math.sqrt(pPool * (1 - pPool) * (2 / SUITE));
-  const z = se === 0 ? 0 : (p2 - p1) / se;
-  const pValue = 2 * (1 - normCdf(Math.abs(z)));
-  return { z, pValue };
-}
-
-const ease = [0.22, 1, 0.36, 1] as const;
+const VAR_TYPES: VarType[] = ['text', 'number', 'enum'];
 
 export default function PromptforgeDemo() {
-  const reduce = useReducedMotion();
-  const [activeId, setActiveId] = useState<string>('win');
-  const [running, setRunning] = useState(false);
-  const [done, setDone] = useState(false);
-  const [progress, setProgress] = useState(0); // 0..SUITE examples run
-  const rafRef = useRef<number | null>(null);
+  const state = useStore();
+  const tpl = selectedTemplate(state);
 
-  const m = matchups.find((x) => x.id === activeId)!;
-  const frac = progress / SUITE;
+  const [view, setView] = useState<View>('editor');
+  // Per-template preview values, keyed by template id then variable name.
+  const [values, setValues] = useState<Record<string, Record<string, string>>>(
+    {},
+  );
+  const [newName, setNewName] = useState('');
+  const [copied, setCopied] = useState(false);
 
-  // Pass counts climb as examples are run.
-  const prevPassRun = Math.round(m.prev.pass * frac);
-  const nextPassRun = Math.round(m.next.pass * frac);
-
-  const { z, pValue } = zTest(m.prev.pass, m.next.pass);
-  const deltaPts = ((m.next.pass - m.prev.pass) / SUITE) * 100;
-  const significant = pValue < BLOCK_P;
-  const deltaBig = Math.abs(deltaPts) > DELTA_GATE;
-  const blocks = significant && deltaBig && deltaPts < 0;
-  const promotes = significant && deltaBig && deltaPts > 0;
-
-  const costDelta = m.next.cost - m.prev.cost;
-  const latencyDelta = m.next.latency - m.prev.latency;
-
-  function stopAnim() {
-    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
+  function setValue(tplId: string, name: string, value: string) {
+    setValues((prev) => ({
+      ...prev,
+      [tplId]: { ...(prev[tplId] ?? {}), [name]: value },
+    }));
   }
-  useEffect(() => stopAnim, []);
-
-  function pick(id: string) {
-    if (running) return;
-    stopAnim();
-    setActiveId(id);
-    setDone(false);
-    setProgress(0);
-  }
-
-  function run() {
-    if (running) return;
-    stopAnim();
-    setRunning(true);
-    setDone(false);
-    setProgress(0);
-
-    if (reduce) {
-      setProgress(SUITE);
-      setRunning(false);
-      setDone(true);
-      return;
-    }
-
-    let start = 0;
-    const dur = 1600;
-    const tick = (now: number) => {
-      if (start === 0) start = now;
-      const t = Math.min(1, (now - start) / dur);
-      setProgress(Math.round(SUITE * easeOut(t)));
-      if (t < 1) {
-        rafRef.current = requestAnimationFrame(tick);
-      } else {
-        setProgress(SUITE);
-        setRunning(false);
-        setDone(true);
-        rafRef.current = null;
-      }
-    };
-    rafRef.current = requestAnimationFrame(tick);
-  }
-
-  const prevPct = done ? (m.prev.pass / SUITE) * 100 : (prevPassRun / SUITE) * 100;
-  const nextPct = done ? (m.next.pass / SUITE) * 100 : (nextPassRun / SUITE) * 100;
-  const shownP = done ? pValue : 1;
-  const shownZ = done ? z : 0;
-
-  // significance meter: map p in [0,0.2] to a 0..100 fill, clamped.
-  const sigFill = Math.max(0, Math.min(100, (1 - shownP / 0.2) * 100));
-
-  const verdict = !done
-    ? null
-    : blocks
-      ? 'block'
-      : promotes
-        ? 'promote'
-        : 'warn';
 
   return (
-    <div className="demo" aria-label="promptforge regression harness demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Race two versions across 200 examples</h3>
-      <p className="demo__lede">
-        Run the suite to score a new prompt version against the previous one.
-        A two-proportion z-test gates promotion: it blocks only when p is below
-        0.05 and the pass-rate gap clears five points, with cost and latency
-        deltas alongside.
-      </p>
+    <div className="demo pf">
+      <header className="demo__head">
+        <span className="demo__tag">PromptForge</span>
+        <h1 className="demo__title">Template manager</h1>
+        <p className="demo__lede">
+          Author a template with <code>{'{{variable}}'}</code> placeholders,
+          preview it against your own inputs, then snapshot and diff versions.
+          Everything is stored locally in your browser.
+        </p>
+      </header>
 
-      <div className="pf__picker" role="tablist" aria-label="candidate runs">
-        {matchups.map((mu) => (
+      <div className="pf__layout">
+        <TemplateRail
+          templates={state.templates}
+          selectedId={state.selectedId}
+          newName={newName}
+          onNewName={setNewName}
+          onCreate={() => {
+            createTemplate(newName);
+            setNewName('');
+            setView('editor');
+          }}
+        />
+
+        <section className="pf__main glass" aria-label="Template workspace">
+          {!tpl ? (
+            <p className="pf__empty">
+              No template selected. Create one to begin.
+            </p>
+          ) : (
+            <>
+              <TemplateHeader tpl={tpl} view={view} onView={setView} />
+              {view === 'editor' && <Editor tpl={tpl} />}
+              {view === 'preview' && (
+                <Preview
+                  tpl={tpl}
+                  values={values[tpl.id] ?? {}}
+                  onValue={(name, value) => setValue(tpl.id, name, value)}
+                  copied={copied}
+                  onCopied={setCopied}
+                />
+              )}
+              {view === 'versions' && <Versions tpl={tpl} />}
+            </>
+          )}
+        </section>
+      </div>
+
+      <footer className="pf__footer">
+        <button
+          type="button"
+          className="demo__btn demo__btn--ghost"
+          onClick={() => {
+            resetAll();
+            setValues({});
+            setView('editor');
+          }}
+        >
+          Reset all data
+        </button>
+        <span className="pf__footnote">
+          Local only. No network, no code execution: rendering is plain text
+          substitution.
+        </span>
+      </footer>
+    </div>
+  );
+}
+
+// ---------- template rail ----------
+
+function TemplateRail({
+  templates,
+  selectedId,
+  newName,
+  onNewName,
+  onCreate,
+}: {
+  templates: Template[];
+  selectedId: string | null;
+  newName: string;
+  onNewName: (v: string) => void;
+  onCreate: () => void;
+}) {
+  return (
+    <nav className="pf__rail glass" aria-label="Templates">
+      <h2 className="pf__rail-title">Templates</h2>
+      <ul className="pf__list">
+        {templates.map((t) => (
+          <li key={t.id}>
+            <button
+              type="button"
+              className={`pf__list-item${t.id === selectedId ? ' is-active' : ''}`}
+              aria-current={t.id === selectedId ? 'true' : undefined}
+              onClick={() => selectTemplate(t.id)}
+            >
+              <span className="pf__list-name">{t.name}</span>
+              <span className="pf__list-meta mono">
+                {t.versions.length} ver{t.versions.length === 1 ? '' : 's'}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <form
+        className="pf__new"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onCreate();
+        }}
+      >
+        <label className="pf__sr" htmlFor="pf-new">
+          New template name
+        </label>
+        <input
+          id="pf-new"
+          className="pf__input"
+          value={newName}
+          placeholder="New template name"
+          onChange={(e) => onNewName(e.target.value)}
+        />
+        <button type="submit" className="demo__btn">
+          Add
+        </button>
+      </form>
+    </nav>
+  );
+}
+
+// ---------- header + tabs ----------
+
+function TemplateHeader({
+  tpl,
+  view,
+  onView,
+}: {
+  tpl: Template;
+  view: View;
+  onView: (v: View) => void;
+}) {
+  return (
+    <div className="pf__topbar">
+      <div className="pf__name-row">
+        <label className="pf__sr" htmlFor="pf-name">
+          Template name
+        </label>
+        <input
+          id="pf-name"
+          className="pf__name-input"
+          value={tpl.name}
+          onChange={(e) => renameTemplate(tpl.id, e.target.value)}
+        />
+        <button
+          type="button"
+          className="demo__btn demo__btn--ghost"
+          onClick={() => deleteTemplate(tpl.id)}
+        >
+          Delete
+        </button>
+      </div>
+      <div className="pf__tabs" role="tablist" aria-label="Workspace views">
+        {(['editor', 'preview', 'versions'] as View[]).map((v) => (
           <button
-            key={mu.id}
+            key={v}
+            type="button"
             role="tab"
-            aria-selected={mu.id === activeId}
-            className={`pf__pick${mu.id === activeId ? ' is-active' : ''}`}
-            onClick={() => pick(mu.id)}
-            disabled={running}
+            aria-selected={view === v}
+            className={`pf__tab${view === v ? ' is-active' : ''}`}
+            onClick={() => onView(v)}
           >
-            {mu.id === 'win' ? 'clear win' : 'within noise'}
+            {v[0].toUpperCase() + v.slice(1)}
           </button>
         ))}
       </div>
+    </div>
+  );
+}
 
-      <div className="pf__race">
-        {[
-          { who: 'prev', label: m.prev.version, pass: prevPassRun, pct: prevPct, full: m.prev.pass },
-          { who: 'next', label: m.next.version, pass: nextPassRun, pct: nextPct, full: m.next.pass },
-        ].map((lane) => (
-          <div key={lane.who} className={`pf__lane pf__lane--${lane.who}`}>
-            <div className="pf__lane-head">
-              <span className="pf__lane-ver">{lane.label}</span>
-              <span className="pf__lane-pass">
-                {done ? lane.full : lane.pass}
-                <span className="pf__lane-suite"> / {SUITE} pass</span>
-              </span>
-            </div>
-            <div className="pf__bar">
-              <motion.div
-                className="pf__bar-fill"
-                initial={false}
-                animate={{ width: `${lane.pct}%` }}
-                transition={{ duration: reduce ? 0 : 0.1, ease: 'linear' }}
-              />
-            </div>
-            <div className="pf__lane-rate">
-              {((done ? lane.full : lane.pass) / SUITE * 100).toFixed(1)}%
-            </div>
-          </div>
-        ))}
+// ---------- editor ----------
+
+function Editor({ tpl }: { tpl: Template }) {
+  const active = tpl.versions.find((v) => v.id === tpl.activeVersionId);
+  const dirty = isDirty(tpl.body, tpl.vars, active);
+
+  return (
+    <div className="pf__editor" role="tabpanel" aria-label="Editor">
+      <div className="pf__field">
+        <label className="pf__label" htmlFor="pf-body">
+          Template body
+        </label>
+        <textarea
+          id="pf-body"
+          className="pf__textarea mono"
+          value={tpl.body}
+          spellCheck={false}
+          rows={10}
+          placeholder="Write your template. Reference variables as {{name}}."
+          onChange={(e) => setBody(tpl.id, e.target.value)}
+        />
       </div>
 
-      <div className="pf__progress" aria-label="examples run">
-        <div className="pf__progress-track">
-          <motion.div
-            className="pf__progress-fill"
-            initial={false}
-            animate={{ width: `${(progress / SUITE) * 100}%` }}
-            transition={{ duration: reduce ? 0 : 0.1, ease: 'linear' }}
-          />
-        </div>
-        <span className="pf__progress-label">
-          {progress} / {SUITE} examples
-        </span>
-      </div>
-
-      <div className="pf__metrics">
-        <div className="pf__sig">
-          <div className="pf__metric-name">z-test significance</div>
-          <div className="pf__sig-meter" role="img" aria-label={`p value ${shownP.toFixed(4)}`}>
-            <motion.div
-              className={`pf__sig-fill${done && significant ? ' is-sig' : ''}`}
-              initial={false}
-              animate={{ width: `${done ? sigFill : 0}%` }}
-              transition={{ duration: reduce ? 0 : 0.5, ease }}
-            />
-            <span className="pf__sig-threshold" style={{ left: '75%' }} aria-hidden="true" />
-          </div>
-          <div className="pf__sig-foot">
-            <span>p = {shownP < 0.0001 && done ? '<0.0001' : shownP.toFixed(4)}</span>
-            <span>z = {shownZ.toFixed(2)}</span>
-            <span>{done ? (significant ? 'significant' : 'not significant') : 'idle'}</span>
-          </div>
-        </div>
-
-        <div className="pf__deltas">
-          <div className="pf__delta">
-            <span className="pf__delta-name">pass-rate delta</span>
-            <span className={`pf__delta-val${done && deltaPts >= 0 ? ' is-up' : done ? ' is-down' : ''}`}>
-              {done ? `${deltaPts >= 0 ? '+' : ''}${deltaPts.toFixed(1)} pts` : '0.0 pts'}
-            </span>
-          </div>
-          <div className="pf__delta">
-            <span className="pf__delta-name">cost / call</span>
-            <span className={`pf__delta-val${done && costDelta <= 0 ? ' is-up' : done ? ' is-down' : ''}`}>
-              {done ? `${costDelta >= 0 ? '+' : ''}$${costDelta.toFixed(2)}` : '$0.00'}
-            </span>
-          </div>
-          <div className="pf__delta">
-            <span className="pf__delta-name">latency</span>
-            <span className={`pf__delta-val${done && latencyDelta <= 0 ? ' is-up' : done ? ' is-down' : ''}`}>
-              {done ? `${latencyDelta >= 0 ? '+' : ''}${latencyDelta} ms` : '0 ms'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <AnimatePresence mode="wait">
-        {verdict && (
-          <motion.div
-            key={verdict}
-            className={`pf__verdict is-${verdict}`}
-            initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.35, ease }}
-          >
-            <span className="pf__verdict-tag">
-              {verdict === 'promote'
-                ? 'Promote v3'
-                : verdict === 'block'
-                  ? 'Block v3'
-                  : 'Warn, hold v3'}
-            </span>
-            <span className="pf__verdict-text">
-              {verdict === 'promote'
-                ? `p is below ${BLOCK_P} and the gap clears ${DELTA_GATE} points, so v3 ships.`
-                : verdict === 'block'
-                  ? `v3 regresses past ${DELTA_GATE} points with p below ${BLOCK_P}, so the gate blocks it.`
-                  : `the gap stays inside ${DELTA_GATE} points or p is above ${BLOCK_P}, so the change is noise and v2 holds.`}
-            </span>
-          </motion.div>
+      <div className="pf__vars">
+        <h3 className="pf__subtitle">
+          Variables{' '}
+          <span className="pf__count mono">{tpl.vars.length}</span>
+        </h3>
+        {tpl.vars.length === 0 ? (
+          <p className="pf__hint">
+            Add a <code>{'{{placeholder}}'}</code> to the body and it appears
+            here.
+          </p>
+        ) : (
+          <ul className="pf__var-list">
+            {tpl.vars.map((v) => (
+              <VarRow key={v.name} tplId={tpl.id} def={v} />
+            ))}
+          </ul>
         )}
-      </AnimatePresence>
+      </div>
 
-      <div className="demo__controls">
-        <button className="demo__btn" onClick={run} disabled={running}>
-          {running ? 'Running suite…' : 'Run suite'}
-        </button>
+      <div className="pf__save-row">
         <button
-          className="demo__btn demo__btn--ghost"
-          onClick={() => pick(activeId)}
-          disabled={running}
+          type="button"
+          className="demo__btn"
+          disabled={!dirty}
+          onClick={() => saveVersion(tpl.id)}
         >
-          Reset
+          {tpl.versions.length === 0 ? 'Save first version' : 'Save version'}
         </button>
-        <span className="demo__hint">
-          block when p &lt; {BLOCK_P} and delta &gt; {DELTA_GATE} pts
+        <span className="pf__save-meta mono" aria-live="polite">
+          {dirty ? 'Unsaved changes' : 'Saved'}
         </span>
       </div>
     </div>
   );
 }
 
-function easeOut(t: number) {
-  return 1 - Math.pow(1 - t, 3);
+function VarRow({ tplId, def }: { tplId: string; def: VarDef }) {
+  return (
+    <li className="pf__var-row">
+      <span className="pf__var-name mono">{def.name}</span>
+
+      <label className="pf__sr" htmlFor={`type-${def.name}`}>
+        Type for {def.name}
+      </label>
+      <select
+        id={`type-${def.name}`}
+        className="pf__select"
+        value={def.type}
+        onChange={(e) =>
+          updateVar(tplId, def.name, { type: e.target.value as VarType })
+        }
+      >
+        {VAR_TYPES.map((t) => (
+          <option key={t} value={t}>
+            {t}
+          </option>
+        ))}
+      </select>
+
+      <label className="pf__sr" htmlFor={`default-${def.name}`}>
+        Default for {def.name}
+      </label>
+      <input
+        id={`default-${def.name}`}
+        className="pf__input"
+        value={def.default}
+        placeholder="default"
+        onChange={(e) =>
+          updateVar(tplId, def.name, { default: e.target.value })
+        }
+      />
+
+      {def.type === 'enum' && (
+        <>
+          <label className="pf__sr" htmlFor={`options-${def.name}`}>
+            Options for {def.name}
+          </label>
+          <input
+            id={`options-${def.name}`}
+            className="pf__input pf__input--wide"
+            value={def.options.join(', ')}
+            placeholder="comma, separated, options"
+            onChange={(e) =>
+              updateVar(tplId, def.name, {
+                options: e.target.value
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              })
+            }
+          />
+        </>
+      )}
+
+      <button
+        type="button"
+        className="pf__var-remove"
+        aria-label={`Remove variable ${def.name}`}
+        onClick={() => removeVar(tplId, def.name)}
+      >
+        Remove
+      </button>
+    </li>
+  );
+}
+
+// ---------- preview ----------
+
+function Preview({
+  tpl,
+  values,
+  onValue,
+  copied,
+  onCopied,
+}: {
+  tpl: Template;
+  values: Record<string, string>;
+  onValue: (name: string, value: string) => void;
+  copied: boolean;
+  onCopied: (v: boolean) => void;
+}) {
+  const result = useMemo(
+    () => render(tpl.body, tpl.vars, values),
+    [tpl.body, tpl.vars, values],
+  );
+  const clean = isClean(result);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(result.output);
+      onCopied(true);
+      window.setTimeout(() => onCopied(false), 1500);
+    } catch {
+      onCopied(false);
+    }
+  }
+
+  return (
+    <div className="pf__preview" role="tabpanel" aria-label="Preview">
+      <div className="pf__inputs">
+        <h3 className="pf__subtitle">Values</h3>
+        {tpl.vars.length === 0 ? (
+          <p className="pf__hint">No variables declared yet.</p>
+        ) : (
+          <ul className="pf__input-list">
+            {tpl.vars.map((v) => (
+              <li key={v.name} className="pf__input-row">
+                <label className="pf__input-label mono" htmlFor={`val-${v.name}`}>
+                  {v.name}
+                </label>
+                {v.type === 'enum' ? (
+                  <select
+                    id={`val-${v.name}`}
+                    className="pf__select"
+                    value={values[v.name] ?? v.default}
+                    onChange={(e) => onValue(v.name, e.target.value)}
+                  >
+                    <option value="">(choose)</option>
+                    {v.options.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    id={`val-${v.name}`}
+                    className="pf__input"
+                    type={v.type === 'number' ? 'number' : 'text'}
+                    value={values[v.name] ?? ''}
+                    placeholder={v.default || v.name}
+                    onChange={(e) => onValue(v.name, e.target.value)}
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="pf__output-pane">
+        <div className="pf__output-head">
+          <h3 className="pf__subtitle">Output</h3>
+          <button type="button" className="demo__btn demo__btn--ghost" onClick={copy}>
+            {copied ? 'Copied' : 'Copy output'}
+          </button>
+        </div>
+        <pre className="pf__output mono" aria-live="polite">
+          {result.output || '(empty)'}
+        </pre>
+
+        {!clean && (
+          <div className="pf__warns" role="status">
+            {result.undeclared.length > 0 && (
+              <p className="pf__warn">
+                Undeclared: {result.undeclared.join(', ')}
+              </p>
+            )}
+            {result.missing.length > 0 && (
+              <p className="pf__warn">Missing value: {result.missing.join(', ')}</p>
+            )}
+            {result.invalidEnum.length > 0 && (
+              <p className="pf__warn">
+                Not an allowed option: {result.invalidEnum.join(', ')}
+              </p>
+            )}
+          </div>
+        )}
+        {clean && tpl.body !== '' && (
+          <p className="pf__ok" role="status">
+            All variables resolved.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- versions ----------
+
+function Versions({ tpl }: { tpl: Template }) {
+  const versions = tpl.versions;
+  const [left, setLeft] = useState<string>(versions[0]?.id ?? '');
+  const [right, setRight] = useState<string>(
+    versions[versions.length - 1]?.id ?? '',
+  );
+
+  const a = versions.find((v) => v.id === left);
+  const b = versions.find((v) => v.id === right);
+  const lines = useMemo(
+    () => (a && b ? diffLines(a.body, b.body) : []),
+    [a, b],
+  );
+  const stat = useMemo(() => diffStat(lines), [lines]);
+
+  if (versions.length === 0) {
+    return (
+      <div className="pf__versions" role="tabpanel" aria-label="Versions">
+        <p className="pf__hint">
+          No versions yet. Save one from the editor to start a history.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pf__versions" role="tabpanel" aria-label="Versions">
+      <ul className="pf__ver-list">
+        {versions.map((v) => (
+          <li
+            key={v.id}
+            className={`pf__ver${v.id === tpl.activeVersionId ? ' is-active' : ''}`}
+          >
+            <div className="pf__ver-info">
+              <span className="pf__ver-label mono">{v.label}</span>
+              <span className="pf__ver-time">{formatTime(v.savedAt)}</span>
+              {v.id === tpl.activeVersionId && (
+                <span className="pf__ver-badge">active</span>
+              )}
+            </div>
+            <button
+              type="button"
+              className="demo__btn demo__btn--ghost"
+              onClick={() => activateVersion(tpl.id, v.id)}
+            >
+              Restore
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <div className="pf__diff-controls">
+        <label className="pf__diff-label">
+          Base
+          <select
+            className="pf__select"
+            value={left}
+            onChange={(e) => setLeft(e.target.value)}
+          >
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="pf__diff-label">
+          Compare
+          <select
+            className="pf__select"
+            value={right}
+            onChange={(e) => setRight(e.target.value)}
+          >
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="pf__diff-stat mono">
+          +{stat.added} / -{stat.removed}
+        </span>
+      </div>
+
+      <pre className="pf__diff mono" aria-label="Line diff">
+        {lines.length === 0 ? (
+          <span className="pf__diff-same">(no lines)</span>
+        ) : (
+          lines.map((line, i) => (
+            <span key={i} className={`pf__diff-${line.kind}`}>
+              {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
+              {line.text}
+              {'\n'}
+            </span>
+          ))
+        )}
+      </pre>
+    </div>
+  );
 }

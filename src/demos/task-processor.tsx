@@ -1,313 +1,298 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
-import '../styles/demo.css';
 import './task-processor.css';
+import {
+  enqueue,
+  LIMITS,
+  reset,
+  runTicks,
+  selectMetrics,
+  setConcurrency,
+  setFailRate,
+  setMaxRetries,
+  step,
+  useSim,
+} from './task-processor/store';
+import type {
+  Job,
+  JobStatus,
+  Metrics,
+  SimState,
+  TrendPoint,
+  Worker,
+} from './task-processor/types';
 
-// Real numbers from the project: a 1000-task integration test with 3 consumer
-// replicas recorded 950 completed, 50 routed to DLQ, 0 task_id present in both
-// tables, with a 45.9 s processing wall. Effective exactly-once comes from a
-// DynamoDB PutItem with ConditionExpression attribute_not_exists(task_id) as
-// the only critical section, no locks or Redis.
-const TOTAL = 1000;
-const COMPLETED = 950;
-const DLQ = 50;
-const WALL_S = 45.9;
-const REPLICAS = 3;
+// Columns the queue board renders, left to right along a job's lifecycle.
+const COLUMNS: { status: JobStatus; label: string }[] = [
+  { status: 'queued', label: 'Queued' },
+  { status: 'running', label: 'Running' },
+  { status: 'done', label: 'Done' },
+  { status: 'dead', label: 'Dead letter' },
+];
 
-type Step = {
-  id: number;
-  label: string;
-  detail: string;
-};
+function jobsByStatus(jobs: Job[], status: JobStatus): Job[] {
+  return jobs
+    .filter((j) => j.status === status)
+    .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+}
 
-// One representative task per outcome, stepped so the viewer can see the
-// conditional put win, a duplicate lose, and a poison task fall to the DLQ.
-type Outcome = 'unique' | 'duplicate' | 'poison';
-
-const scenarios: Record<Outcome, Step[]> = {
-  unique: [
-    { id: 0, label: 'SQS receive', detail: 'task t-417 pulled by consumer-2' },
-    {
-      id: 1,
-      label: 'Conditional put',
-      detail: 'PutItem attribute_not_exists(task_id) succeeds',
-    },
-    { id: 2, label: 'Process', detail: 'handler runs, state = COMPLETED' },
-    { id: 3, label: 'Ack', detail: 'message deleted from queue' },
-  ],
-  duplicate: [
-    {
-      id: 0,
-      label: 'SQS receive',
-      detail: 'task t-417 redelivered to consumer-0',
-    },
-    {
-      id: 1,
-      label: 'Conditional put',
-      detail: 'ConditionalCheckFailed, task_id already present',
-    },
-    { id: 2, label: 'Skip', detail: 'duplicate dropped, no second run' },
-    { id: 3, label: 'Ack', detail: 'redelivery deleted, exactly-once held' },
-  ],
-  poison: [
-    { id: 0, label: 'SQS receive', detail: 'task t-883 pulled by consumer-1' },
-    {
-      id: 1,
-      label: 'Conditional put',
-      detail: 'PutItem succeeds, state = IN_PROGRESS',
-    },
-    {
-      id: 2,
-      label: 'Retry',
-      detail: 'handler throws, attempts exhausted (3/3)',
-    },
-    {
-      id: 3,
-      label: 'DLQ route',
-      detail: 'written to tasks_dlq table and tasks-dlq queue',
-    },
-  ],
-};
-
-const outcomeLabels: Record<Outcome, string> = {
-  unique: 'Unique task',
-  duplicate: 'Duplicate delivery',
-  poison: 'Poison task',
-};
-
-const ease = [0.22, 1, 0.36, 1] as const;
-
-export default function TaskProcessorDemo() {
-  const reduce = useReducedMotion();
-  const [outcome, setOutcome] = useState<Outcome>('duplicate');
-  const [step, setStep] = useState(-1);
-  const [playing, setPlaying] = useState(false);
-  const [replayed, setReplayed] = useState(false);
-  const timerRef = useRef<number | null>(null);
-
-  const steps = scenarios[outcome];
-  const finished = step >= steps.length - 1;
-  const isPoison = outcome === 'poison';
-
-  function stop() {
-    if (timerRef.current !== null) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  }
-  useEffect(() => stop, []);
-
-  function pick(o: Outcome) {
-    if (playing) return;
-    stop();
-    setOutcome(o);
-    setStep(-1);
-    setReplayed(false);
-  }
-
-  function play() {
-    if (playing) return;
-    setStep(-1);
-    setReplayed(false);
-    setPlaying(true);
-
-    if (reduce) {
-      setStep(steps.length - 1);
-      setPlaying(false);
-      return;
-    }
-
-    let s = -1;
-    timerRef.current = window.setInterval(() => {
-      s += 1;
-      setStep(s);
-      if (s >= steps.length - 1) {
-        stop();
-        setPlaying(false);
-      }
-    }, 720);
-  }
-
-  function stepForward() {
-    if (playing) return;
-    setStep((s) => Math.min(steps.length - 1, s + 1));
-  }
-
-  function replay() {
-    setReplayed(true);
-    setOutcome('unique');
-    setStep(-1);
-  }
-
+function WorkerCard({ worker }: { worker: Worker }) {
   return (
-    <div className="demo" aria-label="task-processor pipeline demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Exactly-once from at-least-once SQS</h3>
-      <p className="demo__lede">
-        Pick a task and step it through the pipeline. The only critical section
-        is a DynamoDB PutItem with ConditionExpression
-        attribute_not_exists(task_id): a unique task commits, a duplicate
-        delivery loses the race, and a poison task retries then routes to the
-        dual dead-letter queue you can replay.
-      </p>
+    <li className={`tp-worker ${worker.busy ? 'tp-worker--busy' : 'tp-worker--idle'}`}>
+      <span className="tp-worker__id">worker {worker.id}</span>
+      <span className="tp-worker__state">
+        {worker.busy ? (
+          <>
+            <span className="tp-worker__dot" aria-hidden="true" />
+            running {worker.currentJob}
+          </>
+        ) : (
+          'idle'
+        )}
+      </span>
+    </li>
+  );
+}
 
-      <div className="tp__picker" role="tablist" aria-label="Task outcome">
-        {(Object.keys(scenarios) as Outcome[]).map((o) => (
-          <button
-            key={o}
-            role="tab"
-            aria-selected={outcome === o}
-            className={`tp__pick ${outcome === o ? 'tp__pick--on' : ''}`}
-            onClick={() => pick(o)}
-            disabled={playing}
-          >
-            {outcomeLabels[o]}
-          </button>
-        ))}
-      </div>
+function Controls({ sim }: { sim: SimState }) {
+  const { config } = sim;
+  return (
+    <div className="tp__controls glass" aria-label="simulation configuration">
+      <label className="tp__field">
+        <span className="tp__field-label">
+          Concurrency <b>{config.concurrency}</b>
+        </span>
+        <input
+          type="range"
+          min={LIMITS.concurrency.min}
+          max={LIMITS.concurrency.max}
+          step={1}
+          value={config.concurrency}
+          onChange={(e) => setConcurrency(Number(e.target.value))}
+          aria-label="worker concurrency"
+        />
+      </label>
+      <label className="tp__field">
+        <span className="tp__field-label">
+          Max retries <b>{config.maxRetries}</b>
+        </span>
+        <input
+          type="range"
+          min={LIMITS.maxRetries.min}
+          max={LIMITS.maxRetries.max}
+          step={1}
+          value={config.maxRetries}
+          onChange={(e) => setMaxRetries(Number(e.target.value))}
+          aria-label="max retries before dead-letter"
+        />
+      </label>
+      <label className="tp__field">
+        <span className="tp__field-label">
+          Fail rate <b>{Math.round(config.failRate * 100)}%</b>
+        </span>
+        <input
+          type="range"
+          min={LIMITS.failRate.min}
+          max={LIMITS.failRate.max}
+          step={0.05}
+          value={config.failRate}
+          onChange={(e) => setFailRate(Number(e.target.value))}
+          aria-label="per-attempt failure rate"
+        />
+      </label>
+    </div>
+  );
+}
 
-      <div className="tp__stage">
-        <div className="tp__lane" aria-label="consumer replicas">
-          <div className="tp__source">
-            <span className="tp__source-name">tasks SQS</span>
-            <span className="tp__source-sub">at-least-once</span>
-          </div>
-          <div className="tp__consumers">
-            {Array.from({ length: REPLICAS }, (_, i) => (
-              <div
-                key={i}
-                className={`tp__consumer ${
-                  step >= 0 && i === (outcome === 'duplicate' ? 0 : outcome === 'poison' ? 1 : 2)
-                    ? 'tp__consumer--active'
-                    : ''
-                }`}
-              >
-                consumer-{i}
-              </div>
-            ))}
-          </div>
-          <div
-            className={`tp__sink ${
-              isPoison && finished ? 'tp__sink--dlq' : finished ? 'tp__sink--done' : ''
-            }`}
-          >
-            <span className="tp__sink-name">
-              {isPoison ? 'dual DLQ' : 'DynamoDB tasks'}
-            </span>
-            <span className="tp__sink-sub">
-              {isPoison ? 'table + queue' : 'source of truth'}
-            </span>
-          </div>
-        </div>
+const METRIC_TILES: { key: keyof Metrics; label: string; tone?: string }[] = [
+  { key: 'queued', label: 'queued' },
+  { key: 'inFlight', label: 'in flight', tone: 'accent' },
+  { key: 'done', label: 'done', tone: 'ok' },
+  { key: 'dead', label: 'dead-letter', tone: 'magenta' },
+  { key: 'throughput', label: 'throughput / tick' },
+];
 
-        <ol className="tp__steps">
-          {steps.map((st, i) => {
-            const active = i === step;
-            const passed = i < step || finished;
-            const isConflict =
-              outcome === 'duplicate' && st.label === 'Conditional put';
-            return (
-              <motion.li
-                key={st.id}
-                className={`tp__step ${active ? 'tp__step--active' : ''} ${
-                  passed ? 'tp__step--passed' : ''
-                } ${isConflict && (active || passed) ? 'tp__step--conflict' : ''}`}
-                initial={false}
-                animate={{
-                  opacity: i <= step ? 1 : 0.4,
-                  x: active && !reduce ? [6, 0] : 0,
-                }}
-                transition={{ duration: reduce ? 0 : 0.3, ease }}
-              >
-                <span className="tp__step-idx">{i + 1}</span>
-                <span className="tp__step-body">
-                  <span className="tp__step-label">{st.label}</span>
-                  <span className="tp__step-detail">{st.detail}</span>
-                </span>
-              </motion.li>
-            );
-          })}
-        </ol>
-
-        <AnimatePresence>
-          {finished && (
-            <motion.div
-              className={`tp__result ${isPoison ? 'tp__result--dlq' : ''}`}
-              initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.35, ease }}
-            >
-              {outcome === 'unique' && (
-                <span className="tp__result-text">
-                  {replayed
-                    ? 'Replayed task re-entered the main queue and completed cleanly.'
-                    : 'Task committed once and acked. No duplicate run, state COMPLETED.'}
-                </span>
-              )}
-              {outcome === 'duplicate' && (
-                <span className="tp__result-text">
-                  The conditional put failed because task_id already existed, so
-                  the redelivery was dropped. That is how a task never lands in
-                  both tables.
-                </span>
-              )}
-              {isPoison && (
-                <div className="tp__result-dlqrow">
-                  <span className="tp__result-text">
-                    Retries exhausted. Task t-883 sits in the queryable
-                    tasks_dlq table and the replayable tasks-dlq queue.
-                  </span>
-                  <button
-                    className="demo__btn"
-                    onClick={replay}
-                    disabled={playing}
-                  >
-                    Replay from DLQ
-                  </button>
-                </div>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <div className="tp__metrics">
-          <div className="tp__metric">
-            <div className="tp__metric-val">{COMPLETED}</div>
-            <div className="tp__metric-name">completed</div>
-          </div>
-          <div className="tp__metric tp__metric--dlq">
-            <div className="tp__metric-val">{DLQ}</div>
-            <div className="tp__metric-name">routed to DLQ</div>
-          </div>
-          <div className="tp__metric">
-            <div className="tp__metric-val">0</div>
-            <div className="tp__metric-name">task_id in both tables</div>
-          </div>
-          <div className="tp__metric">
-            <div className="tp__metric-val">{WALL_S}s</div>
-            <div className="tp__metric-name">wall, {TOTAL} tasks</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="demo__controls">
-        <button className="demo__btn" onClick={play} disabled={playing}>
-          {playing ? 'Running…' : 'Play pipeline'}
-        </button>
-        <button
-          className="demo__btn demo__btn--ghost"
-          onClick={stepForward}
-          disabled={playing || finished}
+function MetricTiles({ metrics }: { metrics: Metrics }) {
+  return (
+    <dl className="tp__metrics" aria-label="live metrics" aria-live="polite">
+      {METRIC_TILES.map((tile) => (
+        <div
+          key={tile.key}
+          className={`tp__metric ${tile.tone ? `tp__metric--${tile.tone}` : ''}`}
         >
-          Step
-        </button>
-        <span className="demo__hint">
-          {step < 0
-            ? 'press play or step'
-            : `step ${step + 1} of ${steps.length}`}
+          <dt className="tp__metric-name">{tile.label}</dt>
+          <dd className="tp__metric-val">{metrics[tile.key]}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+// Compact dual-series trend: queue depth and throughput across recent ticks.
+function Trend({ trend }: { trend: TrendPoint[] }) {
+  const points = trend.slice(-40);
+  const maxDepth = Math.max(1, ...points.map((p) => p.queueDepth));
+  const maxThru = Math.max(1, ...points.map((p) => p.throughput));
+  const w = 100;
+  const h = 36;
+  const path = (key: 'queueDepth' | 'throughput', max: number): string => {
+    if (points.length === 0) return '';
+    return points
+      .map((p, i) => {
+        const x = points.length === 1 ? 0 : (i / (points.length - 1)) * w;
+        const y = h - (p[key] / max) * h;
+        return `${i === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`;
+      })
+      .join(' ');
+  };
+  return (
+    <div className="tp__trend glass" aria-label="queue depth and throughput trend">
+      <div className="tp__trend-head">
+        <h4 className="tp__col-name">Trend over ticks</h4>
+        <span className="tp__trend-legend">
+          <span className="tp__trend-key tp__trend-key--depth">queue depth</span>
+          <span className="tp__trend-key tp__trend-key--thru">throughput</span>
         </span>
       </div>
+      <svg
+        className="tp__trend-svg"
+        viewBox={`0 0 ${w} ${h}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`queue depth peaks at ${maxDepth}, throughput peaks at ${maxThru}`}
+      >
+        <path className="tp__trend-line tp__trend-line--depth" d={path('queueDepth', maxDepth)} />
+        <path className="tp__trend-line tp__trend-line--thru" d={path('throughput', maxThru)} />
+      </svg>
     </div>
+  );
+}
+
+function DeadLetter({ jobs }: { jobs: Job[] }) {
+  const dead = jobs.filter((j) => j.status === 'dead');
+  return (
+    <div className="tp__dlq glass" aria-label="dead-letter queue">
+      <div className="tp__workers-head">
+        <h4 className="tp__col-name">Dead-letter queue</h4>
+        <span className="tp__col-count">{dead.length}</span>
+      </div>
+      {dead.length === 0 ? (
+        <p className="tp__dlq-empty">No jobs have exhausted their retries.</p>
+      ) : (
+        <ul className="tp__dlq-list">
+          {dead.map((j) => (
+            <li key={j.id} className="tp__dlq-item">
+              <span className="tp-chip__id">{j.id}</span>
+              <span className="tp-chip__meta">{j.attempts} attempts, exhausted</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function RunControls() {
+  return (
+    <div className="tp__run" role="group" aria-label="run controls">
+      <button className="tp__btn tp__btn--primary" onClick={() => step()}>
+        Tick
+      </button>
+      <button className="tp__btn" onClick={() => runTicks(5)}>
+        Run 5
+      </button>
+      <button className="tp__btn" onClick={() => runTicks(20)}>
+        Run 20
+      </button>
+      <button className="tp__btn" onClick={() => enqueue(4)}>
+        Enqueue 4
+      </button>
+      <button className="tp__btn tp__btn--ghost" onClick={() => reset()}>
+        Reset
+      </button>
+    </div>
+  );
+}
+
+function JobChip({ job }: { job: Job }) {
+  return (
+    <li className={`tp-chip tp-chip--${job.status}`}>
+      <span className="tp-chip__id">{job.id}</span>
+      <span className="tp-chip__meta">
+        {job.attempts > 0 ? `${job.attempts} att` : 'new'}
+        {job.workerId !== null ? ` · w${job.workerId}` : ''}
+      </span>
+    </li>
+  );
+}
+
+export default function TaskProcessorDemo() {
+  const sim = useSim();
+  const metrics = selectMetrics(sim);
+  const queueDepth = metrics.queued;
+
+  return (
+    <section className="tp" aria-label="task-processor queue and worker simulator">
+      <header className="tp__head">
+        <span className="tp__tag">Interactive simulator</span>
+        <h3 className="tp__title">Job queue and worker pool</h3>
+        <p className="tp__lede">
+          A queue of jobs drained by a pool of concurrent workers. Each tick,
+          workers pull queued jobs up to the concurrency limit, running jobs
+          resolve, and failures retry until they exhaust their budget and fall to
+          the dead-letter queue. Deterministic for a fixed seed.
+        </p>
+      </header>
+
+      <div className="tp__depth glass" role="status" aria-live="polite">
+        <span className="tp__depth-label">Queue depth</span>
+        <span className="tp__depth-val">{queueDepth}</span>
+        <span className="tp__depth-sub">tick {sim.tick}</span>
+      </div>
+
+      <RunControls />
+
+      <MetricTiles metrics={metrics} />
+
+      <Controls sim={sim} />
+
+      <Trend trend={sim.trend} />
+
+      <div className="tp__workers glass" aria-label="worker pool">
+        <div className="tp__workers-head">
+          <h4 className="tp__col-name">Worker pool</h4>
+          <span className="tp__col-count">{sim.workers.length}</span>
+        </div>
+        <ul className="tp__workers-list">
+          {sim.workers.map((w) => (
+            <WorkerCard key={w.id} worker={w} />
+          ))}
+        </ul>
+      </div>
+
+      <div className="tp__board" role="list" aria-label="jobs by status">
+        {COLUMNS.map((col) => {
+          const jobs = jobsByStatus(sim.jobs, col.status);
+          return (
+            <div
+              key={col.status}
+              className={`tp__col glass tp__col--${col.status}`}
+              role="listitem"
+            >
+              <div className="tp__col-head">
+                <span className="tp__col-name">{col.label}</span>
+                <span className="tp__col-count">{jobs.length}</span>
+              </div>
+              <ul className="tp__col-list" aria-label={`${col.label} jobs`}>
+                {jobs.map((job) => (
+                  <JobChip key={job.id} job={job} />
+                ))}
+                {jobs.length === 0 && <li className="tp__col-empty">empty</li>}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+
+      <DeadLetter jobs={sim.jobs} />
+    </section>
   );
 }

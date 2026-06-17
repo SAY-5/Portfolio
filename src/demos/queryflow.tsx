@@ -1,393 +1,629 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useMemo, useState } from 'react';
 import '../styles/demo.css';
 import './queryflow.css';
+import { ordersTable, columnByName } from './queryflow/data';
+import {
+  OPS_BY_TYPE,
+  OP_LABELS,
+  aggKey,
+  opNeedsValue,
+  runQuery,
+  toSql,
+} from './queryflow/engine';
+import { useStore } from './queryflow/state';
+import {
+  addAggregate,
+  addCondition,
+  clearSaved,
+  deleteSaved,
+  getState,
+  loadSaved,
+  removeAggregate,
+  removeCondition,
+  resetQuery,
+  saveQuery,
+  setCombine,
+  setLimit,
+  setOrderBy,
+  stampSavedAt,
+  toggleColumn,
+  toggleGroupBy,
+  updateCondition,
+} from './queryflow/store';
+import type {
+  Aggregate,
+  AggregateSpec,
+  Operator,
+  Query,
+  SavedQuery,
+  SortDir,
+} from './queryflow/types';
 
-// Real numbers from the project: pgvector retrieves top-20 schema chunks, a
-// keyword-overlap rerank narrows to top-8, SQL is grounded only in those, and
-// every candidate clears Parse, Safety (AST walk), and EXPLAIN (rejecting plans
-// over a 1,000,000 estimated-row cap) before it runs.
-const TOP_VECTOR = 20;
-const TOP_RERANK = 8;
-const MAX_ROWS = 1_000_000;
+// QueryFlow is an in-browser visual query builder. It runs structured data
+// queries over a seeded in-memory orders table using the engine in
+// queryflow/engine.ts. A query is assembled from the UI (columns, typed WHERE
+// filters with AND/OR, GROUP BY plus aggregates, ORDER BY, LIMIT), executed
+// with plain JavaScript, and rendered as a result table next to a read-only
+// SQL-like preview. The preview is display text only and is never executed,
+// and nothing here uses eval or talks to a server. Saved queries persist in
+// localStorage.
 
-type Chunk = { id: string; table: string; col: string; score: number };
+const AGG_FNS: Aggregate[] = ['count', 'sum', 'avg', 'min', 'max'];
+const table = ordersTable;
+const NUMERIC_COLS = table.columns.filter((c) => c.type === 'number').map((c) => c.name);
 
-// The retrieval corpus: schema chunks scored against the question. Sensitive
-// columns (password, token, ssn, card_number) are redacted before embedding,
-// so they never surface here.
-const corpus: Chunk[] = [
-  { id: 'c1', table: 'orders', col: 'total_cents', score: 0.94 },
-  { id: 'c2', table: 'orders', col: 'created_at', score: 0.91 },
-  { id: 'c3', table: 'customers', col: 'region', score: 0.88 },
-  { id: 'c4', table: 'orders', col: 'customer_id', score: 0.86 },
-  { id: 'c5', table: 'customers', col: 'id', score: 0.83 },
-  { id: 'c6', table: 'order_items', col: 'qty', score: 0.71 },
-  { id: 'c7', table: 'products', col: 'name', score: 0.64 },
-  { id: 'c8', table: 'shipments', col: 'carrier', score: 0.52 },
-];
+function defaultOpFor(field: string): Operator {
+  const col = columnByName(table, field);
+  return col ? OPS_BY_TYPE[col.type][0] : 'eq';
+}
 
-type Cand = {
-  id: string;
-  label: string;
-  sql: string;
-  parse: boolean;
-  safety: 'pass' | 'reject';
-  safetyReason?: string;
-  rows: number;
-};
+function aggLabel(a: AggregateSpec): string {
+  const arg = a.fn === 'count' && a.field === '*' ? '*' : a.field;
+  return `${a.fn.toUpperCase()}(${arg})`;
+}
 
-// Three candidate SQL drafts, one verified, two caught by a different gate.
-const candidates: Cand[] = [
-  {
-    id: 'good',
-    label: 'Grounded SELECT',
-    sql:
-      'SELECT c.region, SUM(o.total_cents)\n' +
-      'FROM orders o JOIN customers c\n' +
-      '  ON o.customer_id = c.id\n' +
-      "WHERE o.created_at >= '2024-01-01'\n" +
-      'GROUP BY c.region;',
-    parse: true,
-    safety: 'pass',
-    rows: 412,
-  },
-  {
-    id: 'ddl',
-    label: 'Hidden DROP',
-    sql:
-      'SELECT region FROM customers;\n' +
-      'DROP TABLE audit_log;',
-    parse: true,
-    safety: 'reject',
-    safetyReason: 'AST walk found DDL (DROP)',
-    rows: 0,
-  },
-  {
-    id: 'scan',
-    label: 'Unbounded scan',
-    sql:
-      'SELECT o.*, c.*\n' +
-      'FROM orders o CROSS JOIN customers c;',
-    parse: true,
-    safety: 'pass',
-    rows: 4_200_000,
-  },
-];
+function formatCell(value: unknown): string {
+  if (value === true) return 'true';
+  if (value === false) return 'false';
+  if (value === null || value === undefined) return '';
+  return String(value);
+}
 
-type Stage = 'idle' | 'retrieve' | 'rerank' | 'draft' | 'parse' | 'safety' | 'explain' | 'done';
-const order: Stage[] = ['retrieve', 'rerank', 'draft', 'parse', 'safety', 'explain', 'done'];
-
-type GateState = 'idle' | 'run' | 'pass' | 'reject';
+// Format a stored save-time. The number is a snapshot taken at save time, not
+// a clock read during render, so this stays a pure function of its input.
+function formatSavedAt(ms: number): string {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate(),
+  ).padStart(2, '0')} ${hh}:${mm}`;
+}
 
 export default function QueryflowDemo() {
-  const reduce = useReducedMotion();
-  const [candId, setCandId] = useState('good');
-  const [stage, setStage] = useState<Stage>('idle');
-  const [running, setRunning] = useState(false);
-  const timers = useRef<number[]>([]);
+  const { query, saved } = useStore();
+  const [result, setResult] = useState<ReturnType<typeof runQuery> | null>(null);
+  const [elapsed, setElapsed] = useState<number | null>(null);
+  const [name, setName] = useState('');
 
-  const cand = candidates.find((c) => c.id === candId)!;
-  const retrieved = corpus.slice(0, TOP_RERANK);
+  // New-filter and new-aggregate draft controls.
+  const [filterField, setFilterField] = useState(table.columns[0].name);
+  const [aggField, setAggField] = useState<string>('*');
+  const [aggFn, setAggFn] = useState<Aggregate>('count');
 
-  function clearTimers() {
-    timers.current.forEach((t) => window.clearTimeout(t));
-    timers.current = [];
-  }
-  useEffect(() => clearTimers, []);
-
-  // Gate verdicts derive from the active candidate and how far the run got.
-  const reached = (s: Stage) => order.indexOf(stage) >= order.indexOf(s);
-  const parseGate: GateState = !reached('parse')
-    ? 'idle'
-    : stage === 'parse'
-      ? 'run'
-      : cand.parse
-        ? 'pass'
-        : 'reject';
-  const safetyGate: GateState = !reached('safety') || !cand.parse
-    ? 'idle'
-    : stage === 'safety'
-      ? 'run'
-      : cand.safety === 'pass'
-        ? 'pass'
-        : 'reject';
-  const explainOk = cand.rows <= MAX_ROWS;
-  const explainGate: GateState =
-    !reached('explain') || !cand.parse || cand.safety === 'reject'
-      ? 'idle'
-      : stage === 'explain'
-        ? 'run'
-        : explainOk
-          ? 'pass'
-          : 'reject';
-
-  const verified =
-    stage === 'done' && cand.parse && cand.safety === 'pass' && explainOk;
-  const rejected = stage === 'done' && !verified;
-
-  function pick(id: string) {
-    if (running) return;
-    setCandId(id);
-    setStage('idle');
-  }
+  const sql = useMemo(() => toSql(table, query), [query]);
+  const grouped = query.groupBy.length > 0 || query.aggregates.length > 0;
+  const resultColumns: string[] = grouped
+    ? [...query.groupBy, ...query.aggregates.map(aggKey)]
+    : query.columns.length > 0
+      ? query.columns
+      : table.columns.map((c) => c.name);
 
   function run() {
-    if (running) return;
-    clearTimers();
-    setRunning(true);
-    setStage('idle');
-
-    if (reduce) {
-      setStage('done');
-      setRunning(false);
-      return;
-    }
-    const step = 760;
-    order.forEach((s, i) => {
-      const t = window.setTimeout(() => {
-        setStage(s);
-        if (s === 'done') setRunning(false);
-      }, step * (i + 1));
-      timers.current.push(t);
-    });
+    // Measure the synchronous engine run, snapshotting the timing into state
+    // rather than reading any clock during render.
+    const t0 = performance.now();
+    const res = runQuery(table, query);
+    const ms = performance.now() - t0;
+    setResult(res);
+    setElapsed(Math.round(ms * 1000) / 1000);
   }
 
-  function reset() {
-    clearTimers();
-    setRunning(false);
-    setStage('idle');
+  function onSave() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    saveQuery(trimmed);
+    // The store puts the just-saved entry at the head of the list; stamp it
+    // with a clock snapshot taken here in the event handler, not in render.
+    const entry = getState().saved.find((s) => s.name === trimmed);
+    if (entry) stampSavedAt(entry.id, Date.now());
+    setName('');
   }
-
-  const rejectReason = rejected
-    ? !cand.parse
-      ? 'parse error'
-      : cand.safety === 'reject'
-        ? cand.safetyReason
-        : `EXPLAIN estimate ${cand.rows.toLocaleString()} rows over the ${MAX_ROWS.toLocaleString()} cap`
-    : '';
 
   return (
-    <div className="demo" aria-label="QueryFlow retrieval and verification demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">From question to verified SQL</h3>
+    <section className="demo qf" aria-label="QueryFlow visual query builder">
+      <span className="demo__tag">in-browser query builder</span>
+      <h2 className="demo__title">QueryFlow</h2>
       <p className="demo__lede">
-        One English question grounds against retrieved schema, drafts SQL, then
-        passes three gates. Pick a draft and run it to see Parse, the AST safety
-        walk, and the EXPLAIN row cap stamp it before any result renders.
+        Build a structured query over a seeded orders table, run it in the
+        browser, and read the SQL-like preview it produces. The preview is shown
+        for reference only and is never executed: queries run as plain
+        JavaScript over an in-memory dataset, with no eval and no server.
       </p>
 
-      <div className="qf__question">
-        <span className="qf__q-mark">?</span>
-        <span className="qf__q-text">
-          Total order revenue by customer region this year
-        </span>
+      <div className="qf__grid">
+        <div className="qf__builder">
+          <ColumnPicker query={query} />
+          <FilterBuilder
+            query={query}
+            filterField={filterField}
+            setFilterField={setFilterField}
+          />
+          <GroupAggregate
+            query={query}
+            aggField={aggField}
+            setAggField={setAggField}
+            aggFn={aggFn}
+            setAggFn={setAggFn}
+          />
+          <OrderLimit query={query} resultColumns={resultColumns} />
+        </div>
+
+        <div className="qf__side">
+          <SqlPreview sql={sql} />
+          <SaveBar name={name} setName={setName} onSave={onSave} saved={saved} />
+        </div>
       </div>
-
-      <div className="qf__stage">
-        <section className="qf__retrieval" aria-label="schema retrieval">
-          <div className="qf__panel-head">
-            <span>pgvector retrieval</span>
-            <span className="qf__panel-meta">
-              top {TOP_VECTOR} &rarr; rerank {TOP_RERANK}
-            </span>
-          </div>
-          <ul className="qf__chunks">
-            {retrieved.map((ch, i) => {
-              const lit = reached('retrieve');
-              const kept = reached('rerank');
-              return (
-                <motion.li
-                  key={ch.id}
-                  className={
-                    'qf__chunk' + (kept ? ' qf__chunk--kept' : lit ? ' qf__chunk--lit' : '')
-                  }
-                  initial={false}
-                  animate={{
-                    opacity: lit ? 1 : 0.4,
-                    x: 0,
-                  }}
-                  transition={{
-                    duration: reduce ? 0 : 0.3,
-                    delay: reduce ? 0 : (lit ? i * 0.05 : 0),
-                  }}
-                >
-                  <span className="qf__chunk-tbl">{ch.table}</span>
-                  <span className="qf__chunk-col">.{ch.col}</span>
-                  <span className="qf__chunk-score">{ch.score.toFixed(2)}</span>
-                </motion.li>
-              );
-            })}
-          </ul>
-          <p className="qf__redact">
-            password, token, ssn, card_number redacted before embedding
-          </p>
-        </section>
-
-        <section className="qf__draft" aria-label="drafted SQL">
-          <div className="qf__panel-head">
-            <span>Drafted SQL</span>
-            <span className="qf__panel-meta">grounded in retrieved chunks</span>
-          </div>
-          <AnimatePresence mode="wait">
-            <motion.pre
-              key={cand.id + (reached('draft') ? '-on' : '-off')}
-              className="qf__sql"
-              initial={{ opacity: reduce ? 1 : 0 }}
-              animate={{ opacity: reached('draft') ? 1 : 0.25 }}
-              transition={{ duration: reduce ? 0 : 0.35 }}
-            >
-              <code>{cand.sql}</code>
-            </motion.pre>
-          </AnimatePresence>
-        </section>
-      </div>
-
-      <div className="qf__gates" role="group" aria-label="verification gates">
-        <Gate
-          n={1}
-          name="Parse"
-          state={parseGate}
-          okText="valid SQL"
-          runText="parsing"
-          rejectText="parse error"
-        />
-        <Gate
-          n={2}
-          name="Safety"
-          state={safetyGate}
-          okText="AST walk clean"
-          runText="walking AST"
-          rejectText={cand.safetyReason ?? 'unsafe node'}
-        />
-        <Gate
-          n={3}
-          name="EXPLAIN"
-          state={explainGate}
-          okText={`${cand.rows.toLocaleString()} rows`}
-          runText="estimating rows"
-          rejectText={`${cand.rows.toLocaleString()} over cap`}
-        />
-      </div>
-
-      <AnimatePresence>
-        {(verified || rejected) && (
-          <motion.div
-            className={'qf__verdict' + (rejected ? ' qf__verdict--reject' : '')}
-            initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.35 }}
-            role="status"
-          >
-            {verified ? (
-              <>
-                <span className="qf__verdict-head">Verified, executed</span>
-                <table className="qf__result">
-                  <thead>
-                    <tr>
-                      <th>region</th>
-                      <th>revenue</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>west</td>
-                      <td>$184,920</td>
-                    </tr>
-                    <tr>
-                      <td>east</td>
-                      <td>$151,338</td>
-                    </tr>
-                    <tr>
-                      <td>central</td>
-                      <td>$ 96,705</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </>
-            ) : (
-              <>
-                <span className="qf__verdict-head">Rejected before execution</span>
-                <span className="qf__verdict-text">{rejectReason}</span>
-              </>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <div className="demo__controls">
-        <div className="qf__picker" role="tablist" aria-label="pick a SQL draft">
-          {candidates.map((c) => (
-            <button
-              key={c.id}
-              role="tab"
-              aria-selected={c.id === candId}
-              className={'qf__pick' + (c.id === candId ? ' qf__pick--on' : '')}
-              onClick={() => pick(c.id)}
-              disabled={running}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-        <button className="demo__btn" onClick={run} disabled={running}>
-          {running ? 'Verifying…' : 'Run pipeline'}
+        <button type="button" className="demo__btn" onClick={run}>
+          Run query
         </button>
         <button
+          type="button"
           className="demo__btn demo__btn--ghost"
-          onClick={reset}
-          disabled={running}
+          onClick={() => {
+            resetQuery();
+            setResult(null);
+            setElapsed(null);
+          }}
         >
-          Reset
+          Reset query
         </button>
+        {result && !result.error && (
+          <span className="demo__hint" role="status">
+            {result.rowCount} row{result.rowCount === 1 ? '' : 's'}
+            {elapsed !== null ? ` in ${elapsed} ms` : ''}
+          </span>
+        )}
       </div>
-    </div>
+
+      <Results result={result} columns={resultColumns} />
+    </section>
   );
 }
 
-function Gate({
-  n,
-  name,
-  state,
-  okText,
-  runText,
-  rejectText,
-}: {
-  n: number;
-  name: string;
-  state: GateState;
-  okText: string;
-  runText: string;
-  rejectText: string;
-}) {
-  const reduce = useReducedMotion();
-  const label =
-    state === 'pass'
-      ? okText
-      : state === 'reject'
-        ? rejectText
-        : state === 'run'
-          ? runText
-          : 'waiting';
+// ---------- column picker ----------
+
+function ColumnPicker({ query }: { query: Query }) {
+  const grouped = query.groupBy.length > 0 || query.aggregates.length > 0;
   return (
-    <motion.div
-      className={`qf__gate qf__gate--${state}`}
-      animate={
-        state === 'run' && !reduce
-          ? { boxShadow: '0 0 0 2px var(--accent-line)' }
-          : { boxShadow: '0 0 0 0px transparent' }
-      }
-      transition={{ duration: 0.3, repeat: state === 'run' ? Infinity : 0, repeatType: 'reverse' }}
-    >
-      <div className="qf__gate-top">
-        <span className="qf__gate-n">{n}</span>
-        <span className="qf__gate-name">{name}</span>
-        <span className="qf__gate-stamp" aria-hidden="true">
-          {state === 'pass' ? '✓' : state === 'reject' ? '✕' : state === 'run' ? '…' : ''}
-        </span>
+    <fieldset className="qf__panel glass" disabled={grouped}>
+      <legend className="qf__legend">Columns</legend>
+      {grouped && (
+        <p className="qf__note">
+          Grouped queries return the group keys and aggregates below.
+        </p>
+      )}
+      <div className="qf__cols" role="group" aria-label="Select output columns">
+        {table.columns.map((c) => (
+          <label key={c.name} className="qf__check">
+            <input
+              type="checkbox"
+              checked={query.columns.includes(c.name)}
+              onChange={() => toggleColumn(c.name)}
+            />
+            <span className="qf__col-name mono">{c.name}</span>
+            <span className="qf__col-type">{c.type}</span>
+          </label>
+        ))}
       </div>
-      <div className="qf__gate-label">{label}</div>
-    </motion.div>
+    </fieldset>
+  );
+}
+
+// ---------- filter builder ----------
+
+function FilterBuilder({
+  query,
+  filterField,
+  setFilterField,
+}: {
+  query: Query;
+  filterField: string;
+  setFilterField: (v: string) => void;
+}) {
+  return (
+    <fieldset className="qf__panel glass">
+      <legend className="qf__legend">Filters (WHERE)</legend>
+
+      {query.conditions.length > 1 && (
+        <div className="qf__combine" role="radiogroup" aria-label="Combine filters">
+          {(['AND', 'OR'] as const).map((c) => (
+            <label key={c} className="qf__radio">
+              <input
+                type="radio"
+                name="qf-combine"
+                checked={query.combine === c}
+                onChange={() => setCombine(c)}
+              />
+              <span className="mono">{c}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      <ul className="qf__conds">
+        {query.conditions.map((cond) => {
+          const col = columnByName(table, cond.field);
+          const ops = col ? OPS_BY_TYPE[col.type] : [];
+          const needsValue = opNeedsValue(cond.op);
+          return (
+            <li key={cond.id} className="qf__cond">
+              <select
+                className="qf__sel mono"
+                aria-label="Filter field"
+                value={cond.field}
+                onChange={(e) => {
+                  const field = e.target.value;
+                  updateCondition(cond.id, { field, op: defaultOpFor(field), value: '' });
+                }}
+              >
+                {table.columns.map((c) => (
+                  <option key={c.name} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+              <select
+                className="qf__sel mono"
+                aria-label="Filter operator"
+                value={cond.op}
+                onChange={(e) => updateCondition(cond.id, { op: e.target.value as Operator })}
+              >
+                {ops.map((op) => (
+                  <option key={op} value={op}>{OP_LABELS[op]}</option>
+                ))}
+              </select>
+              {needsValue ? (
+                <input
+                  className="qf__input mono"
+                  aria-label="Filter value"
+                  type={col?.type === 'date' ? 'date' : 'text'}
+                  value={cond.value}
+                  placeholder={col?.type === 'number' ? '0' : 'value'}
+                  onChange={(e) => updateCondition(cond.id, { value: e.target.value })}
+                />
+              ) : (
+                <span className="qf__cond-fixed mono">{OP_LABELS[cond.op]}</span>
+              )}
+              <button
+                type="button"
+                className="qf__icon-btn"
+                aria-label={`Remove filter on ${cond.field}`}
+                onClick={() => removeCondition(cond.id)}
+              >
+                ×
+              </button>
+            </li>
+          );
+        })}
+        {query.conditions.length === 0 && (
+          <li className="qf__empty">No filters: every row is returned.</li>
+        )}
+      </ul>
+
+      <div className="qf__add-row">
+        <select
+          className="qf__sel mono"
+          aria-label="New filter field"
+          value={filterField}
+          onChange={(e) => setFilterField(e.target.value)}
+        >
+          {table.columns.map((c) => (
+            <option key={c.name} value={c.name}>{c.name}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="demo__btn demo__btn--ghost qf__add-btn"
+          onClick={() => addCondition(filterField, defaultOpFor(filterField), '')}
+        >
+          Add filter
+        </button>
+      </div>
+    </fieldset>
+  );
+}
+
+// ---------- group by + aggregates ----------
+
+function GroupAggregate({
+  query,
+  aggField,
+  setAggField,
+  aggFn,
+  setAggFn,
+}: {
+  query: Query;
+  aggField: string;
+  setAggField: (v: string) => void;
+  aggFn: Aggregate;
+  setAggFn: (v: Aggregate) => void;
+}) {
+  const fieldNeedsNumber = aggFn !== 'count';
+  return (
+    <fieldset className="qf__panel glass">
+      <legend className="qf__legend">Group and aggregate</legend>
+
+      <div className="qf__cols" role="group" aria-label="Group by columns">
+        {table.columns
+          .filter((c) => c.type !== 'number')
+          .map((c) => (
+            <label key={c.name} className="qf__check">
+              <input
+                type="checkbox"
+                checked={query.groupBy.includes(c.name)}
+                onChange={() => toggleGroupBy(c.name)}
+              />
+              <span className="qf__col-name mono">{c.name}</span>
+            </label>
+          ))}
+      </div>
+
+      <ul className="qf__aggs">
+        {query.aggregates.map((a) => (
+          <li key={a.id} className="qf__agg">
+            <span className="qf__agg-label mono">{aggLabel(a)}</span>
+            <button
+              type="button"
+              className="qf__icon-btn"
+              aria-label={`Remove aggregate ${aggLabel(a)}`}
+              onClick={() => removeAggregate(a.id)}
+            >
+              ×
+            </button>
+          </li>
+        ))}
+        {query.aggregates.length === 0 && (
+          <li className="qf__empty">No aggregates yet.</li>
+        )}
+      </ul>
+
+      <div className="qf__add-row">
+        <select
+          className="qf__sel mono"
+          aria-label="Aggregate function"
+          value={aggFn}
+          onChange={(e) => {
+            const fn = e.target.value as Aggregate;
+            setAggFn(fn);
+            if (fn !== 'count' && !NUMERIC_COLS.includes(aggField)) {
+              setAggField(NUMERIC_COLS[0] ?? '*');
+            }
+          }}
+        >
+          {AGG_FNS.map((fn) => (
+            <option key={fn} value={fn}>{fn.toUpperCase()}</option>
+          ))}
+        </select>
+        <select
+          className="qf__sel mono"
+          aria-label="Aggregate field"
+          value={aggField}
+          onChange={(e) => setAggField(e.target.value)}
+        >
+          {!fieldNeedsNumber && <option value="*">*</option>}
+          {(fieldNeedsNumber ? NUMERIC_COLS : table.columns.map((c) => c.name)).map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="demo__btn demo__btn--ghost qf__add-btn"
+          onClick={() => addAggregate(aggFn, aggField)}
+        >
+          Add aggregate
+        </button>
+      </div>
+    </fieldset>
+  );
+}
+
+// ---------- order by + limit ----------
+
+function OrderLimit({
+  query,
+  resultColumns,
+}: {
+  query: Query;
+  resultColumns: string[];
+}) {
+  return (
+    <fieldset className="qf__panel glass">
+      <legend className="qf__legend">Order and limit</legend>
+      <div className="qf__order">
+        <label className="qf__field">
+          <span className="qf__field-label">Order by</span>
+          <select
+            className="qf__sel mono"
+            value={query.orderBy?.field ?? ''}
+            onChange={(e) => {
+              const field = e.target.value;
+              if (!field) {
+                setOrderBy(null);
+                return;
+              }
+              setOrderBy({ field, dir: query.orderBy?.dir ?? 'asc' });
+            }}
+          >
+            <option value="">none</option>
+            {resultColumns.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </label>
+        <label className="qf__field">
+          <span className="qf__field-label">Direction</span>
+          <select
+            className="qf__sel mono"
+            disabled={!query.orderBy}
+            value={query.orderBy?.dir ?? 'asc'}
+            onChange={(e) =>
+              query.orderBy &&
+              setOrderBy({ field: query.orderBy.field, dir: e.target.value as SortDir })
+            }
+          >
+            <option value="asc">asc</option>
+            <option value="desc">desc</option>
+          </select>
+        </label>
+        <label className="qf__field">
+          <span className="qf__field-label">Limit</span>
+          <input
+            className="qf__input mono"
+            type="number"
+            min={0}
+            value={query.limit ?? ''}
+            placeholder="none"
+            onChange={(e) => {
+              const v = e.target.value;
+              setLimit(v === '' ? null : Math.max(0, Math.floor(Number(v))));
+            }}
+          />
+        </label>
+      </div>
+    </fieldset>
+  );
+}
+
+// ---------- sql preview ----------
+
+function SqlPreview({ sql }: { sql: string }) {
+  return (
+    <section className="qf__panel glass" aria-label="SQL preview">
+      <h3 className="qf__legend">SQL-like preview</h3>
+      <p className="qf__note">Display only. This text is never executed.</p>
+      <pre className="qf__sql mono" tabIndex={0}>{sql}</pre>
+    </section>
+  );
+}
+
+// ---------- save bar + saved list ----------
+
+function SaveBar({
+  name,
+  setName,
+  onSave,
+  saved,
+}: {
+  name: string;
+  setName: (v: string) => void;
+  onSave: () => void;
+  saved: SavedQuery[];
+}) {
+  return (
+    <section className="qf__panel glass" aria-label="Saved queries">
+      <h3 className="qf__legend">Saved queries</h3>
+      <form
+        className="qf__save-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave();
+        }}
+      >
+        <input
+          className="qf__input mono"
+          aria-label="Query name"
+          value={name}
+          placeholder="name this query"
+          onChange={(e) => setName(e.target.value)}
+        />
+        <button type="submit" className="demo__btn demo__btn--ghost qf__add-btn">
+          Save
+        </button>
+      </form>
+      <ul className="qf__saved">
+        {saved.map((s) => (
+          <li key={s.id} className="qf__saved-item">
+            <button
+              type="button"
+              className="qf__saved-load mono"
+              onClick={() => loadSaved(s.id)}
+            >
+              <span className="qf__saved-name">{s.name}</span>
+              {s.savedAt > 0 && (
+                <span className="qf__saved-when">{formatSavedAt(s.savedAt)}</span>
+              )}
+            </button>
+            <button
+              type="button"
+              className="qf__icon-btn"
+              aria-label={`Delete saved query ${s.name}`}
+              onClick={() => deleteSaved(s.id)}
+            >
+              ×
+            </button>
+          </li>
+        ))}
+        {saved.length === 0 && <li className="qf__empty">No saved queries yet.</li>}
+      </ul>
+      {saved.length > 0 && (
+        <button type="button" className="qf__clear mono" onClick={clearSaved}>
+          Clear all saved queries
+        </button>
+      )}
+    </section>
+  );
+}
+
+// ---------- results ----------
+
+function Results({
+  result,
+  columns,
+}: {
+  result: ReturnType<typeof runQuery> | null;
+  columns: string[];
+}) {
+  if (!result) {
+    return (
+      <div className="qf__results qf__results--idle" role="status">
+        Build a query and press Run to see results.
+      </div>
+    );
+  }
+  if (result.error) {
+    return (
+      <div className="qf__results qf__results--error" role="alert">
+        {result.error}
+      </div>
+    );
+  }
+  const cols = result.columns.length > 0 ? result.columns : columns;
+  return (
+    <div className="qf__results">
+      <div
+        className="qf__table-wrap"
+        tabIndex={0}
+        role="region"
+        aria-label="Query results"
+      >
+        <table className="qf__table">
+          <thead>
+            <tr>
+              {cols.map((c) => (
+                <th key={c} scope="col" className="mono">{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {result.rows.map((row, i) => (
+              <tr key={i}>
+                {cols.map((c) => (
+                  <td key={c} className="mono">{formatCell(row[c])}</td>
+                ))}
+              </tr>
+            ))}
+            {result.rows.length === 0 && (
+              <tr>
+                <td className="qf__empty" colSpan={cols.length}>
+                  No rows match this query.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

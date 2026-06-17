@@ -1,335 +1,688 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useReducedMotion } from 'framer-motion';
 import '../styles/demo.css';
 import './bug-triage.css';
+import { useBugs } from './bug-triage/state';
+import {
+  createBug,
+  markDuplicate,
+  resetAll,
+  setAssignee,
+  setComponent,
+  setStatus,
+} from './bug-triage/store';
+import {
+  completeness,
+  computeSeverity,
+  duplicateClusters,
+  findDuplicates,
+  priorityCompare,
+  severityOf,
+} from './bug-triage/engine';
+import {
+  COMPONENTS,
+  IMPACTS,
+  REPRO,
+  SEVERITIES,
+  STATUSES,
+  type Bug,
+  type Component,
+  type Reproducibility,
+  type Severity,
+  type Status,
+  type UserImpact,
+} from './bug-triage/types';
 
-// Real numbers from the project:
-// - Closed-enum classification: severity {critical, high, medium, low},
-//   component {api, core, util, tests, build}; Pydantic raises on out-of-enum.
-// - Hermetic 20-case eval: top1 and top3 retrieval 1.00, diffs parse 1.00.
-// - 200-resolution bench: top-1 0.70, top-3 0.94, p50 latency about 10 ms.
-// - Apply-and-test loop git-applies the diff and runs mvn verify.
+// In-browser bug-triage board. Bugs persist in localStorage and run through a
+// pure, deterministic engine: severity is computed from impact, reproducibility
+// and regression; columns order their cards by computed priority; the detail
+// view surfaces likely duplicates by title token similarity. Nothing here talks
+// to a server, and the engine never reads the clock or evaluates strings.
 
-const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
-const COMPONENTS = ['api', 'core', 'util', 'tests', 'build'] as const;
-
-type Severity = (typeof SEVERITIES)[number];
-type Component = (typeof COMPONENTS)[number];
-
-type Retrieved = { id: string; title: string; score: number };
-
-type Report = {
-  id: string;
-  title: string;
-  body: string;
-  severity: Severity;
-  component: Component;
-  retrieved: Retrieved[];
-  diff: string[];
-  verify: { passed: boolean; tests: number; failures: number };
+const STATUS_LABEL: Record<Status, string> = {
+  new: 'New',
+  triaged: 'Triaged',
+  'in-progress': 'In progress',
+  closed: 'Closed',
 };
 
-const REPORTS: Report[] = [
-  {
-    id: 'BUG-417',
-    title: 'NullPointerException parsing empty request body',
-    body: 'POST /orders with an empty body throws NPE before validation runs.',
-    severity: 'high',
-    component: 'api',
-    retrieved: [
-      { id: 'FIX-208', title: 'Guard null body in OrderController', score: 0.94 },
-      { id: 'FIX-051', title: 'Default to empty map on missing payload', score: 0.82 },
-      { id: 'FIX-133', title: 'Validate request before deserialize', score: 0.77 },
-    ],
-    diff: [
-      '--- a/src/main/java/app/OrderController.java',
-      '+++ b/src/main/java/app/OrderController.java',
-      '@@ -42,6 +42,9 @@ public Response create(Request req) {',
-      '+    if (req.body() == null || req.body().isEmpty()) {',
-      '+        return Response.badRequest("empty body");',
-      '+    }',
-      '     var order = mapper.read(req.body());',
-    ],
-    verify: { passed: true, tests: 38, failures: 0 },
-  },
-  {
-    id: 'BUG-902',
-    title: 'Off-by-one in pagination offset',
-    body: 'Page 2 skips one record because offset is computed as page * size.',
-    severity: 'medium',
-    component: 'core',
-    retrieved: [
-      { id: 'FIX-310', title: 'Fix paging offset to (page-1)*size', score: 0.91 },
-      { id: 'FIX-076', title: 'Clamp page index to >= 1', score: 0.79 },
-      { id: 'FIX-244', title: 'Add boundary test for first page', score: 0.71 },
-    ],
-    diff: [
-      '--- a/src/main/java/app/Pager.java',
-      '+++ b/src/main/java/app/Pager.java',
-      '@@ -17,7 +17,7 @@ public List<Row> page(int page, int size) {',
-      '-    int offset = page * size;',
-      '+    int offset = (page - 1) * size;',
-      '     return store.slice(offset, size);',
-    ],
-    verify: { passed: true, tests: 38, failures: 0 },
-  },
-  {
-    id: 'BUG-555',
-    title: 'Resource leak: input stream never closed',
-    body: 'ConfigLoader opens a stream and returns early on parse error, leaking it.',
-    severity: 'low',
-    component: 'util',
-    retrieved: [
-      { id: 'FIX-189', title: 'Wrap stream in try-with-resources', score: 0.88 },
-      { id: 'FIX-402', title: 'Close reader in finally block', score: 0.83 },
-      { id: 'FIX-021', title: 'Use Files.newBufferedReader', score: 0.69 },
-    ],
-    diff: [
-      '--- a/src/main/java/app/ConfigLoader.java',
-      '+++ b/src/main/java/app/ConfigLoader.java',
-      '@@ -28,8 +28,7 @@ public Config load(Path path) {',
-      '-    InputStream in = Files.newInputStream(path);',
-      '-    return parse(in);',
-      '+    try (InputStream in = Files.newInputStream(path)) {',
-      '+        return parse(in);',
-      '+    }',
-    ],
-    verify: { passed: false, tests: 38, failures: 1 },
-  },
-];
+const SEVERITY_LABEL: Record<Severity, string> = {
+  blocker: 'Blocker',
+  critical: 'Critical',
+  major: 'Major',
+  minor: 'Minor',
+};
 
-const STAGES = ['classify', 'retrieve', 'suggest', 'verify'] as const;
-type Stage = (typeof STAGES)[number];
-const ease = [0.22, 1, 0.36, 1] as const;
+type View = 'board' | 'intake' | 'dashboard';
 
 export default function BugTriageDemo() {
-  const reduce = useReducedMotion();
-  const [reportId, setReportId] = useState(REPORTS[0].id);
-  const [stage, setStage] = useState(0); // 0 = nothing run yet; 1..4 reveal stages
-  const [running, setRunning] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bugs = useBugs();
+  const [view, setView] = useState<View>('board');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const report = REPORTS.find((r) => r.id === reportId)!;
-
-  function clearTimer() {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-  }
-  useEffect(() => clearTimer, []);
-
-  function selectReport(id: string) {
-    if (running) return;
-    clearTimer();
-    setReportId(id);
-    setStage(0);
-  }
-
-  function run() {
-    clearTimer();
-    if (reduce) {
-      setStage(STAGES.length);
-      setRunning(false);
-      return;
-    }
-    setRunning(true);
-    setStage(0);
-    const step = (s: number) => {
-      setStage(s);
-      if (s < STAGES.length) {
-        timer.current = setTimeout(() => step(s + 1), 620);
-      } else {
-        setRunning(false);
-        timer.current = null;
-      }
-    };
-    timer.current = setTimeout(() => step(1), 120);
-  }
-
-  function reset() {
-    clearTimer();
-    setRunning(false);
-    setStage(0);
-  }
-
-  const reached = (s: Stage) => stage >= STAGES.indexOf(s) + 1;
+  const selected = selectedId ? (bugs.find((b) => b.id === selectedId) ?? null) : null;
 
   return (
-    <div className="demo" aria-label="bug-triage pipeline demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Triage a bug report</h3>
+    <div className="demo bt">
+      <span className="demo__tag">bug triage</span>
+      <h3 className="demo__title">Bug triage board</h3>
       <p className="demo__lede">
-        Pick a report and run it through the pipeline: a classifier pins
-        severity and component to closed enums, a retriever pulls the top-3
-        similar past fixes, and a suggested unified diff is git-applied to the
-        Java project before mvn verify gives the verdict.
+        File a bug and watch its severity computed live from user impact,
+        reproducibility and whether it is a regression. Triage it onto the board,
+        where each column orders cards by priority and flags likely duplicates.
       </p>
 
-      <div className="bt__picker" role="group" aria-label="Select a bug report">
-        {REPORTS.map((r) => {
-          const on = r.id === reportId;
-          return (
-            <button
-              key={r.id}
-              type="button"
-              className={`bt__pick${on ? ' bt__pick--on' : ''}`}
-              aria-pressed={on}
-              onClick={() => selectReport(r.id)}
-            >
-              <span className="bt__pick-id">{r.id}</span>
-              <span className="bt__pick-title">{r.title}</span>
-            </button>
-          );
-        })}
+      <div className="bt__tabs" role="tablist" aria-label="Bug triage views">
+        <TabButton active={view === 'board'} onClick={() => setView('board')}>
+          Board
+        </TabButton>
+        <TabButton active={view === 'intake'} onClick={() => setView('intake')}>
+          File a bug
+        </TabButton>
+        <TabButton active={view === 'dashboard'} onClick={() => setView('dashboard')}>
+          Dashboard
+        </TabButton>
       </div>
 
-      <div className="bt__stage">
-        {/* Stage 1: classifier with closed enums */}
-        <section className={`bt__panel${reached('classify') ? ' bt__panel--on' : ''}`}>
-          <header className="bt__panel-head">
-            <span className="bt__panel-step">1</span>
-            <span className="bt__panel-name">Classify</span>
-            <span className="bt__panel-note">closed enums, Pydantic-validated</span>
-          </header>
-          <div className="bt__enum-group">
-            <span className="bt__enum-label">severity</span>
-            <div className="bt__enum-row">
-              {SEVERITIES.map((s) => {
-                const picked = reached('classify') && s === report.severity;
-                return (
-                  <span
-                    key={s}
-                    className={`bt__enum${picked ? ' bt__enum--picked' : ''}`}
-                  >
-                    {s}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-          <div className="bt__enum-group">
-            <span className="bt__enum-label">component</span>
-            <div className="bt__enum-row">
-              {COMPONENTS.map((c) => {
-                const picked = reached('classify') && c === report.component;
-                return (
-                  <span
-                    key={c}
-                    className={`bt__enum${picked ? ' bt__enum--picked' : ''}`}
-                  >
-                    {c}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        </section>
+      {view === 'intake' && <IntakeForm onFiled={() => setView('board')} />}
+      {view === 'board' && <Board bugs={bugs} onSelect={setSelectedId} />}
+      {view === 'dashboard' && <Dashboard bugs={bugs} onSelect={setSelectedId} />}
 
-        {/* Stage 2: retriever top-3 */}
-        <section className={`bt__panel${reached('retrieve') ? ' bt__panel--on' : ''}`}>
-          <header className="bt__panel-head">
-            <span className="bt__panel-step">2</span>
-            <span className="bt__panel-name">Retrieve</span>
-            <span className="bt__panel-note">top-3 similar past fixes</span>
-          </header>
-          <ol className="bt__retr">
-            <AnimatePresence>
-              {reached('retrieve') &&
-                report.retrieved.map((r, i) => (
-                  <motion.li
-                    key={r.id}
-                    className="bt__retr-row"
-                    initial={{ opacity: 0, x: reduce ? 0 : -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: reduce ? 0 : 0.32, delay: reduce ? 0 : i * 0.09, ease }}
-                  >
-                    <span className="bt__retr-rank">{i + 1}</span>
-                    <span className="bt__retr-id">{r.id}</span>
-                    <span className="bt__retr-title">{r.title}</span>
-                    <span className="bt__retr-score">{r.score.toFixed(2)}</span>
-                  </motion.li>
-                ))}
-            </AnimatePresence>
-          </ol>
-        </section>
+      {selected && (
+        <BugDetail bug={selected} bugs={bugs} onClose={() => setSelectedId(null)} />
+      )}
+    </div>
+  );
+}
 
-        {/* Stage 3: suggested diff */}
-        <section className={`bt__panel${reached('suggest') ? ' bt__panel--on' : ''}`}>
-          <header className="bt__panel-head">
-            <span className="bt__panel-step">3</span>
-            <span className="bt__panel-name">Suggest</span>
-            <span className="bt__panel-note">unified diff, git-applied</span>
-          </header>
-          <pre className="bt__diff" aria-label="suggested unified diff">
-            {reached('suggest')
-              ? report.diff.map((line, i) => {
-                  const kind = line.startsWith('+++') || line.startsWith('---')
-                    ? 'file'
-                    : line.startsWith('@@')
-                    ? 'hunk'
-                    : line.startsWith('+')
-                    ? 'add'
-                    : line.startsWith('-')
-                    ? 'del'
-                    : 'ctx';
-                  return (
-                    <span key={i} className={`bt__diff-line bt__diff-line--${kind}`}>
-                      {line}
-                    </span>
-                  );
-                })
-              : <span className="bt__diff-line bt__diff-line--ctx">awaiting suggestion</span>}
-          </pre>
-        </section>
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      className={`bt__tab${active ? ' bt__tab--on' : ''}`}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
 
-        {/* Stage 4: mvn verify */}
-        <section
-          className={`bt__panel${reached('verify') ? ' bt__panel--on' : ''}${
-            reached('verify') ? (report.verify.passed ? ' bt__panel--pass' : ' bt__panel--fail') : ''
-          }`}
-        >
-          <header className="bt__panel-head">
-            <span className="bt__panel-step">4</span>
-            <span className="bt__panel-name">Verify</span>
-            <span className="bt__panel-note">mvn verify on the patched clone</span>
-          </header>
-          <AnimatePresence>
-            {reached('verify') && (
-              <motion.div
-                className="bt__verify"
-                initial={{ opacity: 0, y: reduce ? 0 : 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: reduce ? 0 : 0.35, ease }}
-              >
-                <span
-                  className={`bt__verdict${report.verify.passed ? ' bt__verdict--pass' : ' bt__verdict--fail'}`}
-                >
-                  {report.verify.passed ? 'BUILD PASS' : 'BUILD FAIL'}
-                </span>
-                <span className="bt__surefire">
-                  Tests run: {report.verify.tests}, Failures: {report.verify.failures}
-                </span>
-                <span className="bt__gate">
-                  {report.verify.passed
-                    ? 'all hard checks hold, a draft PR may be opened'
-                    : 'gate holds the patch back, no PR is opened'}
-                </span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </section>
+// ---------- intake ----------
+
+function IntakeForm({ onFiled }: { onFiled: () => void }) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [component, setComponent] = useState<Component>('api');
+  const [reproducibility, setReproducibility] = useState<Reproducibility>('always');
+  const [userImpact, setUserImpact] = useState<UserImpact>('broken');
+  const [regression, setRegression] = useState(false);
+  const [assignee, setAssignee] = useState('');
+
+  // Live severity preview recomputes from the picked factors on every change.
+  const preview = useMemo(
+    () => computeSeverity(userImpact, reproducibility, regression),
+    [userImpact, reproducibility, regression],
+  );
+
+  const canSubmit = title.trim().length > 2;
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    createBug({
+      title,
+      description,
+      component,
+      reproducibility,
+      userImpact,
+      regression,
+      assignee: assignee.trim() || null,
+    });
+    setTitle('');
+    setDescription('');
+    setAssignee('');
+    onFiled();
+  }
+
+  return (
+    <form className="bt__intake glass" onSubmit={submit} aria-label="File a new bug">
+      <div className="bt__field">
+        <label htmlFor="bt-title">Title</label>
+        <input
+          id="bt-title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Short summary of the bug"
+          autoComplete="off"
+        />
       </div>
+
+      <div className="bt__field">
+        <label htmlFor="bt-desc">Description</label>
+        <textarea
+          id="bt-desc"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Steps, expected vs actual, anything useful"
+          rows={3}
+        />
+      </div>
+
+      <div className="bt__row">
+        <SelectField
+          id="bt-component"
+          label="Component"
+          value={component}
+          options={COMPONENTS}
+          onChange={(v) => setComponent(v as Component)}
+        />
+        <SelectField
+          id="bt-impact"
+          label="User impact"
+          value={userImpact}
+          options={IMPACTS}
+          onChange={(v) => setUserImpact(v as UserImpact)}
+        />
+        <SelectField
+          id="bt-repro"
+          label="Reproducibility"
+          value={reproducibility}
+          options={REPRO}
+          onChange={(v) => setReproducibility(v as Reproducibility)}
+        />
+      </div>
+
+      <div className="bt__row bt__row--mid">
+        <div className="bt__field">
+          <label htmlFor="bt-assignee">Assignee (optional)</label>
+          <input
+            id="bt-assignee"
+            value={assignee}
+            onChange={(e) => setAssignee(e.target.value)}
+            placeholder="who owns it"
+            autoComplete="off"
+          />
+        </div>
+        <label className="bt__check">
+          <input
+            type="checkbox"
+            checked={regression}
+            onChange={(e) => setRegression(e.target.checked)}
+          />
+          <span>Regression (used to work)</span>
+        </label>
+      </div>
+
+      <SeverityPreview severity={preview.severity} score={preview.score} />
 
       <div className="demo__controls">
-        <button className="demo__btn" onClick={run} disabled={running}>
-          {running ? 'Triaging…' : 'Run triage'}
-        </button>
-        <button className="demo__btn demo__btn--ghost" onClick={reset} disabled={running}>
-          Reset
+        <button type="submit" className="demo__btn" disabled={!canSubmit}>
+          File bug
         </button>
         <span className="demo__hint">
-          eval: top-3 retrieval 1.00, diffs parse 1.00, p50 about 10 ms
+          Severity is computed, not chosen. Title needs three characters.
         </span>
       </div>
+    </form>
+  );
+}
+
+function SelectField({
+  id,
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: readonly string[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="bt__field">
+      <label htmlFor={id}>{label}</label>
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function SeverityPreview({ severity, score }: { severity: Severity; score: number }) {
+  return (
+    <div
+      className={`bt__preview bt__sev--${severity}`}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="bt__preview-label">Computed severity</span>
+      <span className="bt__preview-value">
+        {SEVERITY_LABEL[severity]} <span className="bt__preview-score">({score} pts)</span>
+      </span>
+    </div>
+  );
+}
+
+// ---------- board ----------
+
+function Board({ bugs, onSelect }: { bugs: Bug[]; onSelect: (id: string) => void }) {
+  const reduce = useReducedMotion();
+  const columns = useMemo(() => {
+    const byStatus: Record<Status, Bug[]> = {
+      new: [],
+      triaged: [],
+      'in-progress': [],
+      closed: [],
+    };
+    for (const b of bugs) byStatus[b.status].push(b);
+    for (const s of STATUSES) byStatus[s].sort(priorityCompare);
+    return byStatus;
+  }, [bugs]);
+
+  return (
+    <div className="bt__board" aria-label="Bug board by status">
+      {STATUSES.map((status) => (
+        <section key={status} className="bt__col glass" aria-label={STATUS_LABEL[status]}>
+          <header className="bt__col-head">
+            <h4>{STATUS_LABEL[status]}</h4>
+            <span className="bt__count">{columns[status].length}</span>
+          </header>
+          <ul className="bt__cards">
+            {columns[status].map((bug) => (
+              <li key={bug.id}>
+                <BugCard bug={bug} animate={!reduce} onSelect={onSelect} />
+              </li>
+            ))}
+            {columns[status].length === 0 && <li className="bt__empty">No bugs</li>}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function BugCard({
+  bug,
+  animate,
+  onSelect,
+}: {
+  bug: Bug;
+  animate: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const sev = severityOf(bug).severity;
+  return (
+    <button
+      type="button"
+      className={`bt__card bt__sev--${sev}${animate ? ' bt__card--anim' : ''}`}
+      onClick={() => onSelect(bug.id)}
+      aria-label={`Open ${bug.id}: ${bug.title}`}
+    >
+      <span className="bt__card-top">
+        <span className="bt__id mono">{bug.id}</span>
+        <span className={`bt__chip bt__chip--${sev}`}>{SEVERITY_LABEL[sev]}</span>
+      </span>
+      <span className="bt__card-title">{bug.title}</span>
+      <span className="bt__card-meta">
+        <span>{bug.component ?? 'unassigned component'}</span>
+        <span>{bug.assignee ?? 'unassigned'}</span>
+      </span>
+    </button>
+  );
+}
+
+// ---------- detail ----------
+
+function BugDetail({
+  bug,
+  bugs,
+  onClose,
+}: {
+  bug: Bug;
+  bugs: Bug[];
+  onClose: () => void;
+}) {
+  const result = severityOf(bug);
+  const ready = completeness(bug);
+  const dupes = useMemo(() => findDuplicates(bug, bugs), [bug, bugs]);
+  const [statusError, setStatusError] = useState<string[]>([]);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Move focus to the panel when it opens and let Escape dismiss it, so the
+  // detail is keyboard-reachable without trapping the user.
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  function tryStatus(status: Status) {
+    const r = setStatus(bug.id, status);
+    setStatusError(r.ok ? [] : r.missing);
+  }
+
+  const dupTarget = bug.duplicateOf
+    ? (bugs.find((b) => b.id === bug.duplicateOf) ?? null)
+    : null;
+
+  return (
+    <div
+      ref={panelRef}
+      className="bt__detail glass"
+      role="dialog"
+      aria-modal="false"
+      aria-label={`Bug ${bug.id} detail`}
+      tabIndex={-1}
+    >
+      <header className="bt__detail-head">
+        <div>
+          <span className="bt__id mono">{bug.id}</span>
+          <h4 className="bt__detail-title">{bug.title}</h4>
+        </div>
+        <button type="button" className="bt__close" onClick={onClose} aria-label="Close detail">
+          Close
+        </button>
+      </header>
+
+      {bug.description && <p className="bt__detail-desc">{bug.description}</p>}
+
+      <dl className="bt__facts">
+        <Fact label="Component" value={bug.component ?? 'unset'} />
+        <Fact label="Impact" value={bug.userImpact} />
+        <Fact label="Reproducibility" value={bug.reproducibility} />
+        <Fact label="Regression" value={bug.regression ? 'yes' : 'no'} />
+        <Fact label="Assignee" value={bug.assignee ?? 'unset'} />
+        <Fact label="Status" value={STATUS_LABEL[bug.status]} />
+      </dl>
+
+      <div className={`bt__sevbox bt__sev--${result.severity}`}>
+        <div className="bt__sevbox-head">
+          <span className="bt__preview-label">Computed severity</span>
+          <span className="bt__preview-value">
+            {SEVERITY_LABEL[result.severity]}{' '}
+            <span className="bt__preview-score">({result.score} pts)</span>
+          </span>
+        </div>
+        <ul className="bt__factors">
+          {result.factors.map((f) => (
+            <li key={f.label}>
+              <span>{f.label}</span>
+              <span className="mono">
+                {f.points >= 0 ? '+' : ''}
+                {f.points}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {dupTarget && (
+        <p className="bt__dup-note">
+          Marked duplicate of <span className="mono">{dupTarget.id}</span>.{' '}
+          <button
+            type="button"
+            className="bt__link"
+            onClick={() => markDuplicate(bug.id, null)}
+          >
+            Unmark
+          </button>
+        </p>
+      )}
+
+      {!dupTarget && dupes.length > 0 && (
+        <section className="bt__dupes" aria-label="Likely duplicates">
+          <h5>Likely duplicates</h5>
+          <ul>
+            {dupes.map((d) => (
+              <li key={d.bug.id}>
+                <span className="bt__dup-title">
+                  <span className="mono">{d.bug.id}</span> {d.bug.title}
+                </span>
+                <span className="bt__dup-score mono">
+                  {Math.round(d.similarity * 100)}% match
+                </span>
+                <button
+                  type="button"
+                  className="bt__link"
+                  onClick={() => markDuplicate(bug.id, d.bug.id)}
+                >
+                  Mark duplicate
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section className="bt__triage" aria-label="Triage actions">
+        <h5>Triage</h5>
+        <div className="bt__row">
+          <div className="bt__field">
+            <label htmlFor="bt-d-component">Component</label>
+            <select
+              id="bt-d-component"
+              value={bug.component ?? ''}
+              onChange={(e) =>
+                setComponent(bug.id, (e.target.value || null) as Component | null)
+              }
+            >
+              <option value="">unset</option>
+              {COMPONENTS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="bt__field">
+            <label htmlFor="bt-d-assignee">Assignee</label>
+            <input
+              id="bt-d-assignee"
+              value={bug.assignee ?? ''}
+              onChange={(e) => setAssignee(bug.id, e.target.value)}
+              placeholder="who owns it"
+              autoComplete="off"
+            />
+          </div>
+        </div>
+
+        <div className="bt__statusrow" role="group" aria-label="Set status">
+          {STATUSES.map((s) => (
+            <button
+              key={s}
+              type="button"
+              className={`bt__statusbtn${bug.status === s ? ' bt__statusbtn--on' : ''}`}
+              aria-pressed={bug.status === s}
+              onClick={() => tryStatus(s)}
+            >
+              {STATUS_LABEL[s]}
+            </button>
+          ))}
+        </div>
+
+        {!ready.ready && (
+          <p className="bt__warn" role="alert">
+            Needs {ready.missing.join(' and ')} before it can leave New.
+          </p>
+        )}
+        {statusError.length > 0 && (
+          <p className="bt__warn" role="alert">
+            Cannot move: missing {statusError.join(' and ')}.
+          </p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bt__fact">
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+}
+
+// ---------- dashboard ----------
+
+function Dashboard({ bugs, onSelect }: { bugs: Bug[]; onSelect: (id: string) => void }) {
+  const stats = useMemo(() => {
+    const bySeverity: Record<Severity, number> = {
+      blocker: 0,
+      critical: 0,
+      major: 0,
+      minor: 0,
+    };
+    const byStatus: Record<Status, number> = {
+      new: 0,
+      triaged: 0,
+      'in-progress': 0,
+      closed: 0,
+    };
+    for (const b of bugs) {
+      if (b.duplicateOf !== null) continue;
+      bySeverity[severityOf(b).severity] += 1;
+      byStatus[b.status] += 1;
+    }
+    return { bySeverity, byStatus };
+  }, [bugs]);
+
+  // Untriaged queue: bugs still in New that fail the completeness gate, ordered
+  // by computed priority so the most urgent gaps surface first.
+  const untriaged = useMemo(
+    () =>
+      bugs
+        .filter((b) => b.status === 'new' && b.duplicateOf === null && !completeness(b).ready)
+        .sort(priorityCompare),
+    [bugs],
+  );
+
+  const clusters = useMemo(() => duplicateClusters(bugs), [bugs]);
+
+  function reset() {
+    resetAll();
+  }
+
+  return (
+    <div className="bt__dash">
+      <div className="bt__statgrid">
+        <StatPanel title="By severity">
+          {SEVERITIES.map((s) => (
+            <StatRow key={s} className={`bt__sev--${s}`} label={SEVERITY_LABEL[s]} value={stats.bySeverity[s]} dot />
+          ))}
+        </StatPanel>
+        <StatPanel title="By status">
+          {STATUSES.map((s) => (
+            <StatRow key={s} label={STATUS_LABEL[s]} value={stats.byStatus[s]} />
+          ))}
+        </StatPanel>
+      </div>
+
+      <section className="bt__queue glass" aria-label="Untriaged queue">
+        <h5>Untriaged queue ({untriaged.length})</h5>
+        {untriaged.length === 0 ? (
+          <p className="bt__empty">Every new bug has a component and assignee.</p>
+        ) : (
+          <ul>
+            {untriaged.map((b) => (
+              <li key={b.id}>
+                <button type="button" className="bt__queue-item" onClick={() => onSelect(b.id)}>
+                  <span className="mono">{b.id}</span>
+                  <span className="bt__queue-title">{b.title}</span>
+                  <span className="bt__queue-missing">
+                    needs {completeness(b).missing.join(' + ')}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="bt__clusters glass" aria-label="Duplicate clusters">
+        <h5>Duplicate clusters ({clusters.length})</h5>
+        {clusters.length === 0 ? (
+          <p className="bt__empty">No likely duplicate groups detected.</p>
+        ) : (
+          <ul>
+            {clusters.map((group) => (
+              <li key={group.map((g) => g.id).join('-')} className="bt__cluster">
+                {group.map((g) => (
+                  <button
+                    key={g.id}
+                    type="button"
+                    className="bt__cluster-chip"
+                    onClick={() => onSelect(g.id)}
+                  >
+                    <span className="mono">{g.id}</span> {g.title}
+                  </button>
+                ))}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <div className="demo__controls">
+        <button type="button" className="demo__btn demo__btn--ghost" onClick={reset}>
+          Reset board
+        </button>
+        <span className="demo__hint">Clears localStorage and restores the seed bugs.</span>
+      </div>
+    </div>
+  );
+}
+
+function StatPanel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="bt__stat glass" aria-label={title}>
+      <h5>{title}</h5>
+      <dl>{children}</dl>
+    </section>
+  );
+}
+
+function StatRow({
+  label,
+  value,
+  className,
+  dot,
+}: {
+  label: string;
+  value: number;
+  className?: string;
+  dot?: boolean;
+}) {
+  return (
+    <div className={`bt__statrow${className ? ' ' + className : ''}`}>
+      <dt>
+        {dot && <span className="bt__dot" aria-hidden="true" />}
+        {label}
+      </dt>
+      <dd className="mono">{value}</dd>
     </div>
   );
 }

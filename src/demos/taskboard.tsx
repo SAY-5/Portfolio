@@ -1,263 +1,491 @@
 import { useEffect, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
+import { useReducedMotion } from 'framer-motion';
 import '../styles/demo.css';
+import './taskboard.css';
+import { COLUMN_LABELS, COLUMN_ORDER, type ColumnId } from './taskboard/data';
+import { useStore } from './taskboard/state';
+import {
+  addCard,
+  applyConflictStep,
+  deleteCard,
+  editCard,
+  FANOUT_HIGH,
+  FANOUT_LOW,
+  FANOUT_QUEUES,
+  invariantsHold,
+  moveCard,
+  planConflict,
+  resetBoard,
+  type LogLine,
+} from './taskboard/store';
+import { indexBefore, locate, step, type Dir } from './taskboard/dnd';
 
-// Real mechanism from the project: the board lives in one document. Concurrent
-// moves of the same card race on the document's optimistic @Version. One save
-// wins and the version increments; the loser catches the conflict, re-reads,
-// and rebases its move. A monotonic seq is the tie-break that decides the final
-// column. Two invariants always hold afterward: the card id sits in exactly one
-// column's cardOrder, and the card's columnId matches the column listing it.
-// The FanoutBenchmark delivering one move to 500 subscriber queues sustains
-// roughly 80,000 to 90,000 moves per second.
-const FANOUT_LOW = 80_000;
-const FANOUT_HIGH = 90_000;
+// In-browser TaskBoard. The whole board is one optimistic-locked document:
+// columns own an ordered list of card ids and each card records its columnId.
+// Cards persist in localStorage, so they survive a reload. Adding, editing,
+// deleting, and moving a card all bump the document @Version. Concurrent moves
+// of the same card race on that version: one save wins, the loser re-reads head
+// and rebases, and a monotonic seq is the tie-break for the final column. Two
+// invariants hold after any commit: a card id sits in exactly one column's
+// cardOrder, and the card's columnId matches the column listing it.
 
-type ColId = 'todo' | 'doing' | 'done';
-const columns: { id: ColId; label: string }[] = [
-  { id: 'todo', label: 'Todo' },
-  { id: 'doing', label: 'Doing' },
-  { id: 'done', label: 'Done' },
-];
+type Draft = { title: string; note: string };
+const EMPTY: Draft = { title: '', note: '' };
 
-// User A moves the card to Doing, User B moves it to Done, at the same instant.
-const A_TARGET: ColId = 'doing';
-const B_TARGET: ColId = 'done';
-// Higher seq wins the tie-break. B issues the later move, so B's seq is higher
-// and the card settles in Done.
-const A_SEQ = 7;
-const B_SEQ = 8;
-const WINNER: ColId = B_SEQ > A_SEQ ? B_TARGET : A_TARGET;
-
-type LogLine = { id: number; who: 'A' | 'B' | 'sys'; text: string };
-const ease = [0.22, 1, 0.36, 1] as const;
+const ARROW_DIR: Record<string, Dir> = {
+  ArrowLeft: 'left',
+  ArrowRight: 'right',
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+};
 
 export default function TaskboardDemo() {
+  const state = useStore();
   const reduce = useReducedMotion();
-  const [cardCol, setCardCol] = useState<ColId>('todo');
-  const [version, setVersion] = useState(4);
-  const [running, setRunning] = useState(false);
-  const [done, setDone] = useState(false);
-  const [log, setLog] = useState<LogLine[]>([]);
-  const [aActive, setAActive] = useState(false);
-  const [bActive, setBActive] = useState(false);
-  const timers = useRef<number[]>([]);
-  const logId = useRef(0);
+  const { board, log, presence } = state;
+  const [composer, setComposer] = useState<ColumnId | null>(null);
+  const [draft, setDraft] = useState<Draft>(EMPTY);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Draft>(EMPTY);
 
-  function clearTimers() {
+  // Pointer drag state.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overCol, setOverCol] = useState<ColumnId | null>(null);
+  // Keyboard "grab" state: the card a keyboard user is currently moving.
+  const [grabbed, setGrabbed] = useState<string | null>(null);
+  // Polite status text for screen readers, announcing grab and move outcomes.
+  const [status, setStatus] = useState('');
+
+  // Conflict simulation state.
+  const [conflictId, setConflictId] = useState<string | null>(null);
+  const timers = useRef<number[]>([]);
+  useEffect(() => {
+    const handles = timers.current;
+    return () => handles.forEach((t) => window.clearTimeout(t));
+  }, []);
+
+  const total = Object.keys(board.cards).length;
+  const ok = invariantsHold(board);
+
+  // Replay a two-user conflict on the chosen card. Each plan step is applied to
+  // the live store on its own tick, so the board, log, and presence advance in
+  // lockstep with the on-screen timeline. The card settles into exactly one
+  // column decided by the seq tie-break.
+  function simulateConflict(cardId: string) {
+    if (conflictId) return;
+    const plan = planConflict(cardId);
+    if (!plan) return;
+    setConflictId(cardId);
+    const gap = reduce ? 0 : 620;
+    plan.steps.forEach((s, i) => {
+      const handle = window.setTimeout(
+        () => {
+          applyConflictStep(plan, s);
+          if (i === plan.steps.length - 1) setConflictId(null);
+        },
+        reduce ? 0 : i * gap + 120,
+      );
+      timers.current.push(handle);
+    });
+  }
+
+  function onReset() {
     timers.current.forEach((t) => window.clearTimeout(t));
     timers.current = [];
-  }
-  useEffect(() => clearTimers, []);
-
-  function addLog(who: LogLine['who'], text: string) {
-    logId.current += 1;
-    setLog((prev) => [...prev, { id: logId.current, who, text }]);
+    setConflictId(null);
+    resetBoard();
   }
 
-  function reset() {
-    clearTimers();
-    setCardCol('todo');
-    setVersion(4);
-    setRunning(false);
-    setDone(false);
-    setAActive(false);
-    setBActive(false);
-    setLog([]);
-    logId.current = 0;
+  function openComposer(col: ColumnId) {
+    setComposer(col);
+    setDraft(EMPTY);
   }
 
-  function at(ms: number, fn: () => void) {
-    timers.current.push(window.setTimeout(fn, reduce ? 0 : ms));
+  function submitComposer(col: ColumnId) {
+    if (!draft.title.trim()) return;
+    addCard(draft.title, draft.note, col);
+    setDraft(EMPTY);
+    setComposer(null);
   }
 
-  function bothMove() {
-    if (running) return;
-    reset();
-    setRunning(true);
-    const base = version; // both clients read this version
+  function startEdit(id: string, title: string, note: string) {
+    setEditing(id);
+    setEditDraft({ title, note });
+  }
 
-    // Both clients fire a move against the same base version.
-    at(120, () => {
-      setAActive(true);
-      setBActive(true);
-      addLog('A', `move card to Doing  (base @Version ${base}, seq ${A_SEQ})`);
-      addLog('B', `move card to Done   (base @Version ${base}, seq ${B_SEQ})`);
-    });
+  function submitEdit(id: string) {
+    if (!editDraft.title.trim()) return;
+    editCard(id, editDraft.title, editDraft.note);
+    setEditing(null);
+  }
 
-    // One save wins the optimistic lock. B commits first here; version bumps.
-    at(900, () => {
-      setCardCol(B_TARGET);
-      setVersion(base + 1);
-      setBActive(false);
-      addLog('B', `save committed: @Version ${base} -> ${base + 1}`);
-    });
+  // ---------- pointer drag ----------
+  function onDragStart(id: string) {
+    setDragId(id);
+    setGrabbed(null);
+  }
+  function onDragEnd() {
+    setDragId(null);
+    setOverCol(null);
+  }
+  function onDropBefore(column: ColumnId, beforeCardId: string | null) {
+    if (!dragId) return;
+    const index = indexBefore(board, column, beforeCardId);
+    moveCard(dragId, column, index);
+    onDragEnd();
+  }
 
-    // A's save hits a stale version and is rejected.
-    at(1500, () => {
-      addLog(
-        'sys',
-        `A save rejected: stale @Version ${base}, document now @Version ${base + 1}`,
-      );
-    });
-
-    // A re-reads, rebases its move onto the new state, seq tie-break decides.
-    at(2150, () => {
-      addLog('A', `re-read @Version ${base + 1}, rebase move`);
-      addLog(
-        'sys',
-        `seq tie-break: A seq ${A_SEQ} < B seq ${B_SEQ}, card stays in Done`,
-      );
-    });
-
-    at(2750, () => {
-      setAActive(false);
-      setVersion(base + 2);
-      addLog('A', `rebase committed: @Version ${base + 1} -> ${base + 2}`);
-      addLog(
-        'sys',
-        'invariant ok: card in exactly one column, columnId matches Done',
-      );
-      setRunning(false);
-      setDone(true);
-    });
+  // ---------- keyboard moves ----------
+  // Space/Enter toggles grab. While grabbed, arrow keys move the card one step
+  // and commit immediately, so the board reflects each press; Escape releases.
+  function onCardKeyDown(e: React.KeyboardEvent, id: string) {
+    const card = board.cards[id];
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      setGrabbed((g) => {
+        const next = g === id ? null : id;
+        setStatus(
+          next
+            ? `Grabbed ${card?.title ?? id}. Use arrow keys to move.`
+            : `Dropped ${card?.title ?? id}.`,
+        );
+        return next;
+      });
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (grabbed === id) setStatus(`Move cancelled for ${card?.title ?? id}.`);
+      setGrabbed(null);
+      return;
+    }
+    if (grabbed === id && ARROW_DIR[e.key]) {
+      e.preventDefault();
+      const target = step(board, id, ARROW_DIR[e.key]);
+      if (target) {
+        moveCard(id, target.column, target.index);
+        setStatus(
+          `${card?.title ?? id} moved to ${COLUMN_LABELS[target.column]}, position ${target.index + 1}.`,
+        );
+      } else {
+        setStatus('Cannot move further in that direction.');
+      }
+    }
   }
 
   return (
-    <div className="demo" aria-label="TaskBoard concurrent move demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Two users, one card</h3>
+    <div className="demo" aria-label="TaskBoard application">
+      <span className="demo__tag">Interactive app</span>
+      <h3 className="demo__title">TaskBoard</h3>
       <p className="demo__lede">
-        User A and User B grab the same card and drop it in different columns at
-        the same instant. The board document is one optimistic-locked record:
-        one save wins and bumps the @Version, the loser re-reads and rebases,
-        and the monotonic seq is the tie-break for the final column. The card
-        lands in exactly one place.
+        A working Kanban board that runs fully in the browser. Add, edit,
+        delete, and drag cards across three columns. The board is one
+        optimistic-locked document and every change persists in localStorage, so
+        it survives a reload. Keyboard users can grab a card with Space and move
+        it with the arrow keys.
       </p>
 
-      <div className="tb__stage">
-        <div className="tb__presence" aria-label="Presence">
-          <span className="tb__avatar tb__avatar--a" data-on={aActive}>
-            A
+      <div className="tbk">
+        <div className="tbk__sr" role="status" aria-live="polite">
+          {status}
+        </div>
+        <div className="tbk__bar">
+          <span className="tbk__bar-meta" aria-live="polite">
+            board @Version {board.version}
           </span>
-          <span className="tb__avatar tb__avatar--b" data-on={bActive}>
-            B
-          </span>
-          <span className="tb__presence-label">User A and User B viewing</span>
-          <span className="tb__version" aria-live="polite">
-            board @Version {version}
+          <span className="tbk__bar-meta">{total} cards</span>
+          <span
+            className={`tbk__inv ${ok ? 'tbk__inv--ok' : 'tbk__inv--bad'}`}
+            aria-live="polite"
+          >
+            {ok ? 'invariants hold' : 'invariant broken'}
           </span>
         </div>
 
-        <div className="tb__board">
-          {columns.map((col) => {
-            const here = cardCol === col.id;
-            const isWinner = done && col.id === WINNER;
+        <div className="tbk__board">
+          {COLUMN_ORDER.map((colId) => {
+            const col = board.columns.find((c) => c.id === colId);
+            if (!col) return null;
+            const isOver = overCol === col.id && dragId !== null;
             return (
-              <div
+              <section
                 key={col.id}
-                className={`tb__col ${isWinner ? 'tb__col--win' : ''}`}
+                className={`tbk__col ${isOver ? 'tbk__col--over' : ''}`}
+                aria-label={`${col.label} column`}
+                onDragOver={(e) => {
+                  if (dragId) {
+                    e.preventDefault();
+                    setOverCol(col.id);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  onDropBefore(col.id, null);
+                }}
               >
-                <div className="tb__col-head">
-                  <span className="tb__col-name">{col.label}</span>
-                  {col.id === A_TARGET && (
-                    <span className="tb__ghost tb__ghost--a">A</span>
-                  )}
-                  {col.id === B_TARGET && (
-                    <span className="tb__ghost tb__ghost--b">B</span>
-                  )}
-                </div>
-                <div className="tb__col-body">
-                  <AnimatePresence>
-                    {here && (
-                      <motion.div
-                        layoutId="tb-card"
-                        className="tb__card"
-                        initial={false}
-                        transition={{
-                          duration: reduce ? 0 : 0.5,
-                          ease,
-                          layout: { duration: reduce ? 0 : 0.5, ease },
+                <header className="tbk__col-head">
+                  <h4 className="tbk__col-name">{col.label}</h4>
+                  <span className="tbk__col-count" aria-label="card count">
+                    {col.cardOrder.length}
+                  </span>
+                </header>
+
+                <ul className="tbk__list">
+                  {col.cardOrder.map((cardId) => {
+                    const card = board.cards[cardId];
+                    if (!card) return null;
+                    if (editing === card.id) {
+                      return (
+                        <li key={card.id} className="tbk__card tbk__card--edit">
+                          <CardForm
+                            draft={editDraft}
+                            setDraft={setEditDraft}
+                            onSubmit={() => submitEdit(card.id)}
+                            onCancel={() => setEditing(null)}
+                            submitLabel="Save"
+                          />
+                        </li>
+                      );
+                    }
+                    const where = locate(board, card.id);
+                    const posLabel = where
+                      ? `${col.label}, position ${where.index + 1} of ${col.cardOrder.length}`
+                      : col.label;
+                    return (
+                      <li
+                        key={card.id}
+                        className={`tbk__card ${dragId === card.id ? 'tbk__card--drag' : ''} ${grabbed === card.id ? 'tbk__card--grab' : ''}`}
+                        draggable
+                        tabIndex={0}
+                        aria-roledescription="Draggable card"
+                        data-grabbed={grabbed === card.id}
+                        aria-label={`${card.title}. ${posLabel}. ${grabbed === card.id ? 'Grabbed. Arrow keys move it, Space drops, Escape cancels.' : 'Press Space to grab and move with arrow keys.'}`}
+                        onDragStart={() => onDragStart(card.id)}
+                        onDragEnd={onDragEnd}
+                        onDragOver={(e) => {
+                          if (dragId && dragId !== card.id) {
+                            e.preventDefault();
+                            setOverCol(col.id);
+                          }
                         }}
+                        onDrop={(e) => {
+                          if (dragId && dragId !== card.id) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onDropBefore(col.id, card.id);
+                          }
+                        }}
+                        onKeyDown={(e) => onCardKeyDown(e, card.id)}
                       >
-                        <span className="tb__card-id">card #c-203</span>
-                        <span className="tb__card-title">
-                          Wire STOMP reconnect
-                        </span>
-                        <span className="tb__card-col">columnId: {cardCol}</span>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </div>
+                        <div className="tbk__card-main">
+                          <span className="tbk__card-id">{card.id}</span>
+                          <span className="tbk__card-title">{card.title}</span>
+                          {card.note && (
+                            <span className="tbk__card-note">{card.note}</span>
+                          )}
+                        </div>
+                        <div className="tbk__card-actions">
+                          <span className="tbk__card-grip" aria-hidden="true">
+                            ⠿ drag
+                          </span>
+                          <button
+                            type="button"
+                            className="tbk__icon"
+                            onClick={() =>
+                              startEdit(card.id, card.title, card.note)
+                            }
+                            aria-label={`Edit ${card.title}`}
+                          >
+                            edit
+                          </button>
+                          <button
+                            type="button"
+                            className="tbk__icon tbk__icon--danger"
+                            onClick={() => deleteCard(card.id)}
+                            aria-label={`Delete ${card.title}`}
+                          >
+                            delete
+                          </button>
+                          <button
+                            type="button"
+                            className="tbk__icon tbk__icon--sim"
+                            onClick={() => simulateConflict(card.id)}
+                            disabled={conflictId !== null}
+                            aria-label={`Simulate a second user moving ${card.title}`}
+                          >
+                            conflict
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                  {col.cardOrder.length === 0 && (
+                    <li className="tbk__empty">Drop a card here</li>
+                  )}
+                </ul>
+
+                {composer === col.id ? (
+                  <div className="tbk__composer">
+                    <CardForm
+                      draft={draft}
+                      setDraft={setDraft}
+                      onSubmit={() => submitComposer(col.id)}
+                      onCancel={() => setComposer(null)}
+                      submitLabel="Add card"
+                      autoFocus
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="tbk__add"
+                    onClick={() => openComposer(col.id)}
+                  >
+                    + Add card
+                  </button>
+                )}
+              </section>
             );
           })}
         </div>
 
-        <div className="tb__feed" aria-label="Activity feed" aria-live="polite">
-          <div className="tb__feed-head">Activity</div>
-          <ul className="tb__feed-list">
-            <AnimatePresence initial={false}>
-              {log.map((l) => (
-                <motion.li
-                  key={l.id}
-                  className={`tb__feed-line tb__feed-line--${l.who}`}
-                  initial={{ opacity: 0, x: reduce ? 0 : -6 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: reduce ? 0 : 0.25, ease }}
-                >
-                  <span className="tb__feed-who">
-                    {l.who === 'sys' ? 'sys' : `User ${l.who}`}
-                  </span>
-                  <span className="tb__feed-text">{l.text}</span>
-                </motion.li>
-              ))}
-            </AnimatePresence>
-            {log.length === 0 && (
-              <li className="tb__feed-empty">
-                No moves yet. Run both moves to see the conflict resolve.
-              </li>
-            )}
-          </ul>
-        </div>
-
-        <AnimatePresence>
-          {done && (
-            <motion.div
-              className="tb__verdict"
-              initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.4, ease }}
+        <div className="tbk__panel">
+          <div className="tbk__presence" aria-label="Presence">
+            <span
+              className="tbk__avatar tbk__avatar--you"
+              data-on="true"
+              aria-hidden="true"
             >
-              <span className="tb__verdict-head">One column, no loss</span>
-              <span className="tb__verdict-text">
-                The card resolved into a single column. The id appears in exactly
-                one column's cardOrder and its columnId matches. Fan-out of one
-                move to 500 subscriber queues sustains{' '}
-                {FANOUT_LOW.toLocaleString()} to {FANOUT_HIGH.toLocaleString()}{' '}
-                moves per second.
-              </span>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+              U
+            </span>
+            <span
+              className={`tbk__avatar tbk__avatar--mate ${presence.mate ? '' : 'tbk__avatar--off'}`}
+              data-on={presence.mate}
+              aria-hidden="true"
+            >
+              M
+            </span>
+            <span className="tbk__presence-label" aria-live="polite">
+              {presence.mate
+                ? 'You and a second user are editing'
+                : 'You are editing'}
+            </span>
+            <button
+              type="button"
+              className="tbk__btn tbk__btn--ghost tbk__reset"
+              onClick={onReset}
+            >
+              Reset and seed
+            </button>
+          </div>
 
-      <div className="demo__controls">
-        <button className="demo__btn" onClick={bothMove} disabled={running}>
-          {running ? 'Resolving…' : 'Both move at once'}
-        </button>
-        <button
-          className="demo__btn demo__btn--ghost"
-          onClick={reset}
-          disabled={running}
-        >
-          Reset
-        </button>
-        <span className="demo__hint">
-          A {'->'} Doing, B {'->'} Done, seq tie-break wins
-        </span>
+          <div
+            className="tbk__feed"
+            aria-label="Activity feed"
+            aria-live="polite"
+          >
+            <div className="tbk__feed-head">Activity</div>
+            <ul className="tbk__feed-list">
+              {log.length === 0 && (
+                <li className="tbk__feed-empty">
+                  No activity yet. Add a card or run a conflict.
+                </li>
+              )}
+              {[...log].reverse().map((l: LogLine) => (
+                <li
+                  key={l.id}
+                  className={`tbk__feed-line tbk__feed-line--${l.who}`}
+                >
+                  <span className="tbk__feed-who">
+                    {l.who === 'sys'
+                      ? 'sys'
+                      : l.who === 'mate'
+                        ? 'user 2'
+                        : 'you'}
+                  </span>
+                  <span className="tbk__feed-text">{l.text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="tbk__stat">
+            <span className="tbk__stat-val">
+              {FANOUT_LOW.toLocaleString()} to {FANOUT_HIGH.toLocaleString()}
+            </span>
+            <span className="tbk__stat-unit">
+              moves per second fanned out to {FANOUT_QUEUES} subscriber queues
+            </span>
+          </div>
+
+          <p className="tbk__hint">
+            Use the conflict button on any card to replay two users moving it at
+            once: one save wins and bumps the @Version, the loser re-reads head
+            and rebases, and the higher seq is the tie-break. The card settles
+            in exactly one column. Targets are{' '}
+            {COLUMN_ORDER.map((id) => COLUMN_LABELS[id]).join(', ')}.
+          </p>
+        </div>
       </div>
     </div>
+  );
+}
+
+type CardFormProps = {
+  draft: Draft;
+  setDraft: (d: Draft) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+  submitLabel: string;
+  autoFocus?: boolean;
+};
+
+function CardForm({
+  draft,
+  setDraft,
+  onSubmit,
+  onCancel,
+  submitLabel,
+  autoFocus,
+}: CardFormProps) {
+  return (
+    <form
+      className="tbk__form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit();
+      }}
+    >
+      <input
+        className="tbk__input"
+        value={draft.title}
+        onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+        placeholder="Card title"
+        aria-label="Card title"
+        autoFocus={autoFocus}
+      />
+      <input
+        className="tbk__input"
+        value={draft.note}
+        onChange={(e) => setDraft({ ...draft, note: e.target.value })}
+        placeholder="Note (optional)"
+        aria-label="Card note"
+      />
+      <div className="tbk__form-actions">
+        <button
+          type="submit"
+          className="tbk__btn"
+          disabled={!draft.title.trim()}
+        >
+          {submitLabel}
+        </button>
+        <button
+          type="button"
+          className="tbk__btn tbk__btn--ghost"
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
