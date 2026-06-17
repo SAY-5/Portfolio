@@ -1,288 +1,624 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
+// configmesh: an in-browser multi-environment configuration manager. Define
+// typed config keys, set base defaults, override per environment, diff two
+// environments, and surface validation errors. The resolution/validation/diff
+// logic is the pure engine in ./configmesh/engine.ts; this file is the UI shell
+// and persists through the external store in ./configmesh/store.ts. No eval, no
+// network, deterministic given the stored document.
+
+import { useState } from 'react';
 import '../styles/demo.css';
 import './configmesh.css';
+import { useConfigDoc } from './configmesh/state';
+import {
+  addKey,
+  clearBase,
+  clearOverride,
+  deleteKey,
+  resetAll,
+  setBase,
+  setOverride,
+  updateKey,
+} from './configmesh/store';
+import {
+  coerceValue,
+  diffEnvironments,
+  formatValue,
+  resolveEnvironment,
+  validateEnvironment,
+} from './configmesh/engine';
+import type { ConfigKey, ConfigType, ConfigValue } from './configmesh/types';
 
-// Real numbers from the project: a write at the server pushes config changes
-// over a long-lived gRPC bidi stream to subscribers within milliseconds, versus
-// polling. The propagation test boots Redis via testcontainers, runs 50
-// concurrent subscribers, and fires 100 key mutations. The streaming layer is
-// protected by a per-client token-bucket rate limiter implemented as a Redis
-// Lua script for atomic try-consume.
-const SUBSCRIBERS = 50;
-const BUCKET_CAPACITY = 10; // tokens
-const REFILL_PER_SEC = 5; // tokens added per second
-const ease = [0.22, 1, 0.36, 1] as const;
+const TYPES: ConfigType[] = ['string', 'number', 'bool'];
 
-const KEYS = ['checkout.flag', 'payments.cap', 'search.rollout'] as const;
-type Key = (typeof KEYS)[number];
+function KeysPanel() {
+  const doc = useConfigDoc();
+  const [name, setName] = useState('');
+  const [type, setType] = useState<ConfigType>('string');
+  const [required, setRequired] = useState(false);
+  const [error, setError] = useState('');
 
-type Node = { id: number; x: number; y: number; baseDelay: number };
+  // Draft text for the base-default editors, keyed by key name. Edits are
+  // committed on blur/enter so typing a partial number does not thrash storage.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
-// Lay 50 subscriber nodes out on a fixed grid. baseDelay is the deterministic
-// per-pair propagation time the stream fan-out lands on (sub-millisecond to a
-// few ms), so the distribution looks like a real run rather than noise.
-const COLS = 10;
-const NODES: Node[] = Array.from({ length: SUBSCRIBERS }, (_, i) => {
-  const col = i % COLS;
-  const row = Math.floor(i / COLS);
-  // Deterministic pseudo-jitter so the layout and timings are stable on the
-  // server render and the client render (no Math.random at module scope).
-  const seed = (i * 2654435761) % 1000;
-  const baseDelay = 0.6 + (seed / 1000) * 3.4; // 0.6ms .. 4.0ms
-  return { id: i, x: col, y: row, baseDelay: +baseDelay.toFixed(1) };
-});
-
-export default function ConfigmeshDemo() {
-  const reduce = useReducedMotion();
-  const [activeKey, setActiveKey] = useState<Key>('checkout.flag');
-  const [versions, setVersions] = useState<Record<Key, number>>({
-    'checkout.flag': 7,
-    'payments.cap': 3,
-    'search.rollout': 12,
-  });
-  // Which nodes have received the current write (true once the push lands).
-  const [lit, setLit] = useState<Set<number>>(new Set());
-  const [pushing, setPushing] = useState(false);
-  const [lastSpread, setLastSpread] = useState<{ p50: number; p95: number } | null>(null);
-
-  // Token bucket for the reconnect-storm client.
-  const [storm, setStorm] = useState(false);
-  const [tokens, setTokens] = useState(BUCKET_CAPACITY);
-  const [accepted, setAccepted] = useState(0);
-  const [throttled, setThrottled] = useState(0);
-
-  const timers = useRef<number[]>([]);
-  const lastTick = useRef<number>(0);
-
-  function clearTimers() {
-    timers.current.forEach((t) => window.clearTimeout(t));
-    timers.current = [];
-  }
-  useEffect(() => () => clearTimers(), []);
-
-  // Token-bucket loop: the storm client tries to consume one token roughly
-  // every 120ms; the bucket refills at REFILL_PER_SEC. Try-consume is the
-  // atomic Redis Lua step, so a request is either accepted or throttled.
-  useEffect(() => {
-    if (!storm) return;
-    lastTick.current = performance.now();
-    let raf = 0;
-    let acc = 0;
-    const loop = (now: number) => {
-      const dt = (now - lastTick.current) / 1000;
-      lastTick.current = now;
-      acc += dt;
-      setTokens((prev) => Math.min(BUCKET_CAPACITY, prev + dt * REFILL_PER_SEC));
-      // attempt a consume every ~120ms of wall time
-      if (acc >= 0.12) {
-        acc = 0;
-        setTokens((prev) => {
-          if (prev >= 1) {
-            setAccepted((a) => a + 1);
-            return prev - 1;
-          }
-          setThrottled((t) => t + 1);
-          return prev;
-        });
-      }
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, [storm]);
-
-  const sorted = useMemo(
-    () => NODES.map((n) => n.baseDelay).sort((a, b) => a - b),
-    [],
-  );
-
-  function write() {
-    if (pushing) return;
-    clearTimers();
-    setPushing(true);
-    setLit(new Set());
-
-    // Monotonic version bump: atomic INCR + SET in Redis.
-    setVersions((v) => ({ ...v, [activeKey]: v[activeKey] + 1 }));
-
-    if (reduce) {
-      setLit(new Set(NODES.map((n) => n.id)));
-      const p50 = sorted[Math.floor(sorted.length * 0.5)];
-      const p95 = sorted[Math.floor(sorted.length * 0.95)];
-      setLastSpread({ p50, p95 });
-      setPushing(false);
+  function submitKey() {
+    const ok = addKey(name, type, required);
+    if (!ok) {
+      setError('Name must be a unique identifier (letters, digits, dot, dash).');
       return;
     }
+    setName('');
+    setType('string');
+    setRequired(false);
+    setError('');
+  }
 
-    // Fan the push out: each node lights up scaled to its real propagation
-    // delay (compressed to an animation timescale so 4ms reads as ~900ms).
-    const scale = 230; // ms of animation per ms of real propagation
-    NODES.forEach((n) => {
-      const t = window.setTimeout(() => {
-        setLit((prev) => {
-          const next = new Set(prev);
-          next.add(n.id);
-          return next;
-        });
-      }, n.baseDelay * scale);
-      timers.current.push(t);
+  function commitBase(keyName: string, keyType: ConfigType, raw: string) {
+    if (raw.trim() === '') {
+      clearBase(keyName);
+      setDrafts((d) => {
+        const next = { ...d };
+        delete next[keyName];
+        return next;
+      });
+      return;
+    }
+    const value = coerceValue(raw, keyType);
+    if (value === null) return; // reject malformed; leave prior value intact
+    setBase(keyName, value);
+    setDrafts((d) => {
+      const next = { ...d };
+      delete next[keyName];
+      return next;
     });
-
-    const maxDelay = Math.max(...NODES.map((n) => n.baseDelay)) * scale;
-    const done = window.setTimeout(() => {
-      const p50 = sorted[Math.floor(sorted.length * 0.5)];
-      const p95 = sorted[Math.floor(sorted.length * 0.95)];
-      setLastSpread({ p50, p95 });
-      setPushing(false);
-    }, maxDelay + 80);
-    timers.current.push(done);
   }
 
-  function reset() {
-    clearTimers();
-    setLit(new Set());
-    setPushing(false);
-    setLastSpread(null);
+  function draftFor(keyName: string, current: ConfigValue | undefined): string {
+    if (keyName in drafts) return drafts[keyName];
+    return current === undefined ? '' : String(current);
   }
-
-  const litCount = lit.size;
-  const tokenPct = (tokens / BUCKET_CAPACITY) * 100;
-  const totalReqs = accepted + throttled;
-  const throttledPct = totalReqs ? Math.round((throttled / totalReqs) * 100) : 0;
 
   return (
-    <div className="demo" aria-label="configmesh streaming push demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">A write ripples to 50 subscribers</h3>
-      <p className="demo__lede">
-        Pick a key and write it. The server bumps a monotonic version with an
-        atomic INCR and pushes the change over the long-lived gRPC stream to
-        every subscriber within milliseconds. Turn on the reconnect storm to
-        watch the per-client token bucket throttle a misbehaving client.
-      </p>
+    <section className="cm-panel glass" aria-labelledby="cm-keys-h">
+      <div className="cm-panel__head">
+        <h4 id="cm-keys-h" className="cm-panel__title">
+          Keys and base defaults
+        </h4>
+        <span className="cm-panel__meta">{doc.keys.length} keys</span>
+      </div>
 
-      <div className="cm__stage">
-        <div className="cm__keys" role="group" aria-label="config keys">
-          {KEYS.map((k) => {
-            const isActive = k === activeKey;
-            return (
-              <button
-                key={k}
-                className={`cm__key${isActive ? ' cm__key--active' : ''}`}
-                aria-pressed={isActive}
-                onClick={() => !pushing && setActiveKey(k)}
-                disabled={pushing}
-              >
-                <span className="cm__key-name">{k}</span>
-                <span className="cm__key-ver">v{versions[k]}</span>
-              </button>
-            );
-          })}
-        </div>
+      <form
+        className="cm-keyform"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submitKey();
+        }}
+      >
+        <label className="cm-field">
+          <span className="cm-field__label">Key name</span>
+          <input
+            className="cm-input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="feature.new_nav"
+            aria-invalid={error !== ''}
+          />
+        </label>
+        <label className="cm-field">
+          <span className="cm-field__label">Type</span>
+          <select
+            className="cm-input"
+            value={type}
+            onChange={(e) => setType(e.target.value as ConfigType)}
+          >
+            {TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="cm-check">
+          <input
+            type="checkbox"
+            checked={required}
+            onChange={(e) => setRequired(e.target.checked)}
+          />
+          <span>required</span>
+        </label>
+        <button type="submit" className="demo__btn">
+          Add key
+        </button>
+      </form>
+      {error && (
+        <p className="cm-error" role="alert">
+          {error}
+        </p>
+      )}
 
-        <div className="cm__grid-wrap">
-          <div className="cm__grid-head">
-            <span className="cm__grid-title">subscribers</span>
-            <span className="cm__grid-count">
-              {litCount} / {SUBSCRIBERS} received
-            </span>
-          </div>
-          <div className="cm__grid" role="img" aria-label={`${litCount} of ${SUBSCRIBERS} subscribers updated`}>
-            {NODES.map((n) => {
-              const on = lit.has(n.id);
+      <div className="cm-table-wrap">
+        <table className="cm-table">
+          <caption className="cm-sr-only">
+            Config keys with their type, required flag, and base default
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Key</th>
+              <th scope="col">Type</th>
+              <th scope="col">Required</th>
+              <th scope="col">Base default</th>
+              <th scope="col">
+                <span className="cm-sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {doc.keys.map((key) => {
+              const baseVal = doc.base[key.name];
               return (
-                <motion.span
-                  key={n.id}
-                  className={`cm__node${on ? ' cm__node--on' : ''}`}
-                  initial={false}
-                  animate={
-                    on
-                      ? { scale: reduce ? 1 : [1, 1.35, 1], opacity: 1 }
-                      : { scale: 1, opacity: 0.4 }
-                  }
-                  transition={{ duration: reduce ? 0 : 0.4, ease }}
-                  title={`node ${n.id}: ${n.baseDelay}ms`}
-                />
+                <tr key={key.name}>
+                  <th scope="row" className="cm-key-name mono">
+                    {key.name}
+                  </th>
+                  <td>
+                    <select
+                      className="cm-input cm-input--sm"
+                      value={key.type}
+                      aria-label={`type for ${key.name}`}
+                      onChange={(e) =>
+                        updateKey(key.name, {
+                          type: e.target.value as ConfigType,
+                        })
+                      }
+                    >
+                      {TYPES.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <label className="cm-check cm-check--bare">
+                      <input
+                        type="checkbox"
+                        checked={key.required}
+                        aria-label={`required for ${key.name}`}
+                        onChange={(e) =>
+                          updateKey(key.name, { required: e.target.checked })
+                        }
+                      />
+                    </label>
+                  </td>
+                  <td>
+                    {key.type === 'bool' ? (
+                      <select
+                        className="cm-input cm-input--sm"
+                        aria-label={`base default for ${key.name}`}
+                        value={baseVal === undefined ? '' : String(baseVal)}
+                        onChange={(e) =>
+                          e.target.value === ''
+                            ? clearBase(key.name)
+                            : setBase(key.name, e.target.value === 'true')
+                        }
+                      >
+                        <option value="">(unset)</option>
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </select>
+                    ) : (
+                      <input
+                        className="cm-input cm-input--sm"
+                        aria-label={`base default for ${key.name}`}
+                        inputMode={key.type === 'number' ? 'decimal' : 'text'}
+                        value={draftFor(key.name, baseVal)}
+                        placeholder="(unset)"
+                        onChange={(e) =>
+                          setDrafts((d) => ({ ...d, [key.name]: e.target.value }))
+                        }
+                        onBlur={(e) =>
+                          commitBase(key.name, key.type, e.target.value)
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            commitBase(
+                              key.name,
+                              key.type,
+                              (e.target as HTMLInputElement).value,
+                            );
+                          }
+                        }}
+                      />
+                    )}
+                  </td>
+                  <td className="cm-row-actions">
+                    <button
+                      type="button"
+                      className="cm-icon-btn"
+                      aria-label={`delete ${key.name}`}
+                      onClick={() => deleteKey(key.name)}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
               );
             })}
-          </div>
-          <AnimatePresence>
-            {lastSpread && (
-              <motion.div
-                className="cm__spread"
-                initial={{ opacity: 0, y: reduce ? 0 : 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.35, ease }}
-              >
-                <span className="cm__spread-row">
-                  <span className="cm__spread-k">p50 propagation</span>
-                  <span className="cm__spread-v">{lastSpread.p50} ms</span>
-                </span>
-                <span className="cm__spread-row">
-                  <span className="cm__spread-k">p95 propagation</span>
-                  <span className="cm__spread-v">{lastSpread.p95} ms</span>
-                </span>
-                <span className="cm__spread-note">
-                  server-initiated push, no polling
-                </span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
 
-        <div className={`cm__bucket${storm ? ' cm__bucket--storm' : ''}`}>
-          <div className="cm__bucket-head">
-            <span className="cm__bucket-title">token bucket</span>
-            <span className="cm__bucket-meta">
-              cap {BUCKET_CAPACITY}, refill {REFILL_PER_SEC}/s
-            </span>
-          </div>
-          <div className="cm__meter" aria-hidden="true">
-            <motion.div
-              className="cm__meter-fill"
-              animate={{ width: `${tokenPct}%` }}
-              transition={{ duration: reduce ? 0 : 0.18, ease: 'linear' }}
-            />
-          </div>
-          <div className="cm__bucket-stats">
-            <span>
-              <strong>{tokens.toFixed(1)}</strong> tokens
-            </span>
-            <span className="cm__stat-ok">{accepted} accepted</span>
-            <span className="cm__stat-block">{throttled} throttled</span>
-          </div>
-          {storm && totalReqs > 0 && (
-            <div className="cm__bucket-verdict">
-              {throttledPct}% of storm requests throttled at the stream edge
+// A value editor for one key, used by the environment panel to set or clear an
+// override. Booleans use a tri-state select (inherit / true / false); other
+// types use a text input committed on blur or Enter.
+function ValueEditor({
+  envId,
+  configKey,
+  currentValue,
+  overridden,
+}: {
+  envId: string;
+  configKey: ConfigKey;
+  currentValue: ConfigValue | undefined;
+  overridden: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  function commit(raw: string) {
+    setDraft(null);
+    if (raw.trim() === '') {
+      clearOverride(envId, configKey.name);
+      return;
+    }
+    const value = coerceValue(raw, configKey.type);
+    if (value === null) return;
+    setOverride(envId, configKey.name, value);
+  }
+
+  if (configKey.type === 'bool') {
+    return (
+      <select
+        className="cm-input cm-input--sm"
+        aria-label={`override ${configKey.name}`}
+        value={overridden ? String(currentValue) : ''}
+        onChange={(e) =>
+          e.target.value === ''
+            ? clearOverride(envId, configKey.name)
+            : setOverride(envId, configKey.name, e.target.value === 'true')
+        }
+      >
+        <option value="">inherit</option>
+        <option value="true">true</option>
+        <option value="false">false</option>
+      </select>
+    );
+  }
+
+  const shown =
+    draft !== null
+      ? draft
+      : overridden && currentValue !== undefined
+        ? String(currentValue)
+        : '';
+
+  return (
+    <input
+      className="cm-input cm-input--sm"
+      aria-label={`override ${configKey.name}`}
+      inputMode={configKey.type === 'number' ? 'decimal' : 'text'}
+      placeholder="inherit"
+      value={shown}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={(e) => commit(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commit((e.target as HTMLInputElement).value);
+        }
+      }}
+    />
+  );
+}
+
+function EnvironmentPanel() {
+  const doc = useConfigDoc();
+  const [activeId, setActiveId] = useState(doc.environments[0]?.id ?? '');
+
+  // Guard against a stored active id that no longer exists.
+  const active =
+    doc.environments.find((e) => e.id === activeId) ?? doc.environments[0];
+  if (!active) return null;
+
+  const rows = resolveEnvironment(doc, active);
+  const overrideCount = rows.filter((r) => r.overridden).length;
+
+  return (
+    <section className="cm-panel glass" aria-labelledby="cm-env-h">
+      <div className="cm-panel__head">
+        <h4 id="cm-env-h" className="cm-panel__title">
+          Environment view
+        </h4>
+        <span className="cm-panel__meta">
+          {overrideCount} of {rows.length} overridden
+        </span>
+      </div>
+
+      <div className="cm-tabs" role="tablist" aria-label="select environment">
+        {doc.environments.map((env) => {
+          const isActive = env.id === active.id;
+          return (
+            <button
+              key={env.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              className={`cm-tab${isActive ? ' cm-tab--active' : ''}`}
+              onClick={() => setActiveId(env.id)}
+            >
+              {env.name}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="cm-table-wrap">
+        <table className="cm-table">
+          <caption className="cm-sr-only">
+            Effective values for the {active.name} environment
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Key</th>
+              <th scope="col">Source</th>
+              <th scope="col">Effective value</th>
+              <th scope="col">Override</th>
+              <th scope="col">
+                <span className="cm-sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const configKey = doc.keys.find((k) => k.name === row.name)!;
+              return (
+                <tr key={row.name}>
+                  <th scope="row" className="cm-key-name mono">
+                    {row.name}
+                  </th>
+                  <td>
+                    <span
+                      className={`cm-badge ${
+                        row.overridden
+                          ? 'cm-badge--override'
+                          : 'cm-badge--inherit'
+                      }`}
+                    >
+                      {row.overridden ? 'override' : 'inherited'}
+                    </span>
+                  </td>
+                  <td className="cm-val">
+                    {row.value === undefined ? (
+                      <span className="cm-unset">{formatValue(row.value)}</span>
+                    ) : (
+                      formatValue(row.value)
+                    )}
+                  </td>
+                  <td>
+                    <ValueEditor
+                      envId={active.id}
+                      configKey={configKey}
+                      currentValue={row.value}
+                      overridden={row.overridden}
+                    />
+                  </td>
+                  <td className="cm-row-actions">
+                    <button
+                      type="button"
+                      className="cm-icon-btn"
+                      aria-label={`clear override for ${row.name} in ${active.name}`}
+                      disabled={!row.overridden}
+                      onClick={() => clearOverride(active.id, row.name)}
+                    >
+                      Clear
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function DiffPanel() {
+  const doc = useConfigDoc();
+  const [fromId, setFromId] = useState(doc.environments[0]?.id ?? '');
+  const [toId, setToId] = useState(
+    doc.environments[1]?.id ?? doc.environments[0]?.id ?? '',
+  );
+
+  const fromEnv = doc.environments.find((e) => e.id === fromId);
+  const toEnv = doc.environments.find((e) => e.id === toId);
+  const entries =
+    fromEnv && toEnv ? diffEnvironments(doc, fromEnv.id, toEnv.id) : [];
+
+  return (
+    <section className="cm-panel glass" aria-labelledby="cm-diff-h">
+      <div className="cm-panel__head">
+        <h4 id="cm-diff-h" className="cm-panel__title">
+          Diff environments
+        </h4>
+        <span className="cm-panel__meta">{entries.length} differences</span>
+      </div>
+
+      <div className="cm-env-select">
+        <label>
+          from
+          <select
+            className="cm-input cm-input--sm"
+            value={fromId}
+            onChange={(e) => setFromId(e.target.value)}
+          >
+            {doc.environments.map((env) => (
+              <option key={env.id} value={env.id}>
+                {env.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="cm-arrow" aria-hidden="true">
+          to
+        </span>
+        <label>
+          to
+          <select
+            className="cm-input cm-input--sm"
+            value={toId}
+            onChange={(e) => setToId(e.target.value)}
+          >
+            {doc.environments.map((env) => (
+              <option key={env.id} value={env.id}>
+                {env.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div role="list" aria-label="diff entries">
+        {entries.length === 0 ? (
+          <p className="cm-empty">
+            {fromId === toId
+              ? 'Pick two different environments to compare.'
+              : 'No differences in effective values.'}
+          </p>
+        ) : (
+          entries.map((entry) => (
+            <div className="cm-diff-row" role="listitem" key={entry.key}>
+              <span className={`cm-diff-tag cm-diff-tag--${entry.kind}`}>
+                {entry.kind}
+              </span>
+              <span className="cm-diff-key">{entry.key}</span>
+              {entry.kind === 'changed' ? (
+                <span className="cm-diff-val">
+                  {formatValue(entry.from)}{' '}
+                  <span className="cm-arrow" aria-hidden="true">
+                    to
+                  </span>{' '}
+                  {formatValue(entry.to)}
+                </span>
+              ) : (
+                <span className="cm-diff-val">{formatValue(entry.value)}</span>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ValidationPanel() {
+  const doc = useConfigDoc();
+  const results = doc.environments.map((env) => ({
+    env,
+    issues: validateEnvironment(doc, env),
+  }));
+  const total = results.reduce((sum, r) => sum + r.issues.length, 0);
+
+  return (
+    <section className="cm-panel glass" aria-labelledby="cm-val-h">
+      <div className="cm-panel__head">
+        <h4 id="cm-val-h" className="cm-panel__title">
+          Validation
+        </h4>
+        <span className="cm-panel__meta" aria-live="polite">
+          {total === 0 ? 'all valid' : `${total} issues`}
+        </span>
+      </div>
+
+      {results.map(({ env, issues }) => (
+        <div key={env.id}>
+          <p className="cm-field__label">{env.name}</p>
+          {issues.length === 0 ? (
+            <p className="cm-ok-line">
+              <span aria-hidden="true">+</span> no missing required keys or type
+              errors
+            </p>
+          ) : (
+            <div role="list" aria-label={`issues for ${env.name}`}>
+              {issues.map((issue) => (
+                <div
+                  className="cm-issue"
+                  role="listitem"
+                  key={`${env.id}.${issue.key}.${issue.kind}`}
+                >
+                  {issue.kind === 'missing-required' ? (
+                    <>
+                      <span className="cm-issue__sev">missing</span>
+                      <span className="cm-issue__text">
+                        required key <span className="mono">{issue.key}</span> has
+                        no effective value
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="cm-issue__sev cm-issue__sev--type">
+                        type
+                      </span>
+                      <span className="cm-issue__text">
+                        <span className="mono">{issue.key}</span> expects{' '}
+                        {issue.expected} but holds a {issue.got}
+                      </span>
+                    </>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>
+      ))}
+    </section>
+  );
+}
+
+export default function ConfigmeshDemo() {
+  const doc = useConfigDoc();
+
+  return (
+    <div className="demo cm" aria-label="configmesh configuration manager">
+      <span className="demo__tag">Interactive demo</span>
+      <h3 className="demo__title">Multi-environment configuration manager</h3>
+      <p className="demo__lede">
+        Define typed config keys with base defaults, override them per
+        environment, diff two environments, and catch missing required keys and
+        type errors. Everything resolves in the browser and persists locally.
+      </p>
+
+      <KeysPanel />
+      <EnvironmentPanel />
+      <div className="cm-grid-2">
+        <DiffPanel />
+        <ValidationPanel />
       </div>
 
       <div className="demo__controls">
-        <button className="demo__btn" onClick={write} disabled={pushing}>
-          {pushing ? 'Pushing…' : `Write ${activeKey}`}
-        </button>
         <button
+          type="button"
           className="demo__btn demo__btn--ghost"
-          onClick={() => {
-            setStorm((s) => !s);
-            if (storm) {
-              setAccepted(0);
-              setThrottled(0);
-              setTokens(BUCKET_CAPACITY);
-            }
-          }}
+          onClick={resetAll}
         >
-          {storm ? 'Stop reconnect storm' : 'Start reconnect storm'}
-        </button>
-        <button className="demo__btn demo__btn--ghost" onClick={reset} disabled={pushing}>
-          Reset
+          Reset to seed
         </button>
         <span className="demo__hint">
-          {activeKey} now at v{versions[activeKey]}
+          {doc.environments.length} environments,{' '}
+          {Object.keys(doc.base).length} base defaults set
         </span>
       </div>
     </div>

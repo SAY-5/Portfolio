@@ -1,309 +1,441 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
+import { useMemo, useState } from 'react';
+import { useReducedMotion } from 'framer-motion';
 import '../styles/demo.css';
 import './api-platform.css';
+import { useGateway } from './api-platform/state';
+import {
+  addKey,
+  addRoute,
+  advanceWindow,
+  removeKey,
+  removeRoute,
+  resetAll,
+  sendRequest,
+  setKeyActive,
+  updateRoute,
+} from './api-platform/store';
+import { matchRoute } from './api-platform/engine';
+import type { Decision, Status } from './api-platform/types';
 
-// Sliding-window rate limiting backed by a Redis sorted set. Each request is
-// a member scored by timestamp; entries older than the window are evicted,
-// then the set cardinality is compared against the tier limit inside one
-// atomic Lua script. Admitted requests increment a daily usage counter
-// (Redis HINCRBY) that drains to Postgres with INSERT ON CONFLICT DO UPDATE.
-//
-// Real numbers from the project: a single-process Fastify run measured
-// 1,963 req/s with p50 3 ms and p95 18 ms on GET /v1/echo, and a free-tier
-// burst test admitted 84 and rejected 65,209 requests with 429 + Retry-After.
-const WINDOW_MS = 1000; // one second sliding window
-const P50_MS = 3;
-const P95_MS = 18;
+const STATUS_LABEL: Record<Status, string> = {
+  200: '200 Routed',
+  401: '401 Unauthorized',
+  403: '403 Forbidden',
+  429: '429 Too Many Requests',
+};
 
-type Tier = { id: string; name: string; limit: number };
-const TIERS: Tier[] = [
-  { id: 'free', name: 'free', limit: 5 },
-  { id: 'pro', name: 'pro', limit: 12 },
-  { id: 'scale', name: 'scale', limit: 24 },
-];
+const STATUS_TONE: Record<Status, string> = {
+  200: 'ok',
+  401: 'warn',
+  403: 'deny',
+  429: 'rate',
+};
 
-type Entry = { id: number; score: number; admitted: boolean };
-
-const ease = [0.22, 1, 0.36, 1] as const;
+// In-browser API gateway configurator and request simulator. Define routes
+// (path prefix to upstream, auth requirement, per-key rate limit) and API keys,
+// then send simulated requests and watch the gateway admit or deny each one
+// with the right status: 200 routed, 401 missing or unknown key, 403 inactive
+// key, 429 over the per-key rate limit. State persists in localStorage and runs
+// through a pure, deterministic engine. Nothing talks to a server, and the
+// engine never evaluates strings or reads a real clock for its decision.
 
 export default function ApiPlatformDemo() {
   const reduce = useReducedMotion();
-  const [tierId, setTierId] = useState('free');
-  const [rate, setRate] = useState(9); // requests per second the client sends
-  const [running, setRunning] = useState(false);
-  const [now, setNow] = useState(0); // virtual clock in ms
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [admitted, setAdmitted] = useState(0);
-  const [rejected, setRejected] = useState(0);
-  const [daily, setDaily] = useState(0);
-  const [flushed, setFlushed] = useState(0);
-  const [retryAfter, setRetryAfter] = useState<number | null>(null);
+  const { routes, keys, log, window: clock } = useGateway();
 
-  const tier = TIERS.find((t) => t.id === tierId)!;
-  const tickRef = useRef<number | null>(null);
-  const idRef = useRef(0);
-  const stateRef = useRef({ now: 0, entries: [] as Entry[], rate, limit: tier.limit });
-  useEffect(() => {
-    stateRef.current.rate = rate;
-    stateRef.current.limit = tier.limit;
-  }, [rate, tier.limit]);
+  // ---- request composer state ----
+  const [path, setPath] = useState('/v1/users/42');
+  const [reqKey, setReqKey] = useState<string>('k-live');
+  const [lastDecision, setLastDecision] = useState<Decision | null>(null);
 
-  function stop() {
-    if (tickRef.current !== null) {
-      clearInterval(tickRef.current);
-      tickRef.current = null;
-    }
-  }
-  useEffect(() => stop, []);
+  // ---- new-route form state ----
+  const [nrPrefix, setNrPrefix] = useState('');
+  const [nrUpstream, setNrUpstream] = useState('');
+  const [nrAuth, setNrAuth] = useState(true);
+  const [nrLimit, setNrLimit] = useState(5);
 
-  // Advance the virtual clock by one step, attempt one request, and evict any
-  // sorted-set members older than the window.
-  function advance() {
-    const step = 1000 / stateRef.current.rate; // ms between requests
-    const t = stateRef.current.now + step;
-    stateRef.current.now = t;
+  // ---- new-key form state ----
+  const [nkLabel, setNkLabel] = useState('');
 
-    // Evict entries that have slid out of the window.
-    const live = stateRef.current.entries.filter((e) => e.score > t - WINDOW_MS);
-    const inWindow = live.filter((e) => e.admitted).length;
-    const limit = stateRef.current.limit;
-
-    idRef.current += 1;
-    const admit = inWindow < limit;
-    const entry: Entry = { id: idRef.current, score: t, admitted: admit };
-    const nextEntries = [...live, entry].slice(-40);
-    stateRef.current.entries = nextEntries;
-
-    setNow(Math.round(t));
-    setEntries(nextEntries);
-    if (admit) {
-      setAdmitted((a) => a + 1);
-      setDaily((d) => d + 1);
-      setRetryAfter(null);
-    } else {
-      setRejected((r) => r + 1);
-      // Retry-After: time until the oldest admitted entry leaves the window.
-      const oldest = live
-        .filter((e) => e.admitted)
-        .reduce((m, e) => Math.min(m, e.score), t);
-      setRetryAfter(Math.max(0, Math.ceil((oldest + WINDOW_MS - t) / 1000)));
-    }
+  function onAddRoute(e: React.FormEvent) {
+    e.preventDefault();
+    if (!nrPrefix.trim() || !nrUpstream.trim()) return;
+    addRoute({
+      prefix: nrPrefix,
+      upstream: nrUpstream.trim(),
+      requiresAuth: nrAuth,
+      rateLimit: Math.max(0, Math.floor(nrLimit) || 0),
+    });
+    setNrPrefix('');
+    setNrUpstream('');
+    setNrAuth(true);
+    setNrLimit(5);
   }
 
-  function play() {
-    if (running) return;
-    setRunning(true);
-    if (reduce) {
-      for (let i = 0; i < 24; i += 1) advance();
-      setRunning(false);
-      return;
-    }
-    tickRef.current = window.setInterval(advance, 240);
-  }
-  function pause() {
-    stop();
-    setRunning(false);
-  }
-  function reset() {
-    stop();
-    setRunning(false);
-    idRef.current = 0;
-    stateRef.current = { now: 0, entries: [], rate, limit: tier.limit };
-    setNow(0);
-    setEntries([]);
-    setAdmitted(0);
-    setRejected(0);
-    setDaily(0);
-    setFlushed(0);
-    setRetryAfter(null);
-  }
-  function flush() {
-    // Idempotent flush: drain the daily counter into Postgres, then the Redis
-    // key is cleared. Re-running with nothing buffered is a no-op.
-    setFlushed((f) => f + daily);
-    setDaily(0);
+  function onAddKey(e: React.FormEvent) {
+    e.preventDefault();
+    if (!nkLabel.trim()) return;
+    addKey(nkLabel);
+    setNkLabel('');
   }
 
-  const live = entries.filter((e) => e.score > now - WINDOW_MS);
-  const liveAdmitted = live.filter((e) => e.admitted).length;
-  const total = admitted + rejected;
-  const rejectPct = total > 0 ? Math.round((rejected / total) * 100) : 0;
-  const fill = Math.min(1, liveAdmitted / tier.limit);
+  // A live preview of which route the composed path would hit, shown next to
+  // the composer so the user sees the longest-prefix match before sending.
+  const preview = useMemo(() => matchRoute(routes, path.trim() || '/'), [routes, path]);
+
+  function onSend() {
+    const trimmed = path.trim() || '/';
+    const keyId = reqKey === '' ? null : reqKey;
+    setLastDecision(sendRequest(trimmed, keyId));
+  }
 
   return (
-    <div className="demo" aria-label="api-platform rate limiter demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Sliding-window rate limiter</h3>
-      <p className="demo__lede">
-        Every request is a member in a Redis sorted set scored by timestamp.
-        Entries older than the {WINDOW_MS / 1000}s window are evicted, then the
-        in-window count is checked against the tier limit. Over the limit returns
-        429 with Retry-After. Admitted calls accumulate a daily counter that
-        flushes to Postgres.
-      </p>
-
-      <div className="ap__stage">
-        <div className="ap__controls-row">
-          <div
-            className="ap__tiers"
-            role="group"
-            aria-label="Rate limit tier"
-          >
-            {TIERS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                className={`ap__tier${t.id === tierId ? ' ap__tier--on' : ''}`}
-                aria-pressed={t.id === tierId}
-                onClick={() => setTierId(t.id)}
-              >
-                {t.name}
-                <span className="ap__tier-lim">{t.limit}/s</span>
-              </button>
-            ))}
-          </div>
-          <label className="ap__rate">
-            <span className="ap__rate-label">
-              client rate <b>{rate}/s</b>
-            </span>
-            <input
-              type="range"
-              min={1}
-              max={20}
-              value={rate}
-              onChange={(e) => setRate(Number(e.target.value))}
-              className="ap__slider"
-              aria-label="Client request rate per second"
-            />
-          </label>
+    <div className="ap" data-reduce={reduce ? 'true' : 'false'}>
+      <header className="ap__head">
+        <div>
+          <h2 className="ap__title">API gateway</h2>
+          <p className="ap__sub">
+            Configure routes and keys, then send requests and watch admission. Fixed window{' '}
+            <span className="mono">#{clock}</span>.
+          </p>
         </div>
-
-        <div className="ap__window" aria-hidden="true">
-          <div className="ap__window-head">
-            <span>redis sorted set</span>
-            <span className="ap__window-count">
-              {liveAdmitted}/{tier.limit} in window
-            </span>
-          </div>
-          <div className="ap__track">
-            <div
-              className="ap__capacity"
-              style={{
-                background:
-                  fill >= 1
-                    ? 'rgba(255, 91, 41, 0.16)'
-                    : 'rgba(79, 208, 138, 0.1)',
-              }}
-            />
-            <AnimatePresence initial={false}>
-              {live.map((e) => {
-                const age = (now - e.score) / WINDOW_MS; // 0 fresh .. 1 leaving
-                const left = `${Math.max(0, Math.min(100, (1 - age) * 100))}%`;
-                return (
-                  <motion.span
-                    key={e.id}
-                    className={`ap__bucket ap__bucket--${
-                      e.admitted ? 'ok' : 'rej'
-                    }`}
-                    style={{ left }}
-                    initial={{
-                      opacity: 0,
-                      scale: reduce ? 1 : 0.4,
-                      y: reduce ? 0 : -14,
-                    }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: reduce ? 1 : 0.4 }}
-                    transition={{ duration: reduce ? 0 : 0.28, ease }}
-                  />
-                );
-              })}
-            </AnimatePresence>
-            <div className="ap__track-labels">
-              <span>now</span>
-              <span>-{WINDOW_MS / 1000}s (evicted)</span>
-            </div>
-          </div>
+        <div className="ap__head-actions">
+          <button type="button" className="ap__btn" onClick={advanceWindow}>
+            Advance window
+          </button>
+          <button type="button" className="ap__btn ap__btn--ghost" onClick={resetAll}>
+            Reset
+          </button>
         </div>
+      </header>
 
-        <div className="ap__meters">
-          <div className="ap__meter ap__meter--ok">
-            <div className="ap__meter-name">admitted</div>
-            <div className="ap__meter-val">{admitted}</div>
+      <div className="ap__grid">
+        {/* ---------- routes ---------- */}
+        <section className="ap__panel glass" aria-labelledby="ap-routes-h">
+          <h3 id="ap-routes-h" className="ap__panel-title">
+            Routes
+          </h3>
+          <div className="ap__table-wrap" role="region" aria-label="Route table" tabIndex={0}>
+            <table className="ap__table">
+              <thead>
+                <tr>
+                  <th scope="col">Prefix</th>
+                  <th scope="col">Upstream</th>
+                  <th scope="col">Auth</th>
+                  <th scope="col">Limit / window</th>
+                  <th scope="col">
+                    <span className="ap__sr">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {routes.map((r) => (
+                  <tr key={r.id}>
+                    <td className="mono">{r.prefix}</td>
+                    <td className="mono ap__dim">{r.upstream}</td>
+                    <td>
+                      <label className="ap__switch">
+                        <input
+                          type="checkbox"
+                          checked={r.requiresAuth}
+                          onChange={(e) => updateRoute(r.id, { requiresAuth: e.target.checked })}
+                          aria-label={`Require auth for ${r.prefix}`}
+                        />
+                        <span>{r.requiresAuth ? 'required' : 'open'}</span>
+                      </label>
+                    </td>
+                    <td>
+                      <input
+                        className="ap__num"
+                        type="number"
+                        min={0}
+                        value={r.rateLimit}
+                        onChange={(e) =>
+                          updateRoute(r.id, { rateLimit: Math.max(0, Number(e.target.value) || 0) })
+                        }
+                        aria-label={`Rate limit for ${r.prefix}, 0 is unlimited`}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="ap__icon"
+                        onClick={() => removeRoute(r.id)}
+                        aria-label={`Delete route ${r.prefix}`}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {routes.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="ap__empty">
+                      No routes. Add one below.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-          <div className="ap__meter ap__meter--rej">
-            <div className="ap__meter-name">rejected 429</div>
-            <div className="ap__meter-val">{rejected}</div>
-            <div className="ap__meter-meta">
-              {retryAfter !== null
-                ? `Retry-After: ${retryAfter}s`
-                : `${rejectPct}% of stream`}
-            </div>
-          </div>
-          <div className="ap__meter">
-            <div className="ap__meter-name">latency p50 / p95</div>
-            <div className="ap__meter-val ap__meter-val--sm">
-              {P50_MS} / {P95_MS}
-              <span className="ap__meter-unit">ms</span>
-            </div>
-            <div className="ap__meter-meta">measured 1,963 req/s</div>
-          </div>
-        </div>
 
-        <div className="ap__usage">
-          <div className="ap__usage-side">
-            <div className="ap__usage-name">daily counter (Redis HINCRBY)</div>
-            <div className="ap__usage-val">{daily}</div>
-            <div className="ap__usage-bar">
-              <motion.div
-                className="ap__usage-fill"
-                animate={{ width: `${Math.min(100, daily * 2)}%` }}
-                transition={{ duration: reduce ? 0 : 0.3, ease }}
+          <form className="ap__form" onSubmit={onAddRoute} aria-label="Add route">
+            <div className="ap__field">
+              <label htmlFor="nr-prefix">Prefix</label>
+              <input
+                id="nr-prefix"
+                className="ap__input mono"
+                placeholder="/v1/orders"
+                value={nrPrefix}
+                onChange={(e) => setNrPrefix(e.target.value)}
               />
             </div>
-          </div>
-          <div className="ap__usage-arrow" aria-hidden="true">
-            flush
-          </div>
-          <div className="ap__usage-side ap__usage-side--pg">
-            <div className="ap__usage-name">postgres (ON CONFLICT)</div>
-            <div className="ap__usage-val">{flushed}</div>
-            <div className="ap__usage-meta">committed rows</div>
-          </div>
-        </div>
-      </div>
+            <div className="ap__field">
+              <label htmlFor="nr-upstream">Upstream</label>
+              <input
+                id="nr-upstream"
+                className="ap__input mono"
+                placeholder="orders-svc"
+                value={nrUpstream}
+                onChange={(e) => setNrUpstream(e.target.value)}
+              />
+            </div>
+            <div className="ap__field ap__field--narrow">
+              <label htmlFor="nr-limit">Limit</label>
+              <input
+                id="nr-limit"
+                className="ap__input ap__num"
+                type="number"
+                min={0}
+                value={nrLimit}
+                onChange={(e) => setNrLimit(Number(e.target.value))}
+              />
+            </div>
+            <label className="ap__check">
+              <input
+                type="checkbox"
+                checked={nrAuth}
+                onChange={(e) => setNrAuth(e.target.checked)}
+              />
+              <span>requires auth</span>
+            </label>
+            <button type="submit" className="ap__btn">
+              Add route
+            </button>
+          </form>
+        </section>
 
-      <div className="demo__controls">
-        {running ? (
-          <button type="button" className="demo__btn" onClick={pause}>
-            Pause
-          </button>
-        ) : (
-          <button type="button" className="demo__btn" onClick={play}>
-            Send traffic
-          </button>
-        )}
-        <button
-          type="button"
-          className="demo__btn demo__btn--ghost"
-          onClick={flush}
-          disabled={daily === 0}
-        >
-          Flush to Postgres
-        </button>
-        <button
-          type="button"
-          className="demo__btn demo__btn--ghost"
-          onClick={reset}
-        >
-          Reset
-        </button>
-        <span className="demo__hint">
-          {rate > tier.limit
-            ? `${rate}/s over ${tier.limit}/s limit: expect 429s`
-            : `${rate}/s within ${tier.limit}/s limit`}
-        </span>
+        {/* ---------- keys ---------- */}
+        <section className="ap__panel glass" aria-labelledby="ap-keys-h">
+          <h3 id="ap-keys-h" className="ap__panel-title">
+            API keys
+          </h3>
+          <ul className="ap__keys">
+            {keys.map((k) => (
+              <li key={k.id} className="ap__key">
+                <span className="ap__key-dot" data-active={k.active} aria-hidden="true" />
+                <span className="ap__key-label mono">{k.label}</span>
+                <span className="ap__key-state" data-active={k.active}>
+                  {k.active ? 'active' : 'inactive'}
+                </span>
+                <button
+                  type="button"
+                  className="ap__icon"
+                  onClick={() => setKeyActive(k.id, !k.active)}
+                  aria-label={`${k.active ? 'Deactivate' : 'Activate'} key ${k.label}`}
+                >
+                  {k.active ? 'Deactivate' : 'Activate'}
+                </button>
+                <button
+                  type="button"
+                  className="ap__icon"
+                  onClick={() => removeKey(k.id)}
+                  aria-label={`Delete key ${k.label}`}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+            {keys.length === 0 && <li className="ap__empty">No keys yet.</li>}
+          </ul>
+          <form className="ap__form" onSubmit={onAddKey} aria-label="Add API key">
+            <div className="ap__field ap__field--grow">
+              <label htmlFor="nk-label">New key label</label>
+              <input
+                id="nk-label"
+                className="ap__input mono"
+                placeholder="mobile-app"
+                value={nkLabel}
+                onChange={(e) => setNkLabel(e.target.value)}
+              />
+            </div>
+            <button type="submit" className="ap__btn">
+              Add key
+            </button>
+          </form>
+        </section>
+
+        {/* ---------- simulator ---------- */}
+        <section className="ap__panel glass ap__panel--wide" aria-labelledby="ap-sim-h">
+          <h3 id="ap-sim-h" className="ap__panel-title">
+            Request simulator
+          </h3>
+          <div className="ap__composer">
+            <div className="ap__field ap__field--grow">
+              <label htmlFor="sim-path">Request path</label>
+              <input
+                id="sim-path"
+                className="ap__input mono"
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') onSend();
+                }}
+              />
+            </div>
+            <div className="ap__field">
+              <label htmlFor="sim-key">Present key</label>
+              <select
+                id="sim-key"
+                className="ap__input mono"
+                value={reqKey}
+                onChange={(e) => setReqKey(e.target.value)}
+              >
+                <option value="">(no key)</option>
+                {keys.map((k) => (
+                  <option key={k.id} value={k.id}>
+                    {k.label}
+                    {k.active ? '' : ' (inactive)'}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button type="button" className="ap__btn ap__btn--send" onClick={onSend}>
+              Send
+            </button>
+          </div>
+
+          <p className="ap__match" aria-live="polite">
+            {preview.route ? (
+              <>
+                Matches <span className="mono">{preview.route.prefix}</span> to{' '}
+                <span className="mono ap__dim">{preview.route.upstream}</span>
+                {preview.candidates.length > 1 && (
+                  <span className="ap__faint">
+                    {' '}
+                    (over {preview.candidates.length - 1} shorter prefix
+                    {preview.candidates.length - 1 > 1 ? 'es' : ''})
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="ap__faint">No route covers this path.</span>
+            )}
+          </p>
+
+          {lastDecision && (
+            <div
+              className="ap__decision"
+              data-tone={STATUS_TONE[lastDecision.status]}
+              role="status"
+              aria-live="polite"
+            >
+              <span className="ap__decision-code mono">{STATUS_LABEL[lastDecision.status]}</span>
+              <span className="ap__decision-reason">{lastDecision.reason}</span>
+              {lastDecision.match.route && (
+                <span className="ap__decision-route mono ap__faint">
+                  route {lastDecision.match.route.prefix}
+                </span>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ---------- traffic ---------- */}
+        <section className="ap__panel glass ap__panel--wide" aria-labelledby="ap-traffic-h">
+          <h3 id="ap-traffic-h" className="ap__panel-title">
+            Traffic
+          </h3>
+
+          <UsageMeters />
+
+          <ol className="ap__log" aria-label="Request log">
+            {log.map((entry) => (
+              <li key={entry.id} className="ap__log-row" data-tone={STATUS_TONE[entry.status]}>
+                <span className="ap__log-status mono">{entry.status}</span>
+                <span className="ap__log-path mono">{entry.path}</span>
+                <span className="ap__log-key mono ap__faint">
+                  {entry.keyId ? keyLabel(keys, entry.keyId) : 'anon'}
+                </span>
+                <span className="ap__log-reason">{entry.reason}</span>
+                <span className="ap__log-win mono ap__faint">w{entry.window}</span>
+              </li>
+            ))}
+            {log.length === 0 && <li className="ap__empty">No requests sent yet.</li>}
+          </ol>
+        </section>
       </div>
     </div>
+  );
+}
+
+function keyLabel(keys: { id: string; label: string }[], id: string): string {
+  return keys.find((k) => k.id === id)?.label ?? id;
+}
+
+// Per key+route rate-limit usage in the current window. Reads counts from the
+// live snapshot so the bars fill as requests are admitted and empty when the
+// window advances.
+function UsageMeters() {
+  const { routes, keys, counts, window: clock } = useGateway();
+
+  const rows = useMemo(() => {
+    const out: { keyId: string; label: string; prefix: string; used: number; limit: number }[] = [];
+    for (const k of keys) {
+      for (const r of routes) {
+        if (r.rateLimit <= 0) continue;
+        const used = counts[`${k.id}::${r.id}::${clock}`] ?? 0;
+        if (used === 0) continue;
+        out.push({ keyId: k.id, label: k.label, prefix: r.prefix, used, limit: r.rateLimit });
+      }
+    }
+    return out;
+  }, [routes, keys, counts, clock]);
+
+  if (rows.length === 0) {
+    return (
+      <p className="ap__faint ap__meters-empty">
+        No metered usage in window #{clock}. Send keyed requests to a rate-limited route.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="ap__meters" aria-label="Rate limit usage in current window">
+      {rows.map((row) => {
+        const pct = Math.min(100, Math.round((row.used / row.limit) * 100));
+        const full = row.used >= row.limit;
+        return (
+          <li key={`${row.keyId}-${row.prefix}`} className="ap__meter">
+            <span className="ap__meter-label mono">
+              {row.label} {row.prefix}
+            </span>
+            <span
+              className="ap__meter-bar"
+              role="progressbar"
+              aria-valuenow={row.used}
+              aria-valuemin={0}
+              aria-valuemax={row.limit}
+              aria-label={`${row.label} on ${row.prefix}`}
+            >
+              <span className="ap__meter-fill" data-full={full} style={{ width: `${pct}%` }} />
+            </span>
+            <span className="ap__meter-num mono">
+              {row.used}/{row.limit}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

@@ -1,4 +1,15 @@
-/* gradeview: hand-rolled class-trend chart, percentile bands, brushed histogram */
+/* gradeview: hand-rolled class-trend chart, percentile bands, brushed histogram.
+   The palette is built only from theme tokens: the class median line is cyan
+   (--accent) and the percentile bands are magenta (--magenta), so the two read
+   apart cleanly on the cinematic ink background. Band fills are color-mixed from
+   the magenta token rather than raw hex so a theme change carries through. */
+.gv {
+  --gv-band-outer: color-mix(in srgb, var(--magenta) 18%, transparent);
+  --gv-band-inner: color-mix(in srgb, var(--magenta) 30%, transparent);
+  --gv-band-legend: color-mix(in srgb, var(--magenta) 45%, transparent);
+  --gv-band-legend-outer: color-mix(in srgb, var(--magenta) 24%, transparent);
+  --gv-brush: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 .gv__skilltabs {
   display: inline-flex;
   gap: 4px;
@@ -31,9 +42,14 @@
 }
 
 .gv__chartwrap {
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-border);
   border-radius: 12px;
-  background: var(--ink-900);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 24px 60px rgba(0, 0, 0, 0.45);
   padding: 12px;
 }
 .gv__svg {
@@ -53,17 +69,17 @@
   fill: var(--paper-faint);
 }
 .gv__brush-band {
-  fill: var(--accent-glow);
+  fill: var(--gv-brush);
 }
 .gv__band {
-  fill: var(--accent);
+  fill: var(--magenta);
   stroke: none;
 }
 .gv__band--outer {
-  fill: rgba(255, 91, 41, 0.16);
+  fill: var(--gv-band-outer);
 }
 .gv__band--inner {
-  fill: rgba(255, 91, 41, 0.26);
+  fill: var(--gv-band-inner);
 }
 .gv__line {
   fill: none;
@@ -137,10 +153,10 @@
   background: var(--accent);
 }
 .gv__legend-item--inner::before {
-  background: rgba(255, 91, 41, 0.42);
+  background: var(--gv-band-legend);
 }
 .gv__legend-item--outer::before {
-  background: rgba(255, 91, 41, 0.22);
+  background: var(--gv-band-legend-outer);
 }
 
 .gv__lower {
@@ -192,7 +208,7 @@
   display: block;
   width: 100%;
   border-radius: 4px 4px 0 0;
-  background: linear-gradient(180deg, var(--accent), rgba(255, 91, 41, 0.4));
+  background: linear-gradient(180deg, var(--accent), var(--gv-band-legend));
   min-height: 2px;
 }
 .gv__hist-tick {
@@ -279,5 +295,417 @@
   }
   .gv__metrics {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ---- top control bar: view tabs + selectors (step 4) ---- */
+.gv__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.gv__viewtabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ink-900);
+}
+.gv__viewtab {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease;
+}
+.gv__viewtab:hover {
+  color: var(--text-strong);
+}
+.gv__viewtab--on {
+  background: var(--accent);
+  color: var(--ink-900);
+}
+.gv__select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.gv__select-label {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.gv__select select {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--ink-900);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.gv__select select:hover {
+  border-color: var(--accent-line);
+}
+
+/* ---- week-range stepper (step 4) ---- */
+.gv__stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.gv__stepper-label {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.gv__stepper-to {
+  color: var(--text-faint);
+}
+.gv__stepper-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ink-900);
+  padding: 2px;
+}
+.gv__step-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.gv__step-btn:hover {
+  background: var(--accent-soft);
+}
+.gv__stepper-val {
+  min-width: 22px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- selected-learner overlay on the main chart (step 4) ---- */
+.gv__line--focus {
+  stroke: var(--magenta);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}
+.gv__legend-item--focus::before {
+  height: 2px;
+  background: var(--magenta);
+}
+
+/* ---- small multiples grid (step 4) ---- */
+.gv__multiples {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+.gv__mini {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink-900);
+  padding: 8px 8px 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.gv__mini:hover {
+  border-color: var(--accent-line);
+}
+.gv__mini--on {
+  border-color: var(--magenta);
+  background: var(--magenta-soft);
+}
+.gv__mini-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.gv__mini-name {
+  color: var(--text);
+}
+.gv__mini-val {
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.gv__mini--on .gv__mini-val {
+  color: var(--magenta);
+}
+.gv__mini-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.gv__mini-band {
+  fill: var(--accent-soft);
+}
+.gv__mini-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.gv__mini--on .gv__mini-line {
+  stroke: var(--magenta);
+}
+
+/* ---- reset control (step 5) ---- */
+.gv__reset {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--ink-900);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.gv__reset:hover {
+  color: var(--text-strong);
+  border-color: var(--accent-line);
+}
+
+/* ---- struggle ranking (step 5) ---- */
+.gv__rank {
+  margin-top: 16px;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 24px 60px rgba(0, 0, 0, 0.45);
+  padding: 14px;
+}
+.gv__ranklist {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gv__rankrow {
+  display: grid;
+  grid-template-columns: 150px 1fr 44px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--ink-800);
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.gv__rankrow:hover {
+  border-color: var(--accent-line);
+}
+.gv__rankrow--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.gv__rank-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+}
+.gv__rank-flag {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--magenta-soft);
+  color: var(--magenta);
+}
+.gv__rank-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink-600);
+  overflow: hidden;
+}
+.gv__rank-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--magenta));
+}
+.gv__rank-val {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- skill drill-down (step 5) ---- */
+.gv__drill {
+  margin-top: 16px;
+}
+.gv__drill-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr;
+  gap: 14px;
+}
+.gv__panel {
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 24px 60px rgba(0, 0, 0, 0.45);
+  padding: 14px;
+}
+.gv__panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 14px;
+}
+.gv__panel-sub {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--accent);
+}
+.gv__qlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gv__qrow {
+  display: grid;
+  grid-template-columns: 48px 1fr 120px;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.gv__qid {
+  color: var(--text-faint);
+  font-weight: 500;
+}
+.gv__qrow--worst .gv__qid {
+  color: var(--magenta);
+}
+.gv__qprompt {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gv__qfail {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.gv__qbar {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--magenta));
+  min-width: 4px;
+}
+.gv__qpct {
+  color: var(--text-strong);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  width: 34px;
+  text-align: right;
+}
+
+@media (max-width: 620px) {
+  .gv__drill-grid {
+    grid-template-columns: 1fr;
+  }
+  .gv__rankrow {
+    grid-template-columns: 110px 1fr 40px;
+    gap: 8px;
+  }
+  .gv__reset {
+    margin-left: 0;
+  }
+}
+
+/* ---- accessibility: focus states and reduced motion (step 6) ---- */
+.gv__viewtab:focus-visible,
+.gv__skilltab:focus-visible,
+.gv__mini:focus-visible,
+.gv__rankrow:focus-visible,
+.gv__step-btn:focus-visible,
+.gv__reset:focus-visible,
+.gv__select select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.gv__handle:focus-visible .gv__handle-grip {
+  fill: var(--accent);
+  stroke: var(--text-strong);
+  stroke-width: 2.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gv *,
+  .gv *::before,
+  .gv *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
   }
 }

@@ -1,346 +1,393 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useState } from 'react';
 import '../styles/demo.css';
 import './datafinder.css';
+import { findRecord, money } from './datafinder/data';
+import {
+  closeRecord,
+  currentResult,
+  deleteView,
+  loadView,
+  openRecord,
+  resetAll,
+  saveView,
+  setMaxPrice,
+  setMinPrice,
+  setMinRating,
+  setPage,
+  setSort,
+  setText,
+  toggleCategory,
+  toggleTag,
+} from './datafinder/store';
+import {
+  SORT_LABELS,
+  SORT_MODES,
+  type FacetCount,
+} from './datafinder/types';
+import { useStore } from './datafinder/state';
 
-// Real mechanism from the project: a rule-based router picks one of four
-// routes (semantic, metadata, hybrid, preview_only) in about 30 lines running
-// in microseconds, the agent sequences tool calls, then a grounding loop
-// retries with a refined system message when the answer references no dataset
-// id seen in tool results, bounded by max_refinements.
+// One facet row: a checkbox labelled with its value and the live count of
+// records that selecting it would yield, given the other active filters. A
+// value with a zero count is disabled so the user cannot reach an empty set.
+function FacetRow({
+  facet,
+  onToggle,
+}: {
+  facet: FacetCount;
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <li className="dfx__facet">
+      <label
+        className={`dfx__facet-label${facet.count === 0 && !facet.selected ? ' dfx__facet-label--empty' : ''}`}
+      >
+        <input
+          type="checkbox"
+          className="dfx__facet-box"
+          checked={facet.selected}
+          disabled={facet.count === 0 && !facet.selected}
+          onChange={() => onToggle(facet.value)}
+        />
+        <span className="dfx__facet-value">{facet.value}</span>
+        <span className="dfx__facet-count" aria-label={`${facet.count} records`}>
+          {facet.count}
+        </span>
+      </label>
+    </li>
+  );
+}
 
-const ROUTES = [
-  { id: 'semantic', name: 'semantic', desc: 'conceptual queries' },
-  { id: 'metadata', name: 'metadata', desc: 'hard spec filters' },
-  { id: 'hybrid', name: 'hybrid', desc: 'mixed / ambiguous' },
-  { id: 'preview_only', name: 'preview_only', desc: 'ds_* references' },
-] as const;
-
-type RouteId = (typeof ROUTES)[number]['id'];
-type Token = { text: string; field?: boolean };
-
-type Scenario = {
-  id: string;
-  label: string;
-  route: RouteId;
-  tokens: Token[];
-  tools: string[];
-  // whether the first grounding pass references a dataset it actually saw
-  groundsFirstPass: boolean;
-  answer: { text: string; cite: string };
-};
-
-const SCENARIOS: Scenario[] = [
-  {
-    id: 'q1',
-    label: 'knee MRI cohort, cartilage thickness, 50+ subjects, age 40+',
-    route: 'hybrid',
-    tokens: [
-      { text: 'anatomy:knee', field: true },
-      { text: 'modality:MRI', field: true },
-      { text: 'annot:cartilage' },
-      { text: 'min_subjects:50', field: true },
-      { text: 'age_lower:40', field: true },
-    ],
-    tools: ['metadata_filter', 'semantic_search', 'dataset_preview'],
-    groundsFirstPass: false,
-    answer: {
-      text: 'Two cohorts match: OAI knee MRI with cartilage thickness maps',
-      cite: 'ds_oai_knee_2k',
-    },
-  },
-  {
-    id: 'q2',
-    label: 'datasets about brain connectivity in aging',
-    route: 'semantic',
-    tokens: [
-      { text: 'brain' },
-      { text: 'connectivity' },
-      { text: 'aging' },
-    ],
-    tools: ['semantic_search'],
-    groundsFirstPass: true,
-    answer: {
-      text: 'Closest match is a resting-state fMRI connectome set',
-      cite: 'ds_hcp_aging',
-    },
-  },
-  {
-    id: 'q3',
-    label: 'chest CT, at least 200 subjects, lesion masks',
-    route: 'metadata',
-    tokens: [
-      { text: 'anatomy:chest', field: true },
-      { text: 'modality:CT', field: true },
-      { text: 'min_subjects:200', field: true },
-      { text: 'annot:lesion', field: true },
-    ],
-    tools: ['metadata_filter'],
-    groundsFirstPass: true,
-    answer: {
-      text: 'One cohort clears the filters with lesion segmentation masks',
-      cite: 'ds_lidc_ct',
-    },
-  },
-  {
-    id: 'q4',
-    label: 'preview ds_oai_knee_2k',
-    route: 'preview_only',
-    tokens: [{ text: 'ref:ds_oai_knee_2k', field: true }],
-    tools: ['dataset_preview'],
-    groundsFirstPass: true,
-    answer: {
-      text: '4796 subjects, knee MRI, cartilage thickness + KL grade labels',
-      cite: 'ds_oai_knee_2k',
-    },
-  },
-];
-
-const MAX_REFINEMENTS = 2;
-const ROUTER_LINES = 30;
-
-type Step = 'idle' | 'normalize' | 'route' | 'tools' | 'ground' | 'done';
+// DataFinder is a fully in-browser faceted catalog explorer. The user types a
+// query, the engine filters and scores the seeded catalog, and the results
+// grid renders a page of hits with sort and pagination. Facets, the detail
+// panel, and saved views layer on in later steps. All state lives in the
+// external store; this component only reads a snapshot and dispatches actions.
 
 export default function DatafinderDemo() {
-  const reduce = useReducedMotion();
-  const [activeId, setActiveId] = useState<string>('q1');
-  const [step, setStep] = useState<Step>('idle');
-  const [toolsShown, setToolsShown] = useState(0);
-  const [refinements, setRefinements] = useState(0);
-  const [running, setRunning] = useState(false);
-  const timers = useRef<number[]>([]);
+  const { query, views, openId } = useStore();
+  const result = currentResult();
+  const [viewName, setViewName] = useState('');
+  const open = openId ? findRecord(openId) : undefined;
 
-  const sc = SCENARIOS.find((s) => s.id === activeId)!;
-
-  function clearTimers() {
-    timers.current.forEach((t) => window.clearTimeout(t));
-    timers.current = [];
+  function onSave() {
+    const name = viewName.trim();
+    if (!name) return;
+    // Read the clock once here, at the action, so render stays pure and
+    // deterministic; the store records it on the saved view.
+    saveView(name, Date.now());
+    setViewName('');
   }
-  useEffect(() => clearTimers, []);
-
-  function pick(id: string) {
-    if (running) return;
-    clearTimers();
-    setActiveId(id);
-    setStep('idle');
-    setToolsShown(0);
-    setRefinements(0);
-  }
-
-  function at(ms: number, fn: () => void) {
-    timers.current.push(window.setTimeout(fn, reduce ? 0 : ms));
-  }
-
-  function run() {
-    if (running) return;
-    clearTimers();
-    setRunning(true);
-    setStep('normalize');
-    setToolsShown(0);
-    setRefinements(0);
-
-    if (reduce) {
-      setStep('done');
-      setToolsShown(sc.tools.length);
-      setRefinements(sc.groundsFirstPass ? 0 : 1);
-      setRunning(false);
-      return;
-    }
-
-    at(520, () => setStep('route'));
-    at(1040, () => setStep('tools'));
-    sc.tools.forEach((_, i) => {
-      at(1300 + i * 460, () => setToolsShown(i + 1));
-    });
-    const afterTools = 1300 + sc.tools.length * 460 + 200;
-    at(afterTools, () => setStep('ground'));
-    if (!sc.groundsFirstPass) {
-      // ungrounded first pass: refine the system message and retry once
-      at(afterTools + 560, () => setRefinements(1));
-      at(afterTools + 1320, () => {
-        setStep('done');
-        setRunning(false);
-      });
-    } else {
-      at(afterTools + 620, () => {
-        setStep('done');
-        setRunning(false);
-      });
-    }
-  }
-
-  const showNormalize = step !== 'idle';
-  const showRoute = step === 'route' || step === 'tools' || step === 'ground' || step === 'done';
-  const showTools = step === 'tools' || step === 'ground' || step === 'done';
-  const showGround = step === 'ground' || step === 'done';
-  const ease = [0.22, 1, 0.36, 1] as const;
 
   return (
-    <div className="demo" aria-label="datafinder routing and grounding demo">
+    <div className="demo" aria-label="datafinder faceted catalog explorer">
       <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Route, sequence, ground</h3>
+      <h3 className="demo__title">Find it by facet</h3>
       <p className="demo__lede">
-        Pick a dataset-finding question, then run the agent. It normalizes the
-        query into filter fields, the rule-based router picks one of four
-        paths, the chosen tools fire in sequence, and the grounding loop
-        retries with a refined message when the answer cites no dataset it
-        actually saw.
+        Search the catalog by text, then narrow by category, tag, price, and
+        rating. Results sort and paginate live, and a useful filter set can be
+        saved as a named view and recalled later. Everything runs in the
+        browser over a static seed with no server and no eval.
       </p>
 
-      <div className="df__stage">
-        <div className="df__queries" role="group" aria-label="example queries">
-          {SCENARIOS.map((s) => (
-            <button
-              key={s.id}
-              className={`df__q${s.id === activeId ? ' df__q--on' : ''}`}
-              aria-pressed={s.id === activeId}
-              onClick={() => pick(s.id)}
-            >
-              {s.label}
-              <span className="df__q-route">{s.route}</span>
-            </button>
-          ))}
-        </div>
+      <div className="dfx">
+        <aside className="dfx__sidebar glass" aria-label="filters">
+          <fieldset className="dfx__group">
+            <legend className="dfx__group-title">Category</legend>
+            <ul className="dfx__facets">
+              {result.categoryFacets.map((f) => (
+                <FacetRow key={f.value} facet={f} onToggle={toggleCategory} />
+              ))}
+            </ul>
+          </fieldset>
 
-        <div className="df__pipe">
-          <div>
-            <div className="df__stepname">1 normalize</div>
-            <div className="df__normalize">
-              <AnimatePresence>
-                {showNormalize &&
-                  sc.tokens.map((t, i) => (
-                    <motion.span
-                      key={`${sc.id}-${t.text}`}
-                      className={`df__token${t.field ? ' df__token--field' : ''}`}
-                      initial={{ opacity: 0, y: reduce ? 0 : 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.3, delay: reduce ? 0 : i * 0.07, ease }}
-                    >
-                      {t.text}
-                    </motion.span>
-                  ))}
-              </AnimatePresence>
-              {!showNormalize && (
-                <span className="df__tool-empty">run to extract filter fields</span>
-              )}
-            </div>
+          <fieldset className="dfx__group">
+            <legend className="dfx__group-title">Tags</legend>
+            <ul className="dfx__facets">
+              {result.tagFacets.map((f) => (
+                <FacetRow key={f.value} facet={f} onToggle={toggleTag} />
+              ))}
+            </ul>
+          </fieldset>
+
+          <fieldset className="dfx__group">
+            <legend className="dfx__group-title">
+              Price: {money(query.minPrice)} to {money(query.maxPrice)}
+            </legend>
+            <label className="dfx__range">
+              <span className="dfx__range-label">Min price</span>
+              <input
+                type="range"
+                className="dfx__range-input"
+                min={result.priceBounds.min}
+                max={result.priceBounds.max}
+                step={1}
+                value={query.minPrice}
+                onChange={(e) => setMinPrice(Number(e.target.value))}
+                aria-label="Minimum price"
+              />
+            </label>
+            <label className="dfx__range">
+              <span className="dfx__range-label">Max price</span>
+              <input
+                type="range"
+                className="dfx__range-input"
+                min={result.priceBounds.min}
+                max={result.priceBounds.max}
+                step={1}
+                value={query.maxPrice}
+                onChange={(e) => setMaxPrice(Number(e.target.value))}
+                aria-label="Maximum price"
+              />
+            </label>
+          </fieldset>
+
+          <fieldset className="dfx__group">
+            <legend className="dfx__group-title">
+              Minimum rating: {query.minRating.toFixed(1)}
+            </legend>
+            <label className="dfx__range">
+              <span className="dfx__visually-hidden">Minimum rating</span>
+              <input
+                type="range"
+                className="dfx__range-input"
+                min={0}
+                max={5}
+                step={0.5}
+                value={query.minRating}
+                onChange={(e) => setMinRating(Number(e.target.value))}
+                aria-label="Minimum rating"
+              />
+            </label>
+          </fieldset>
+        </aside>
+
+        <section className="dfx__main" aria-label="search results">
+          <div className="dfx__searchbar">
+            <label className="dfx__search-field">
+              <span className="dfx__visually-hidden">Search the catalog</span>
+              <input
+                type="search"
+                className="dfx__search-input"
+                placeholder="Search by name or tag, e.g. usb-c monitor"
+                value={query.text}
+                onChange={(e) => setText(e.target.value)}
+                aria-label="Search the catalog"
+              />
+            </label>
+            <label className="dfx__sort">
+              <span className="dfx__sort-label">Sort</span>
+              <select
+                className="dfx__sort-select"
+                value={query.sort}
+                onChange={(e) =>
+                  setSort(e.target.value as (typeof SORT_MODES)[number])
+                }
+                aria-label="Sort results"
+              >
+                {SORT_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {SORT_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
 
-          <div>
-            <div className="df__stepname">2 route ({ROUTER_LINES} lines, microseconds)</div>
-            <div className="df__routes">
-              {ROUTES.map((r) => {
-                const on = showRoute && r.id === sc.route;
-                return (
-                  <div key={r.id} className={`df__route${on ? ' df__route--on' : ''}`}>
-                    <span className="df__route-name">{r.name}</span>
-                    <span className="df__route-desc">{r.desc}</span>
+          <p className="dfx__count" role="status" aria-live="polite">
+            {result.total === 0
+              ? 'No matching records'
+              : `${result.total} record${result.total === 1 ? '' : 's'} found`}
+          </p>
+
+          {result.total === 0 ? (
+            <p className="dfx__empty">
+              Nothing matches this query. Try removing a filter or clearing the
+              search text.
+            </p>
+          ) : (
+            <ul className="dfx__results" aria-label="result list">
+              {result.hits.map((hit) => (
+                <li key={hit.record.id} className="dfx__card glass">
+                  <div className="dfx__card-head">
+                    <h4 className="dfx__card-name">{hit.record.name}</h4>
+                    <span className="dfx__card-price">
+                      {money(hit.record.price)}
+                    </span>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <div className="df__stepname">3 sequence tools</div>
-            <div className="df__tools">
-              <AnimatePresence>
-                {showTools &&
-                  sc.tools.slice(0, toolsShown).map((tool, i) => (
-                    <motion.span
-                      key={`${sc.id}-${tool}`}
-                      className="df__tool"
-                      initial={{ opacity: 0, scale: reduce ? 1 : 0.85 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.28, ease }}
+                  <p className="dfx__card-blurb">{hit.record.blurb}</p>
+                  <div className="dfx__card-meta">
+                    <span className="dfx__chip dfx__chip--cat">
+                      {hit.record.category}
+                    </span>
+                    <span
+                      className="dfx__card-rating"
+                      aria-label={`rating ${hit.record.rating} out of 5`}
                     >
-                      <span className="df__tool-seq">{i + 1}</span>
-                      {tool}
-                    </motion.span>
-                  ))}
-              </AnimatePresence>
-              {(!showTools || toolsShown === 0) && (
-                <span className="df__tool-empty">tools dispatched after routing</span>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <div className="df__stepname">4 ground answer</div>
-            <div className="df__ground">
-              <AnimatePresence>
-                {showGround && refinements > 0 && (
-                  <motion.div
-                    className="df__refine"
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.3, ease }}
+                      <span aria-hidden="true">★</span>{' '}
+                      {hit.record.rating.toFixed(1)}
+                    </span>
+                    <span className="dfx__card-year">{hit.record.year}</span>
+                  </div>
+                  <div className="dfx__card-tags">
+                    {hit.record.tags.map((t) => (
+                      <span key={t} className="dfx__chip">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="dfx__card-open"
+                    onClick={() => openRecord(hit.record.id)}
+                    aria-haspopup="dialog"
                   >
-                    answer cited no dataset seen in tool results: refine system
-                    message, retry ({refinements} of {MAX_REFINEMENTS})
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              {step === 'done' ? (
-                <motion.div
-                  className="df__answer"
-                  initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.36, ease }}
-                >
-                  <p className="df__answer-text">
-                    {sc.answer.text}{' '}
-                    <span className="df__cite">[{sc.answer.cite}]</span>
-                  </p>
-                </motion.div>
-              ) : (
-                <span className="df__answer-pending">
-                  grounded answer carries source citations
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
+                    View details
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
 
-        <div className="df__meta">
-          <div className="df__stat">
-            <div className="df__stat-val">{sc.tools.length}</div>
-            <div className="df__stat-unit">tools sequenced</div>
-          </div>
-          <div className="df__stat">
-            <div className="df__stat-val">
-              {step === 'done' ? refinements : 0}
-              <span style={{ fontSize: '0.5em', color: 'var(--text-faint)' }}>
-                {' '}/ {MAX_REFINEMENTS}
+          {result.pageCount > 1 && (
+            <nav className="dfx__pager" aria-label="result pages">
+              <button
+                type="button"
+                className="dfx__page-btn"
+                onClick={() => setPage(result.page - 1)}
+                disabled={result.page === 0}
+              >
+                Previous
+              </button>
+              <span className="dfx__page-status">
+                Page {result.page + 1} of {result.pageCount}
               </span>
+              <button
+                type="button"
+                className="dfx__page-btn"
+                onClick={() => setPage(result.page + 1)}
+                disabled={result.page >= result.pageCount - 1}
+              >
+                Next
+              </button>
+            </nav>
+          )}
+
+          <section className="dfx__views glass" aria-label="saved views">
+            <h4 className="dfx__views-title">Saved views</h4>
+            <div className="dfx__save">
+              <label className="dfx__save-field">
+                <span className="dfx__visually-hidden">Name this view</span>
+                <input
+                  type="text"
+                  className="dfx__save-input"
+                  placeholder="Name this filter set"
+                  value={viewName}
+                  maxLength={40}
+                  onChange={(e) => setViewName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') onSave();
+                  }}
+                  aria-label="Name this view"
+                />
+              </label>
+              <button
+                type="button"
+                className="demo__btn"
+                onClick={onSave}
+                disabled={viewName.trim().length === 0}
+              >
+                Save view
+              </button>
+              <button
+                type="button"
+                className="demo__btn demo__btn--ghost"
+                onClick={resetAll}
+              >
+                Reset all
+              </button>
             </div>
-            <div className="df__stat-unit">refinements used</div>
-          </div>
-          <div className="df__stat">
-            <div className="df__stat-val">38</div>
-            <div className="df__stat-unit">tests green</div>
-          </div>
-        </div>
+            {views.length === 0 ? (
+              <p className="dfx__views-empty">
+                No saved views yet. Filter the catalog, then save the current
+                set to recall it later.
+              </p>
+            ) : (
+              <ul className="dfx__views-list">
+                {views.map((v) => (
+                  <li key={v.id} className="dfx__view">
+                    <button
+                      type="button"
+                      className="dfx__view-load"
+                      onClick={() => loadView(v.id)}
+                    >
+                      {v.name}
+                    </button>
+                    <button
+                      type="button"
+                      className="dfx__view-del"
+                      onClick={() => deleteView(v.id)}
+                      aria-label={`Delete view ${v.name}`}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </section>
       </div>
 
-      <div className="demo__controls">
-        <button className="demo__btn" onClick={run} disabled={running}>
-          {running ? 'Running…' : 'Run agent'}
-        </button>
-        <button
-          className="demo__btn demo__btn--ghost"
-          onClick={() => pick(activeId)}
-          disabled={running}
+      {open && (
+        <div
+          className="dfx__detail-backdrop"
+          role="presentation"
+          onClick={closeRecord}
         >
-          Reset
-        </button>
-        <span className="demo__hint">
-          route: {sc.route} · {sc.groundsFirstPass ? 'grounds first pass' : 'needs one refinement'}
-        </span>
-      </div>
+          <div
+            className="dfx__detail glass"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${open.name} details`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="dfx__detail-head">
+              <h4 className="dfx__detail-name">{open.name}</h4>
+              <button
+                type="button"
+                className="dfx__detail-close"
+                onClick={closeRecord}
+                aria-label="Close details"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="dfx__detail-blurb">{open.blurb}</p>
+            <dl className="dfx__detail-grid">
+              <div className="dfx__detail-row">
+                <dt>Category</dt>
+                <dd>{open.category}</dd>
+              </div>
+              <div className="dfx__detail-row">
+                <dt>Price</dt>
+                <dd>{money(open.price)}</dd>
+              </div>
+              <div className="dfx__detail-row">
+                <dt>Rating</dt>
+                <dd>{open.rating.toFixed(1)} / 5</dd>
+              </div>
+              <div className="dfx__detail-row">
+                <dt>Year</dt>
+                <dd>{open.year}</dd>
+              </div>
+              <div className="dfx__detail-row">
+                <dt>Tags</dt>
+                <dd>{open.tags.join(', ')}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

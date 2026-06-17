@@ -1,232 +1,327 @@
-import { useMemo, useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+// GovGate: a working compliance assessment that runs entirely in the browser.
+// Walk a policy framework of weighted controls, mark each one met, partial, not
+// met, or not applicable with a note, and the app scores a weighted compliance
+// percent, gates it against a configurable threshold, breaks the result down by
+// category, and produces a prioritized remediation list. The framework and the
+// assessment live in localStorage; a pure, eval-free engine computes every
+// number.
+
 import '../styles/demo.css';
 import './govgate.css';
 
-// Real mechanism. A submitted tool is scored against a weighted requirements
-// checklist across categories. Each requirement carries a weight and a
-// severity (low/medium/high/critical). A single failed critical requirement
-// caps the overall band at high or worse, no matter the weighted score. The
-// reviewed tool then lands in a queryable register.
-type Severity = 'low' | 'medium' | 'high' | 'critical';
+import { useMemo, useState } from 'react';
 
-type Req = {
-  id: string;
-  category: string;
-  label: string;
-  weight: number;
-  severity: Severity;
-  pass: boolean;
-};
-
-const INITIAL: Req[] = [
-  { id: 'r1', category: 'Data residency', label: 'data stays in approved regions', weight: 3, severity: 'high', pass: true },
-  { id: 'r2', category: 'PII handling', label: 'no PII sent to the model', weight: 4, severity: 'critical', pass: true },
-  { id: 'r3', category: 'Model provenance', label: 'model and version disclosed', weight: 2, severity: 'medium', pass: true },
-  { id: 'r4', category: 'Retention', label: 'prompts purged within 30 days', weight: 2, severity: 'high', pass: true },
-  { id: 'r5', category: 'Human oversight', label: 'human in the loop on actions', weight: 3, severity: 'high', pass: true },
-  { id: 'r6', category: 'Security', label: 'SSO and audit logging', weight: 3, severity: 'critical', pass: true },
-  { id: 'r7', category: 'Vendor stability', label: 'vendor passes financial check', weight: 1, severity: 'low', pass: true },
-];
-
-const BANDS = ['low', 'medium', 'high', 'critical'] as const;
-type Band = (typeof BANDS)[number];
-
-// Band ordering helper: a higher index is a worse band.
-function bandIndex(b: Band) {
-  return BANDS.indexOf(b);
-}
-
-const ease = [0.22, 1, 0.36, 1] as const;
-
-type RegisterRow = { id: number; name: string; band: Band; status: string };
-
-let nextToolId = 142;
+import { useGovStore } from './govgate/state';
+import {
+  resetAssessment,
+  setControlNote,
+  setControlStatus,
+  setThreshold,
+} from './govgate/store';
+import {
+  exportSummary,
+  groupByCategory,
+  STATUS_LABEL,
+  STATUS_ORDER,
+  SEVERITY_LABEL,
+} from './govgate/format';
+import {
+  categoryBreakdown,
+  remediationList,
+  resultFor,
+  scoreAssessment,
+  statusCounts,
+} from './govgate/engine';
+import type { Assessment, Framework } from './govgate/types';
 
 export default function GovgateDemo() {
-  const reduce = useReducedMotion();
-  const [reqs, setReqs] = useState<Req[]>(INITIAL);
-  const [register, setRegister] = useState<RegisterRow[]>([
-    { id: 140, name: 'transcribe-svc', band: 'low', status: 'approved' },
-    { id: 141, name: 'doc-summarizer', band: 'medium', status: 'needs-info' },
-  ]);
-
-  const totalWeight = useMemo(
-    () => reqs.reduce((s, r) => s + r.weight, 0),
-    [reqs],
-  );
-  const failedWeight = useMemo(
-    () => reqs.filter((r) => !r.pass).reduce((s, r) => s + r.weight, 0),
-    [reqs],
-  );
-
-  // Weighted risk score: share of failed weight, on a 0-100 scale.
-  const riskScore = Math.round((failedWeight / totalWeight) * 100);
-
-  const failedCritical = reqs.some((r) => !r.pass && r.severity === 'critical');
-
-  // Score band before the critical cap is applied.
-  const scoreBand: Band =
-    riskScore === 0 ? 'low' : riskScore < 25 ? 'low' : riskScore < 50 ? 'medium' : riskScore < 75 ? 'high' : 'critical';
-
-  // A failed critical requirement caps the overall band at high or worse.
-  const cappedBand: Band =
-    failedCritical && bandIndex(scoreBand) < bandIndex('high') ? 'high' : scoreBand;
-
-  const capApplied = cappedBand !== scoreBand;
-
-  // Per-category meter values: failed weight share within each category.
-  const categories = useMemo(() => {
-    const map = new Map<string, { failed: number; total: number; sev: Severity; failedAny: boolean }>();
-    for (const r of reqs) {
-      const cur = map.get(r.category) ?? { failed: 0, total: 0, sev: r.severity, failedAny: false };
-      cur.total += r.weight;
-      if (!r.pass) {
-        cur.failed += r.weight;
-        cur.failedAny = true;
-      }
-      map.set(r.category, cur);
-    }
-    return [...map.entries()].map(([name, v]) => ({
-      name,
-      pct: Math.round((v.failed / v.total) * 100),
-      sev: v.sev,
-      failedAny: v.failedAny,
-    }));
-  }, [reqs]);
-
-  function toggle(id: string) {
-    setReqs((prev) => prev.map((r) => (r.id === id ? { ...r, pass: !r.pass } : r)));
-  }
-
-  function reset() {
-    setReqs(INITIAL);
-  }
-
-  function fileToRegister() {
-    const status =
-      cappedBand === 'low'
-        ? 'approved'
-        : cappedBand === 'medium'
-          ? 'needs-info'
-          : 'rejected';
-    setRegister((prev) =>
-      [{ id: nextToolId++, name: 'new-tool-intake', band: cappedBand, status }, ...prev].slice(0, 5),
-    );
-  }
+  const { framework, assessment } = useGovStore();
+  const groups = groupByCategory(framework.controls);
 
   return (
-    <div className="demo" aria-label="GovGate risk assessment demo">
+    <div className="demo gg" aria-label="GovGate compliance assessment">
       <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Score a tool, set its band</h3>
+      <h3 className="demo__title">Assess a tool against a compliance framework</h3>
       <p className="demo__lede">
-        A submitted tool runs the weighted requirements checklist. Toggle a
-        requirement to fail it and watch its category meter fill and the overall
-        band shift. Fail a critical requirement and the band is capped at high
-        or worse, whatever the weighted score says. File the result into the
-        register when you are done.
+        Mark each control met, partial, not met, or not applicable and add a
+        note. The engine scores a weighted compliance percent, gates it against
+        your threshold, breaks it down by category, and lists the gaps to fix
+        first. Everything persists in your browser.
       </p>
 
-      <div className="gg__stage">
-        <div className="gg__checklist">
-          {reqs.map((r) => (
-            <button
-              key={r.id}
-              className={`gg__req ${r.pass ? 'is-pass' : 'is-fail'}`}
-              onClick={() => toggle(r.id)}
-              aria-pressed={!r.pass}
-              aria-label={`${r.category}: ${r.label}, ${r.severity} severity, currently ${
-                r.pass ? 'passing' : 'failing'
-              }. Toggle.`}
-            >
-              <span className="gg__req-box" aria-hidden="true">
-                {r.pass ? '✓' : '✕'}
-              </span>
-              <span className="gg__req-body">
-                <span className="gg__req-cat">{r.category}</span>
-                <span className="gg__req-label">{r.label}</span>
-              </span>
-              <span className={`gg__sev gg__sev--${r.severity}`}>{r.severity}</span>
-              <span className="gg__req-w">w{r.weight}</span>
-            </button>
-          ))}
-        </div>
+      <Scorecard framework={framework} assessment={assessment} />
 
-        <div className="gg__side">
-          <div className="gg__meters">
-            {categories.map((c) => (
-              <div key={c.name} className="gg__meter-row">
-                <span className="gg__meter-name">{c.name}</span>
-                <span className="gg__meter-track" aria-hidden="true">
-                  <motion.span
-                    className={`gg__meter-fill ${c.failedAny ? 'is-hot' : ''}`}
-                    animate={{ width: `${c.pct}%` }}
-                    transition={{ duration: reduce ? 0 : 0.45, ease }}
-                  />
-                </span>
-                <span className="gg__meter-pct">{c.pct}</span>
-              </div>
-            ))}
-          </div>
+      <section className="gg__controls" aria-label="Controls">
+        {groups.map((group) => (
+          <fieldset key={group.category} className="gg__group glass">
+            <legend className="gg__group-legend">{group.category}</legend>
+            <ul className="gg__list">
+              {group.controls.map((control) => {
+                const result = resultFor(assessment, control.id);
+                return (
+                  <li key={control.id} className="gg__control">
+                    <div className="gg__control-head">
+                      <span className="gg__control-title">{control.title}</span>
+                      <span className={`gg__sev gg__sev--${control.severity}`}>
+                        {SEVERITY_LABEL[control.severity]}
+                      </span>
+                      <span className="gg__weight" aria-label={`weight ${control.weight}`}>
+                        w{control.weight}
+                      </span>
+                    </div>
+                    <p className="gg__requirement">{control.requirement}</p>
 
-          <div className={`gg__band gg__band--${cappedBand}`} aria-live="polite">
-            <div className="gg__band-name">overall risk band</div>
-            <div className="gg__band-val">{cappedBand}</div>
-            <div className="gg__band-meta">
-              weighted score {riskScore} / 100
-              <AnimatePresence>
-                {capApplied && (
-                  <motion.span
-                    className="gg__cap"
-                    initial={{ opacity: 0, y: reduce ? 0 : 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    critical failure caps band from {scoreBand} to {cappedBand}
-                  </motion.span>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
-        </div>
+                    <div className="gg__answer">
+                      <div
+                        className="gg__statusset"
+                        role="radiogroup"
+                        aria-label={`Status for ${control.title}`}
+                      >
+                        {STATUS_ORDER.map((status) => (
+                          <button
+                            key={status}
+                            type="button"
+                            role="radio"
+                            aria-checked={result.status === status}
+                            className={`gg__status gg__status--${status} ${
+                              result.status === status ? 'is-on' : ''
+                            }`}
+                            onClick={() => setControlStatus(control.id, status)}
+                          >
+                            {STATUS_LABEL[status]}
+                          </button>
+                        ))}
+                      </div>
+                      <label className="gg__note-label">
+                        <span className="gg__note-cap">Note</span>
+                        <input
+                          type="text"
+                          className="gg__note"
+                          value={result.note}
+                          placeholder="Evidence or gap detail"
+                          onChange={(e) =>
+                            setControlNote(control.id, e.target.value)
+                          }
+                          aria-label={`Note for ${control.title}`}
+                        />
+                      </label>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </fieldset>
+        ))}
+      </section>
 
-        <div className="gg__register">
-          <div className="gg__register-head">
-            <span>register</span>
-            <span className="gg__register-sub">every reviewed tool</span>
-          </div>
-          <AnimatePresence initial={false}>
-            {register.map((row) => (
-              <motion.div
-                key={row.id}
-                className="gg__reg-row"
-                initial={{ opacity: 0, x: reduce ? 0 : -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: reduce ? 0 : 0.3, ease }}
-              >
-                <span className="gg__reg-id">#{row.id}</span>
-                <span className="gg__reg-name">{row.name}</span>
-                <span className={`gg__reg-band gg__band--${row.band}`}>{row.band}</span>
-                <span className={`gg__reg-status status--${row.status}`}>{row.status}</span>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-      </div>
+      <Remediation framework={framework} assessment={assessment} />
 
       <div className="demo__controls">
-        <button className="demo__btn" onClick={fileToRegister}>
-          File to register
-        </button>
-        <button className="demo__btn demo__btn--ghost" onClick={reset}>
-          Reset checklist
+        <button
+          type="button"
+          className="demo__btn demo__btn--ghost"
+          onClick={resetAssessment}
+        >
+          Reset assessment
         </button>
         <span className="demo__hint">
-          {failedCritical ? 'critical requirement failing' : 'all critical requirements pass'}
+          Reset clears your saved answers and restores the seed.
         </span>
       </div>
     </div>
+  );
+}
+
+// The scorecard: the headline weighted compliance percent against the threshold
+// with a pass or fail badge, a threshold slider, per-category bars, and a tally
+// of controls by status. All numbers come from the pure engine.
+function Scorecard({
+  framework,
+  assessment,
+}: {
+  framework: Framework;
+  assessment: Assessment;
+}) {
+  const score = useMemo(
+    () => scoreAssessment(framework, assessment),
+    [framework, assessment],
+  );
+  const categories = useMemo(
+    () => categoryBreakdown(framework, assessment),
+    [framework, assessment],
+  );
+  const counts = useMemo(
+    () => statusCounts(framework, assessment),
+    [framework, assessment],
+  );
+
+  return (
+    <section className="gg__scorecard glass" aria-label="Scorecard">
+      <div className="gg__score">
+        <div
+          className="gg__score-num"
+          role="meter"
+          aria-valuenow={score.percent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`Overall weighted compliance ${score.percent} percent`}
+        >
+          <span className="gg__score-pct" aria-hidden="true">
+            {score.percent}
+          </span>
+          <span className="gg__score-unit" aria-hidden="true">
+            %
+          </span>
+        </div>
+        <div className="gg__score-meta">
+          <span
+            className={`gg__gate ${score.passed ? 'is-pass' : 'is-fail'}`}
+            role="status"
+            aria-live="polite"
+          >
+            {score.passed ? 'Pass' : 'Fail'}
+          </span>
+          <span className="gg__score-cap">
+            Weighted compliance, {score.passed ? 'meets' : 'below'} the {score.threshold}% threshold.
+          </span>
+          <label className="gg__threshold">
+            <span className="gg__threshold-cap">Pass threshold</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={score.threshold}
+              onChange={(e) => setThreshold(Number(e.target.value))}
+              aria-label="Pass threshold percent"
+            />
+            <output className="gg__threshold-val">{score.threshold}%</output>
+          </label>
+        </div>
+      </div>
+
+      <ul className="gg__tally" aria-label="Control counts by status">
+        {STATUS_ORDER.map((status) => (
+          <li key={status} className={`gg__tally-item gg__tally--${status}`}>
+            <span className="gg__tally-n">{counts[status]}</span>
+            <span className="gg__tally-cap">{STATUS_LABEL[status]}</span>
+          </li>
+        ))}
+        <li className="gg__tally-item gg__tally--total">
+          <span className="gg__tally-n">{counts.total}</span>
+          <span className="gg__tally-cap">Total</span>
+        </li>
+      </ul>
+
+      <div className="gg__bars" aria-label="Compliance by category">
+        {categories.map((cat) => (
+          <div key={cat.category} className="gg__bar-row">
+            <span className="gg__bar-name">{cat.category}</span>
+            <span className="gg__bar-track">
+              <span
+                className="gg__bar-fill"
+                style={{ width: `${cat.percent}%` }}
+                role="meter"
+                aria-valuenow={cat.percent}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={`${cat.category} ${cat.percent}% compliant`}
+              />
+            </span>
+            <span className="gg__bar-pct">{cat.percent}%</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// The remediation view: every not-met or partial control, highest priority
+// first, with its severity and weight, plus a copyable text summary of the whole
+// assessment. The list and the summary text both come from the pure engine.
+function Remediation({
+  framework,
+  assessment,
+}: {
+  framework: Framework;
+  assessment: Assessment;
+}) {
+  const items = useMemo(
+    () => remediationList(framework, assessment),
+    [framework, assessment],
+  );
+  const summary = useMemo(() => {
+    const score = scoreAssessment(framework, assessment);
+    const categories = categoryBreakdown(framework, assessment);
+    return exportSummary(framework.name, score, categories, items);
+  }, [framework, assessment, items]);
+
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(summary);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <section className="gg__remediation glass" aria-label="Remediation">
+      <div className="gg__rem-head">
+        <h4 className="gg__rem-title">Remediation, highest priority first</h4>
+        <span className="gg__rem-sub">
+          {items.length === 0
+            ? 'Nothing open'
+            : `${items.length} open ${items.length === 1 ? 'control' : 'controls'}`}
+        </span>
+      </div>
+
+      {items.length === 0 ? (
+        <p className="gg__rem-empty">
+          Every applicable control is met. Nothing to remediate.
+        </p>
+      ) : (
+        <ol className="gg__rem-list">
+          {items.map((item) => (
+            <li key={item.control.id} className="gg__rem-item">
+              <span className="gg__rem-rank" aria-hidden="true">
+                {item.priority}
+              </span>
+              <span className="gg__rem-body">
+                <span className="gg__rem-name">{item.control.title}</span>
+                <span className="gg__rem-cat">{item.control.category}</span>
+                {item.note.trim() && (
+                  <span className="gg__rem-note">{item.note.trim()}</span>
+                )}
+              </span>
+              <span className="gg__rem-tags">
+                <span className={`gg__sev gg__sev--${item.control.severity}`}>
+                  {SEVERITY_LABEL[item.control.severity]}
+                </span>
+                <span className={`gg__status gg__status--${item.status} is-on`}>
+                  {STATUS_LABEL[item.status]}
+                </span>
+                <span className="gg__weight">w{item.control.weight}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      <div className="gg__export">
+        <div className="gg__export-bar">
+          <span className="gg__export-cap">Exportable summary</span>
+          <button type="button" className="demo__btn" onClick={copy}>
+            {copied ? 'Copied' : 'Copy summary'}
+          </button>
+        </div>
+        <pre className="gg__export-text" tabIndex={0} aria-label="Compliance summary text">
+          {summary}
+        </pre>
+      </div>
+    </section>
   );
 }

@@ -1,284 +1,421 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
+import { useMemo } from 'react';
 import '../styles/demo.css';
 import './tracesift.css';
+import { analyze, summarize } from './tracesift/engine';
+import { useStore } from './tracesift/state';
+import {
+  resetSelection,
+  selectSpan,
+  selectTrace,
+  setServiceFilter,
+  toggleCritical,
+} from './tracesift/store';
+import type { LaidOutSpan } from './tracesift/types';
 
-// Real numbers from the project: on a local run of 4000 runs (16000 log lines)
-// the median end-to-end time was 0.085 s, about 189000 lines per second, with
-// no model or network calls so the same input always produces the same report.
-const LINES_PER_SEC = 189000;
-const TOTAL_LINES = 16000;
-const MEDIAN_MS = 85;
+// In-browser distributed-trace waterfall viewer. Three sample traces ship as
+// read-only seed data; the engine derives every view from the raw spans alone
+// (no eval, no clock, no network), so the same trace always renders the same
+// waterfall, critical path, slowest spans and per-service breakdown. The open
+// trace, focused span, service filter and critical-path toggle persist in
+// localStorage, so a reload restores exactly what was on screen.
 
-// Volatile token patterns that the normalizer strips before clustering:
-// timestamps, hex addresses, PIDs, paths, and bare numbers all collapse to a
-// canonical placeholder so the same failure reworded across runs stays one
-// signature.
-type Mask = { re: RegExp; to: string };
-const MASKS: Mask[] = [
-  { re: /\b\d{4}-\d{2}-\d{2}T[\d:.]+Z?\b/g, to: '<ts>' },
-  { re: /\b0x[0-9a-fA-F]+\b/g, to: '<addr>' },
-  { re: /\bpid=\d+\b/g, to: 'pid=<n>' },
-  { re: /\/[\w./-]+\.(?:c|py|log|bin)\b/g, to: '<path>' },
-  { re: /\b\d+(?:\.\d+)?\b/g, to: '<n>' },
-];
+// Fixed service palette so a service keeps one colour across every trace.
+const SERVICE_HUES: Record<string, number> = {
+  gateway: 188,
+  auth: 280,
+  orders: 28,
+  inventory: 150,
+  payments: 330,
+  db: 210,
+  cache: 50,
+  email: 110,
+};
 
-function normalize(line: string): string {
-  let out = line;
-  for (const m of MASKS) out = out.replace(m.re, m.to);
-  return out.replace(/\s+/g, ' ').trim();
+function hueFor(service: string): number {
+  if (service in SERVICE_HUES) return SERVICE_HUES[service];
+  // Deterministic fallback for any service not in the palette.
+  let h = 0;
+  for (let i = 0; i < service.length; i++) h = (h * 31 + service.charCodeAt(i)) % 360;
+  return h;
 }
 
-type Driver = { name: string; lift: number };
-type Sample = {
-  raw: string;
-  // signature key after normalize; raws that share it land in one cluster
-  cluster: number;
-};
+function serviceColor(service: string): string {
+  return `hsl(${hueFor(service)} 80% 62%)`;
+}
 
-// Each raw line is a real-looking failure log. Lines 0..3 are the same FAULT
-// reworded across firmware revisions and runs; 4..6 are a watchdog timeout;
-// 7..8 are a one-off CRC mismatch. After masking, 0..3 collapse to one
-// signature, 4..6 to another, 7..8 to a third.
-const SAMPLES: Sample[] = [
-  { raw: '2026-04-02T11:03:21Z FAULT motor stalled at 0x4a1f pid=8821 /drv/motor.c:142', cluster: 0 },
-  { raw: '2026-04-02T11:07:55Z FAULT motor stalled at 0x91c0 pid=9034 /drv/motor.c:142', cluster: 0 },
-  { raw: '2026-04-03T08:12:09Z FAULT motor stalled at 0x2d77 pid=7740 /drv/motor.c:142', cluster: 0 },
-  { raw: '2026-04-03T09:44:50Z FAULT motor stalled at 0xbe02 pid=8120 /drv/motor.c:142', cluster: 0 },
-  { raw: '2026-04-02T11:05:00Z WARN watchdog timeout after 2048 ms pid=8821', cluster: 1 },
-  { raw: '2026-04-03T08:13:30Z WARN watchdog timeout after 1990 ms pid=7740', cluster: 1 },
-  { raw: '2026-04-03T10:01:12Z WARN watchdog timeout after 2110 ms pid=6655', cluster: 1 },
-  { raw: '2026-04-02T12:00:41Z ERR crc mismatch frame 0x10de expected 0x44 got 0x9c', cluster: 2 },
-  { raw: '2026-04-04T07:22:18Z ERR crc mismatch frame 0x8a01 expected 0x44 got 0x12', cluster: 2 },
-];
-
-type Cluster = {
-  id: number;
-  signature: string;
-  count: number;
-  label: 'real' | 'flaky';
-  // ranked telemetry drivers by lift against the corpus baseline
-  drivers: Driver[];
-  note: string;
-};
-
-// Clusters carry their real/flaky label and the ranked telemetry drivers the
-// correlator surfaces. Lift is the condition rate inside the cluster over the
-// corpus baseline rate; higher lift means the condition tracks the failure.
-const CLUSTERS: Cluster[] = [
-  {
-    id: 0,
-    signature: 'FAULT motor stalled at <addr> pid=<n> <path>:<n>',
-    count: 4,
-    label: 'real',
-    drivers: [
-      { name: 'temp > 78C', lift: 3.4 },
-      { name: 'load > 90%', lift: 2.1 },
-      { name: 'voltage < 11.4V', lift: 1.2 },
-    ],
-    note: 'consistent across runs and firmware, driven by temperature',
-  },
-  {
-    id: 1,
-    signature: 'WARN watchdog timeout after <n> ms pid=<n>',
-    count: 3,
-    label: 'flaky',
-    drivers: [
-      { name: 'load > 90%', lift: 2.8 },
-      { name: 'voltage < 11.4V', lift: 1.5 },
-      { name: 'temp > 78C', lift: 1.1 },
-    ],
-    note: 'intermittent, only fires under burst load',
-  },
-  {
-    id: 2,
-    signature: 'ERR crc mismatch frame <addr> expected <addr> got <addr>',
-    count: 2,
-    label: 'flaky',
-    drivers: [
-      { name: 'voltage < 11.4V', lift: 2.2 },
-      { name: 'firmware 1.4.x', lift: 1.9 },
-      { name: 'temp > 78C', lift: 0.9 },
-    ],
-    note: 'rare, tracks a voltage sag on one firmware line',
-  },
-];
-
-const ease = [0.22, 1, 0.36, 1] as const;
-const STAGES = ['raw', 'masked', 'clustered'] as const;
-type Stage = (typeof STAGES)[number];
+function fmtMs(ms: number): string {
+  return `${Math.round(ms)} ms`;
+}
 
 export default function TracesiftDemo() {
-  const reduce = useReducedMotion();
-  const [stage, setStage] = useState<Stage>('raw');
-  const [activeCluster, setActiveCluster] = useState(0);
-  const timers = useRef<number[]>([]);
+  const state = useStore();
 
-  const masked = useMemo(
-    () => SAMPLES.map((s) => ({ ...s, sig: normalize(s.raw) })),
-    [],
+  const summaries = useMemo(() => state.traces.map(summarize), [state.traces]);
+
+  const trace = useMemo(
+    () => state.traces.find((t) => t.id === state.traceId),
+    [state.traces, state.traceId],
   );
 
-  function clearTimers() {
-    timers.current.forEach((t) => clearTimeout(t));
-    timers.current = [];
-  }
-  useEffect(() => clearTimers, []);
+  const insights = useMemo(() => (trace ? analyze(trace) : null), [trace]);
 
-  function run() {
-    clearTimers();
-    setStage('raw');
-    if (reduce) {
-      setStage('clustered');
-      return;
-    }
-    timers.current.push(window.setTimeout(() => setStage('masked'), 650));
-    timers.current.push(window.setTimeout(() => setStage('clustered'), 1500));
-  }
+  const criticalSet = useMemo(
+    () => new Set(insights?.criticalPath ?? []),
+    [insights],
+  );
 
-  function reset() {
-    clearTimers();
-    setStage('raw');
-    setActiveCluster(0);
-  }
+  const selectedSpan = useMemo(
+    () => insights?.layout.find((l) => l.span.id === state.spanId) ?? null,
+    [insights, state.spanId],
+  );
 
-  const active = CLUSTERS[activeCluster];
-  const maxLift = Math.max(...CLUSTERS.flatMap((c) => c.drivers.map((d) => d.lift)));
+  const slowest = useMemo(() => {
+    if (!insights) return [] as LaidOutSpan[];
+    const byId = new Map(insights.layout.map((l) => [l.span.id, l]));
+    return insights.slowestSpans
+      .slice(0, 4)
+      .map((id) => byId.get(id))
+      .filter((l): l is LaidOutSpan => l != null);
+  }, [insights]);
 
   return (
-    <div className="demo" aria-label="tracesift clustering demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">From raw logs to labeled clusters</h3>
+    <div className="demo ts" aria-label="TraceSift distributed-trace waterfall viewer">
+      <span className="demo__tag">TraceSift</span>
+      <h2 className="demo__title">Distributed-trace waterfall</h2>
       <p className="demo__lede">
-        Run the pipeline to watch volatile tokens get masked into canonical
-        signatures, near-duplicate signatures merge into clusters, then pick a
-        cluster to rank the telemetry conditions driving it. No model or network
-        calls, so the same input always produces the same report.
+        Browse sample traces, open one as a waterfall, inspect a span, highlight
+        the critical path, and read the slowest spans and per-service time. Every
+        view is derived from the raw spans, so it is fully deterministic.
       </p>
 
-      <div className="ts__stage">
-        <ol className="ts__steps" aria-label="pipeline stage">
-          {STAGES.map((s, i) => (
-            <li
-              key={s}
-              className={`ts__step ${STAGES.indexOf(stage) >= i ? 'ts__step--on' : ''}`}
-            >
-              <span className="ts__step-num">{i + 1}</span>
-              {s === 'raw' ? 'raw lines' : s === 'masked' ? 'mask tokens' : 'cluster + label'}
-            </li>
-          ))}
-        </ol>
+      <div className="ts__layout">
+        <TraceList summaries={summaries} activeId={state.traceId} />
 
-        <div className="ts__logs" role="list" aria-label="log lines">
-          {masked.map((s, i) => {
-            const showMask = STAGES.indexOf(stage) >= 1;
-            const showCluster = stage === 'clustered';
-            const isActive = showCluster && s.cluster === activeCluster;
-            return (
-              <motion.div
-                key={i}
-                role="listitem"
-                className={`ts__log ${isActive ? 'ts__log--active' : ''} ${showCluster ? `ts__log--c${s.cluster}` : ''}`}
-                layout={!reduce}
-                transition={{ duration: reduce ? 0 : 0.5, ease }}
+        <div className="ts__main">
+          {insights ? (
+            <>
+              <Waterfall
+                insights={insights}
+                selectedId={state.spanId}
+                serviceFilter={state.serviceFilter}
+                highlightCritical={state.highlightCritical}
+                criticalSet={criticalSet}
+              />
+              <SpanDetail
+                selected={selectedSpan}
+                criticalSet={criticalSet}
+                highlightCritical={state.highlightCritical}
+              />
+              <Insights
+                insights={insights}
+                slowest={slowest}
+                serviceFilter={state.serviceFilter}
+                selectedId={state.spanId}
+              />
+            </>
+          ) : (
+            <p className="ts__empty" role="status">
+              No trace selected.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- trace list ----------
+
+function TraceList({
+  summaries,
+  activeId,
+}: {
+  summaries: ReturnType<typeof summarize>[];
+  activeId: string;
+}) {
+  return (
+    <nav className="ts__list glass" aria-label="Traces">
+      <h3 className="ts__list-title">Traces</h3>
+      <ul className="ts__list-items">
+        {summaries.map((s) => {
+          const active = s.id === activeId;
+          return (
+            <li key={s.id}>
+              <button
+                type="button"
+                className={`ts__trace${active ? ' ts__trace--active' : ''}`}
+                aria-pressed={active}
+                onClick={() => selectTrace(s.id)}
               >
-                {showCluster && (
-                  <span className={`ts__log-tag ts__log-tag--c${s.cluster}`}>
-                    c{s.cluster}
+                <span className="ts__trace-name">{s.name}</span>
+                <span className="ts__trace-meta">
+                  <span>{fmtMs(s.totalMs)}</span>
+                  <span aria-label={`${s.spanCount} spans`}>{s.spanCount} spans</span>
+                  <span aria-label={`${s.serviceCount} services`}>
+                    {s.serviceCount} svc
+                  </span>
+                </span>
+                {s.errorCount > 0 && (
+                  <span className="ts__badge ts__badge--error">
+                    {s.errorCount} error{s.errorCount > 1 ? 's' : ''}
                   </span>
                 )}
-                <code className="ts__log-text">{showMask ? s.sig : s.raw}</code>
-              </motion.div>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
+// ---------- waterfall ----------
+
+function Waterfall({
+  insights,
+  selectedId,
+  serviceFilter,
+  highlightCritical,
+  criticalSet,
+}: {
+  insights: ReturnType<typeof analyze>;
+  selectedId: string | null;
+  serviceFilter: string | null;
+  highlightCritical: boolean;
+  criticalSet: Set<string>;
+}) {
+  return (
+    <section className="ts__waterfall glass" aria-label="Waterfall">
+      <header className="ts__wf-head">
+        <h3>{insights.trace.name}</h3>
+        <span className="ts__wf-total">{fmtMs(insights.totalMs)} end to end</span>
+      </header>
+      <ol className="ts__bars">
+        {insights.layout.map((l) => {
+          const onCritical = criticalSet.has(l.span.id);
+          const dimmed = serviceFilter != null && l.span.service !== serviceFilter;
+          const selected = l.span.id === selectedId;
+          const classes = [
+            'ts__bar-row',
+            selected ? 'ts__bar-row--selected' : '',
+            dimmed ? 'ts__bar-row--dim' : '',
+            highlightCritical && onCritical ? 'ts__bar-row--critical' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+          return (
+            <li key={l.span.id}>
+              <button
+                type="button"
+                className={classes}
+                aria-pressed={selected}
+                onClick={() => selectSpan(selected ? null : l.span.id)}
+                title={`${l.span.service} · ${l.span.name} · ${fmtMs(l.span.durationMs)}`}
+              >
+                <span
+                  className="ts__bar-label"
+                  style={{ paddingLeft: `${l.depth * 14}px` }}
+                >
+                  <span
+                    className="ts__svc-dot"
+                    style={{ background: serviceColor(l.span.service) }}
+                    aria-hidden="true"
+                  />
+                  <span className="ts__bar-name">{l.span.name}</span>
+                  {l.hasError && (
+                    <span className="ts__bar-err" aria-label="error span">
+                      !
+                    </span>
+                  )}
+                </span>
+                <span className="ts__bar-track" aria-hidden="true">
+                  <span
+                    className="ts__bar-fill"
+                    style={{
+                      left: `${l.leftFrac * 100}%`,
+                      width: `${Math.max(l.widthFrac * 100, 0.8)}%`,
+                      background: serviceColor(l.span.service),
+                    }}
+                  />
+                </span>
+                <span className="ts__bar-dur">{fmtMs(l.span.durationMs)}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+// ---------- span detail ----------
+
+function SpanDetail({
+  selected,
+  criticalSet,
+  highlightCritical,
+}: {
+  selected: LaidOutSpan | null;
+  criticalSet: Set<string>;
+  highlightCritical: boolean;
+}) {
+  return (
+    <section className="ts__detail glass" aria-label="Span detail">
+      <div className="ts__detail-head">
+        <h3>Span detail</h3>
+        <div className="ts__detail-actions">
+          <button
+            type="button"
+            className="demo__btn demo__btn--ghost"
+            aria-pressed={highlightCritical}
+            onClick={toggleCritical}
+          >
+            {highlightCritical ? 'Hide critical path' : 'Highlight critical path'}
+          </button>
+          <button
+            type="button"
+            className="demo__btn demo__btn--ghost"
+            onClick={resetSelection}
+          >
+            Reset selection
+          </button>
+        </div>
+      </div>
+      {selected ? (
+        <dl className="ts__detail-grid">
+          <div>
+            <dt>Span</dt>
+            <dd>{selected.span.name}</dd>
+          </div>
+          <div>
+            <dt>Service</dt>
+            <dd>
+              <span
+                className="ts__svc-dot"
+                style={{ background: serviceColor(selected.span.service) }}
+                aria-hidden="true"
+              />
+              {selected.span.service}
+            </dd>
+          </div>
+          <div>
+            <dt>Duration</dt>
+            <dd>{fmtMs(selected.span.durationMs)}</dd>
+          </div>
+          <div>
+            <dt>Self time</dt>
+            <dd>{fmtMs(selected.selfMs)}</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd className={selected.hasError ? 'ts__status--error' : 'ts__status--ok'}>
+              {selected.span.status}
+            </dd>
+          </div>
+          <div>
+            <dt>On critical path</dt>
+            <dd>{criticalSet.has(selected.span.id) ? 'yes' : 'no'}</dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="ts__detail-empty" role="status">
+          Select a span in the waterfall to inspect it.
+        </p>
+      )}
+    </section>
+  );
+}
+
+// ---------- insights: slowest spans + per-service ----------
+
+function Insights({
+  insights,
+  slowest,
+  serviceFilter,
+  selectedId,
+}: {
+  insights: ReturnType<typeof analyze>;
+  slowest: LaidOutSpan[];
+  serviceFilter: string | null;
+  selectedId: string | null;
+}) {
+  const maxSelf = insights.perService.reduce((m, s) => Math.max(m, s.selfMs), 0) || 1;
+  return (
+    <div className="ts__insights">
+      <section className="ts__panel glass" aria-label="Slowest spans">
+        <h3>Slowest spans</h3>
+        <ul className="ts__slow">
+          {slowest.map((l) => {
+            const selected = l.span.id === selectedId;
+            return (
+              <li key={l.span.id}>
+                <button
+                  type="button"
+                  className={`ts__slow-row${selected ? ' ts__slow-row--active' : ''}`}
+                  aria-pressed={selected}
+                  onClick={() => selectSpan(selected ? null : l.span.id)}
+                >
+                  <span
+                    className="ts__svc-dot"
+                    style={{ background: serviceColor(l.span.service) }}
+                    aria-hidden="true"
+                  />
+                  <span className="ts__slow-name">{l.span.name}</span>
+                  <span className="ts__slow-self">{fmtMs(l.selfMs)} self</span>
+                </button>
+              </li>
             );
           })}
-        </div>
+        </ul>
+      </section>
 
-        <AnimatePresence>
-          {stage === 'clustered' && (
-            <motion.div
-              className="ts__clusters"
-              initial={{ opacity: 0, y: reduce ? 0 : 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: reduce ? 0 : 0.45, ease }}
-            >
-              <div className="ts__cluster-tabs" role="tablist" aria-label="clusters">
-                {CLUSTERS.map((c) => (
-                  <button
-                    key={c.id}
-                    role="tab"
-                    aria-selected={c.id === activeCluster}
-                    className={`ts__cluster-tab ${c.id === activeCluster ? 'ts__cluster-tab--on' : ''}`}
-                    onClick={() => setActiveCluster(c.id)}
-                  >
-                    <span className={`ts__dot ts__dot--c${c.id}`} aria-hidden="true" />
-                    cluster {c.id}
-                    <span className="ts__cluster-count">{c.count}x</span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="ts__panel" role="tabpanel" aria-label={`cluster ${active.id} detail`}>
-                <div className="ts__panel-head">
-                  <code className="ts__sig">{active.signature}</code>
-                  <span
-                    className={`ts__label ts__label--${active.label}`}
-                    aria-label={`labeled ${active.label}`}
-                  >
-                    {active.label}
+      <section className="ts__panel glass" aria-label="Per-service time">
+        <h3>Per-service self-time</h3>
+        <ul className="ts__svc">
+          {insights.perService.map((s) => {
+            const active = serviceFilter === s.service;
+            return (
+              <li key={s.service}>
+                <button
+                  type="button"
+                  className={`ts__svc-row${active ? ' ts__svc-row--active' : ''}`}
+                  aria-pressed={active}
+                  onClick={() => setServiceFilter(active ? null : s.service)}
+                  title={`Filter the waterfall to ${s.service}`}
+                >
+                  <span className="ts__svc-head">
+                    <span
+                      className="ts__svc-dot"
+                      style={{ background: serviceColor(s.service) }}
+                      aria-hidden="true"
+                    />
+                    <span className="ts__svc-name">{s.service}</span>
+                    <span className="ts__svc-val">{fmtMs(s.selfMs)}</span>
                   </span>
-                </div>
-                <div className="ts__drivers" aria-label="telemetry drivers ranked by lift">
-                  {active.drivers.map((d, i) => (
-                    <div className="ts__driver" key={d.name}>
-                      <span className="ts__driver-name">{d.name}</span>
-                      <div className="ts__driver-bar">
-                        <motion.span
-                          className="ts__driver-fill"
-                          initial={{ width: reduce ? `${(d.lift / maxLift) * 100}%` : 0 }}
-                          animate={{ width: `${(d.lift / maxLift) * 100}%` }}
-                          transition={{ duration: reduce ? 0 : 0.5, delay: reduce ? 0 : i * 0.08, ease }}
-                        />
-                      </div>
-                      <span className="ts__driver-lift">{d.lift.toFixed(1)}x lift</span>
-                    </div>
-                  ))}
-                </div>
-                <p className="ts__note">{active.note}</p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      <div className="ts__metrics" aria-hidden={stage !== 'clustered'}>
-        <div className="ts__metric">
-          <span className="ts__metric-val">{LINES_PER_SEC.toLocaleString()}</span>
-          <span className="ts__metric-unit">lines / sec</span>
-        </div>
-        <div className="ts__metric">
-          <span className="ts__metric-val">{MEDIAN_MS / 1000}s</span>
-          <span className="ts__metric-unit">median for {TOTAL_LINES.toLocaleString()} lines</span>
-        </div>
-        <div className="ts__metric">
-          <span className="ts__metric-val">{CLUSTERS.length}</span>
-          <span className="ts__metric-unit">clusters from {SAMPLES.length} lines</span>
-        </div>
-      </div>
-
-      <div className="demo__controls">
-        <button className="demo__btn" onClick={run} disabled={stage === 'masked'}>
-          {stage === 'raw' ? 'Run pipeline' : 'Run again'}
-        </button>
-        <button className="demo__btn demo__btn--ghost" onClick={reset}>
-          Reset
-        </button>
-        <span className="demo__hint">
-          {stage === 'clustered'
-            ? 'pick a cluster to see its telemetry drivers'
-            : 'deterministic: same input, same report'}
-        </span>
-      </div>
+                  <span className="ts__svc-track" aria-hidden="true">
+                    <span
+                      className="ts__svc-bar"
+                      style={{
+                        width: `${(s.selfMs / maxSelf) * 100}%`,
+                        background: serviceColor(s.service),
+                      }}
+                    />
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {serviceFilter && (
+          <button
+            type="button"
+            className="demo__btn demo__btn--ghost ts__clear-filter"
+            onClick={() => setServiceFilter(null)}
+          >
+            Clear {serviceFilter} filter
+          </button>
+        )}
+      </section>
     </div>
   );
 }

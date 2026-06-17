@@ -1,284 +1,537 @@
-/* testforge demo: candidate tests through a sandbox gate, coverage map fills. */
-.tf__stage {
+/* testforge: in-browser test-suite manager. Suite list, case table, run
+   recorder, and insights laid out on a responsive glass grid. */
+
+.tf__grid {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  grid-template-areas:
+    'suites cases'
+    'run insights';
+  gap: 16px;
+  align-items: start;
+}
+.tf__suites {
+  grid-area: suites;
+}
+.tf__cases {
+  grid-area: cases;
+}
+.tf__run {
+  grid-area: run;
+}
+.tf__insights {
+  grid-area: insights;
+}
+
+.tf__panel {
+  padding: 16px;
+  border-radius: var(--radius);
+  min-width: 0;
+}
+.tf__panel-head {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--text-strong);
+  letter-spacing: 0.01em;
+}
+.tf__panel-sub {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.tf__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- suite list ---- */
+.tf__suite-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tf__suite {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--ink-800);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+.tf__suite:hover {
+  border-color: var(--accent-line);
+}
+.tf__suite--on {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+.tf__suite-name {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.tf__suite-meta {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+.tf__suite-flaky {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--warn);
+}
+
+.tf__health {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 18px;
+  gap: 8px;
+  margin: 0;
 }
-.tf__gate-head,
-.tf__cov-head,
-.tf__gap-head {
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
+.tf__health div {
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--ink-850);
+}
+.tf__health dt {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
   text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--text-faint);
-  margin-bottom: 10px;
 }
-.tf__gate {
+.tf__health dd {
+  margin: 2px 0 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+/* ---- case table ---- */
+.tf__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+.tf__table th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  padding: 0 8px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.tf__row td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+.tf__case-name {
+  display: block;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.tf__case-steps {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.tf__case-exp {
+  color: var(--text-dim);
+  max-width: 220px;
+}
+
+.tf__state {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 3px 9px;
+  border-radius: 999px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--ink-900);
-  padding: 16px;
-  min-height: 74px;
-  display: flex;
-  align-items: center;
-  transition: border-color 0.2s ease;
+  background: var(--ink-800);
+  color: var(--text-dim);
+  cursor: pointer;
+  text-transform: lowercase;
 }
-.tf__gate--busy {
+.tf__state--active {
+  color: var(--accent);
   border-color: var(--accent-line);
-  background:
-    radial-gradient(220px 120px at 50% 0%, var(--accent-glow), transparent 70%),
-    var(--ink-900);
 }
-.tf__gate-item {
+.tf__state--skipped {
+  color: var(--text-faint);
+}
+
+.tf__pill {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+.tf__pill--pass {
+  color: var(--ok);
+  border-color: rgba(61, 220, 145, 0.4);
+  background: rgba(61, 220, 145, 0.1);
+}
+.tf__pill--fail {
+  color: var(--magenta);
+  border-color: var(--magenta-glow);
+  background: var(--magenta-soft);
+}
+.tf__pill--skip,
+.tf__pill--none {
+  color: var(--text-faint);
+}
+
+.tf__row-actions {
+  white-space: nowrap;
+}
+.tf__icon {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  margin-left: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.tf__icon:hover {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+.tf__icon--danger:hover {
+  border-color: var(--magenta-glow);
+  color: var(--magenta);
+}
+
+.tf__empty {
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  padding: 10px 8px;
+}
+
+/* ---- inline edit ---- */
+.tf__row--edit td {
+  background: var(--ink-850);
+}
+.tf__edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+.tf__edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ---- add case form ---- */
+.tf__add {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.tf__add-head {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.tf__add-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.tf__field {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.tf__gate-name {
-  font-family: var(--mono);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-strong);
-}
-.tf__gate-run {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--accent);
-}
-.tf__gate-idle {
-  font-family: var(--mono);
-  font-size: 12px;
+.tf__field span {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: var(--text-faint);
 }
-.tf__stream {
+.tf__field input {
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--ink-850);
+  color: var(--text);
+}
+.tf__field input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent-line);
+}
+
+/* ---- run recorder ---- */
+.tf__run-lede {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.tf__marks {
   list-style: none;
-  margin: 12px 0 0;
+  margin: 0 0 14px;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-height: 220px;
-  overflow-y: auto;
+  gap: 8px;
 }
-.tf__cand {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+.tf__mark {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 9px 12px;
-  background: var(--ink-800);
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line-soft);
+  background: var(--ink-850);
 }
-.tf__cand-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex: 0 0 auto;
+.tf__mark-name {
+  font-size: 0.84rem;
+  color: var(--text);
 }
-.tf__cand--kept {
-  border-color: rgba(79, 208, 138, 0.45);
-}
-.tf__cand--kept .tf__cand-dot {
-  background: #4fd08a;
-  box-shadow: 0 0 8px rgba(79, 208, 138, 0.5);
-}
-.tf__cand--failed .tf__cand-dot {
-  background: var(--accent);
-  box-shadow: 0 0 8px var(--accent-glow);
-}
-.tf__cand--flaky .tf__cand-dot {
-  background: #e8b339;
-  box-shadow: 0 0 8px rgba(232, 179, 57, 0.5);
-}
-.tf__cand-name {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  color: var(--text-strong);
-}
-.tf__cand-reason {
-  grid-column: 2 / 3;
-  grid-row: 2;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--text-faint);
-}
-.tf__cand-verdict {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.tf__cand--kept .tf__cand-verdict {
-  color: #4fd08a;
-}
-.tf__cand--failed .tf__cand-verdict {
-  color: var(--accent);
-}
-.tf__cand--flaky .tf__cand-verdict {
-  color: #e8b339;
-}
-.tf__stream-empty {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text-faint);
-}
-
-.tf__code {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--ink-900);
-  padding: 10px 4px;
-  overflow: hidden;
-}
-.tf__codeline {
+.tf__mark-btns {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 3px 12px;
-  border-left: 2px solid transparent;
-  transition:
-    background 0.3s ease,
-    border-color 0.3s ease;
+  gap: 4px;
 }
-.tf__codeline--hit {
-  background: rgba(79, 208, 138, 0.08);
-  border-left-color: rgba(79, 208, 138, 0.7);
-}
-.tf__codeline--miss {
-  background: var(--accent-glow);
-  border-left-color: var(--accent);
-}
-.tf__gutter {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--paper-faint);
-  width: 16px;
-  text-align: right;
-  flex: 0 0 auto;
-}
-.tf__src {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  color: var(--paper-dim);
-  white-space: pre;
-}
-.tf__codeline--hit .tf__src {
-  color: var(--text-strong);
-}
-.tf__branch {
-  margin-left: auto;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-.tf__codeline--hit .tf__branch {
-  color: #4fd08a;
-}
-
-.tf__gap {
-  margin-top: 12px;
+.tf__mark-btn {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 4px 10px;
+  border-radius: 8px;
   border: 1px solid var(--line);
-  border-radius: 12px;
   background: var(--ink-800);
-  padding: 12px 14px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 0.14s ease, color 0.14s ease;
 }
-.tf__gap-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.tf__gap-fn {
-  font-family: var(--mono);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
-}
-.tf__gap-detail {
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--text-faint);
-}
-.tf__gap-clear {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  color: #4fd08a;
-}
-
-.tf__metrics {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-top: 18px;
-}
-.tf__metric {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 14px;
-  background: var(--ink-800);
-}
-.tf__metric--rate {
+.tf__mark-btn:hover {
   border-color: var(--accent-line);
-  background:
-    radial-gradient(200px 120px at 100% 0%, var(--accent-glow), transparent 70%),
-    var(--ink-800);
 }
-.tf__metric-val {
-  font-family: var(--mono);
-  font-weight: 700;
-  font-size: clamp(22px, 4vw, 30px);
-  color: var(--text-strong);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
+.tf__mark-btn--on.tf__mark-btn--pass {
+  color: var(--ok);
+  border-color: rgba(61, 220, 145, 0.5);
+  background: rgba(61, 220, 145, 0.12);
 }
-.tf__metric--rate .tf__metric-val {
+.tf__mark-btn--on.tf__mark-btn--fail {
+  color: var(--magenta);
+  border-color: var(--magenta-glow);
+  background: var(--magenta-soft);
+}
+.tf__mark-btn--on.tf__mark-btn--skip {
+  color: var(--text);
+  border-color: var(--accent-line);
+}
+.tf__mark-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tf__run-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tf__run-summary {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+}
+.tf__run-summary-head {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
   color: var(--accent);
 }
-.tf__metric-label {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
+.tf__run-summary-line {
+  display: block;
+  font-size: 0.84rem;
+  color: var(--text);
+  margin-top: 2px;
+}
+
+/* ---- insights ---- */
+.tf__insight {
+  margin-bottom: 16px;
+}
+.tf__insight:last-child {
+  margin-bottom: 0;
+}
+.tf__insight-head {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
   text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.tf__trend {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 96px;
+  padding: 8px 8px 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--ink-850);
+}
+.tf__bar-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 4px;
+  min-width: 14px;
+}
+.tf__bar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, var(--accent), rgba(61, 240, 255, 0.35));
+}
+.tf__bar-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--text-faint);
+}
+.tf__trend-note {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
   color: var(--text-faint);
 }
 
-.tf__verdict {
+.tf__flaky,
+.tf__slow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 18px;
-  padding: 14px 18px;
-  border: 1px solid rgba(79, 208, 138, 0.5);
-  border-radius: 12px;
-  background:
-    radial-gradient(300px 140px at 0% 0%, rgba(79, 208, 138, 0.12), transparent 70%),
-    var(--ink-800);
+  gap: 8px;
 }
-.tf__verdict-head {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 20px;
-  color: #4fd08a;
+.tf__flaky-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line-soft);
+  background: var(--ink-850);
 }
-.tf__verdict-text {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--paper-dim);
-  max-width: 62ch;
+.tf__flaky-name {
+  font-size: 0.84rem;
+  color: var(--text-strong);
+}
+.tf__flaky-count {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--warn);
+}
+.tf__flips {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 3px;
+}
+.tf__flip {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+}
+.tf__flip--pass {
+  background: rgba(61, 220, 145, 0.7);
+}
+.tf__flip--fail {
+  background: var(--magenta);
+}
+.tf__flip--skip {
+  background: var(--ink-600);
 }
 
-@media (max-width: 620px) {
-  .tf__stage {
+.tf__slow-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line-soft);
+  background: var(--ink-850);
+}
+.tf__slow-name {
+  font-size: 0.84rem;
+  color: var(--text);
+}
+.tf__slow-ms {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+/* ---- responsive ---- */
+@media (max-width: 860px) {
+  .tf__grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'suites'
+      'cases'
+      'run'
+      'insights';
+  }
+  .tf__add-fields {
     grid-template-columns: 1fr;
   }
-  .tf__metrics {
-    grid-template-columns: repeat(2, 1fr);
+  .tf__case-exp {
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tf__suite,
+  .tf__mark-btn {
+    transition: none;
   }
 }

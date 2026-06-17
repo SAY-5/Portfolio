@@ -1,358 +1,338 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
+import { useMemo, useState } from 'react';
 import '../styles/demo.css';
 import './routeengine.css';
+import { useStore } from './routeengine/state';
+import {
+  addStop,
+  moveDepot,
+  optimize,
+  removeStop,
+  resetAll,
+  showNaive,
+} from './routeengine/store';
+import { naiveRoute, optimizeRoute } from './routeengine/engine';
+import { DEPOT_ID, GRID_MAX, GRID_MIN, type Route, type Stop } from './routeengine/types';
 
-// Real facts from the project:
-// - A* with an admissible Haversine heuristic over a CSR-style grid graph.
-// - Constraints are composable multiplicative edge-cost factors
-//   (storm_avoid, elevation_penalty, road_type_bias). They only raise edge
-//   cost, never branch the search, so A* stays optimal.
-// - A Dijkstra baseline is the ground-truth check in tests.
-// - Sub-150ms p99 on 50K-node graphs; 99.3% solution quality vs brute force.
-const STORM_AVOID = 6.0; // multiplicative factor applied to edges in the cell
-const P99_MS = 150;
-const QUALITY = 99.3;
-
-const COLS = 11;
-const ROWS = 9;
-const START = { r: 4, c: 0 };
-const GOAL = { r: 4, c: 10 };
-// A circular storm cell centered just left of the straight line, so the
-// optimal path has to bow around it once it is active.
-const STORM = { r: 4, c: 6, radius: 1.8 };
-
-type Cell = { r: number; c: number };
-const key = (r: number, c: number) => `${r},${c}`;
-
-function inStorm(r: number, c: number) {
-  const dr = r - STORM.r;
-  const dc = c - STORM.c;
-  return Math.sqrt(dr * dr + dc * dc) <= STORM.radius;
+// Round a distance for display without pulling in extra deps.
+function fmt(n: number): string {
+  return n.toFixed(1);
 }
 
-// Edge cost into a cell: base 1, multiplied by storm_avoid when the storm is
-// active and the cell sits inside the cell. This mirrors the multiplicative
-// edge-cost factor model.
-function enterCost(r: number, c: number, stormOn: boolean) {
-  let cost = 1;
-  if (stormOn && inStorm(r, c)) cost *= STORM_AVOID;
-  return cost;
+// In-browser delivery route planner. A depot and a set of stops live on a
+// 0..100 grid in localStorage. The safe engine builds a Euclidean distance
+// matrix, a nearest-neighbour tour from the depot through every stop and back,
+// and a 2-opt improvement pass. The map below draws the depot, the stops, and
+// the current route as an ordered polyline. Everything is deterministic and
+// runs client-side; there is no eval and no network.
+
+const VIEW = 100; // SVG user units span the full 0..100 grid.
+
+// Resolve a stop or depot id to its grid coordinates for drawing.
+function pointOf(id: string, depot: { x: number; y: number }, stops: Stop[]) {
+  if (id === DEPOT_ID) return depot;
+  return stops.find((s) => s.id === id) ?? depot;
 }
 
-const NEIGHBORS = [
-  [-1, 0],
-  [1, 0],
-  [0, -1],
-  [0, 1],
-];
-
-function haversineLike(a: Cell, b: Cell) {
-  // Admissible heuristic: never overestimates because the cheapest possible
-  // edge cost is 1, so straight-line grid distance is a valid lower bound.
-  return Math.abs(a.r - b.r) + Math.abs(a.c - b.c);
-}
-
-type SearchResult = {
-  order: string[]; // expansion order, for the exploration animation
-  path: string[]; // optimal path cells
-  cost: number;
-};
-
-function astar(stormOn: boolean): SearchResult {
-  const open: { k: string; r: number; c: number; f: number }[] = [];
-  const g = new Map<string, number>();
-  const came = new Map<string, string>();
-  const order: string[] = [];
-  const startK = key(START.r, START.c);
-  g.set(startK, 0);
-  open.push({ k: startK, r: START.r, c: START.c, f: haversineLike(START, GOAL) });
-
-  while (open.length) {
-    let bi = 0;
-    for (let i = 1; i < open.length; i++) if (open[i].f < open[bi].f) bi = i;
-    const cur = open.splice(bi, 1)[0];
-    order.push(cur.k);
-    if (cur.r === GOAL.r && cur.c === GOAL.c) break;
-    for (const [dr, dc] of NEIGHBORS) {
-      const nr = cur.r + dr;
-      const nc = cur.c + dc;
-      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
-      const nk = key(nr, nc);
-      const tentative = (g.get(cur.k) ?? Infinity) + enterCost(nr, nc, stormOn);
-      if (tentative < (g.get(nk) ?? Infinity)) {
-        g.set(nk, tentative);
-        came.set(nk, cur.k);
-        const f = tentative + haversineLike({ r: nr, c: nc }, GOAL);
-        const ex = open.find((o) => o.k === nk);
-        if (ex) ex.f = f;
-        else open.push({ k: nk, r: nr, c: nc, f });
-      }
-    }
-  }
-
-  const path: string[] = [];
-  let walk: string | undefined = key(GOAL.r, GOAL.c);
-  while (walk) {
-    path.unshift(walk);
-    walk = came.get(walk);
-  }
-  return { order, path, cost: g.get(key(GOAL.r, GOAL.c)) ?? 0 };
-}
-
-const CELL = 38;
-const GAP = 4;
-const PAD = 6;
-const W = COLS * CELL + (COLS - 1) * GAP + PAD * 2;
-const H = ROWS * CELL + (ROWS - 1) * GAP + PAD * 2;
-const cx = (c: number) => PAD + c * (CELL + GAP) + CELL / 2;
-const cy = (r: number) => PAD + r * (CELL + GAP) + CELL / 2;
-const ease = [0.22, 1, 0.36, 1] as const;
-
-export default function RouteEngineDemo() {
-  const reduce = useReducedMotion();
-  const [stormOn, setStormOn] = useState(false);
-  const [visited, setVisited] = useState<Set<string>>(new Set());
-  const [pathLen, setPathLen] = useState(0);
-  const [running, setRunning] = useState(false);
-  const [done, setDone] = useState(false);
-  const timer = useRef<number | null>(null);
-
-  const result = useMemo(() => astar(stormOn), [stormOn]);
-  // Dijkstra is the ground truth; with these uniform costs it finds the same
-  // optimal path, which is exactly what the integration tests assert.
-  const dijkstra = useMemo(() => astar(stormOn), [stormOn]);
-  const sameAsGroundTruth = result.path.join('>') === dijkstra.path.join('>');
-
-  function clearTimer() {
-    if (timer.current !== null) window.clearTimeout(timer.current);
-    timer.current = null;
-  }
-  useEffect(() => clearTimer, []);
-
-  // Reset and replay whenever the storm toggles, so the bend is visible.
-  useEffect(() => {
-    play();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stormOn]);
-
-  function play() {
-    clearTimer();
-    setDone(false);
-    setVisited(new Set());
-    setPathLen(0);
-
-    if (reduce) {
-      setVisited(new Set(result.order));
-      setPathLen(result.path.length);
-      setRunning(false);
-      setDone(true);
-      return;
-    }
-
-    setRunning(true);
-    const order = result.order;
-    let i = 0;
-    const stepExpand = () => {
-      i += 1;
-      setVisited(new Set(order.slice(0, i)));
-      if (i < order.length) {
-        timer.current = window.setTimeout(stepExpand, 26);
-      } else {
-        drawPath();
-      }
-    };
-    let p = 0;
-    const drawPath = () => {
-      p += 1;
-      setPathLen(p);
-      if (p < result.path.length) {
-        timer.current = window.setTimeout(drawPath, 55);
-      } else {
-        setRunning(false);
-        setDone(true);
-        timer.current = null;
-      }
-    };
-    timer.current = window.setTimeout(stepExpand, 60);
-  }
-
-  const pathPts = result.path
-    .slice(0, pathLen)
-    .map((k) => {
-      const [r, c] = k.split(',').map(Number);
-      return `${cx(c)},${cy(r)}`;
+// Build the SVG polyline points string for a route order, closing the loop back
+// to the depot.
+function polylinePoints(
+  route: Route,
+  depot: { x: number; y: number },
+  stops: Stop[],
+): string {
+  if (route.order.length === 0) return '';
+  return route.order
+    .concat(route.order[0])
+    .map((id) => {
+      const p = pointOf(id, depot, stops);
+      return `${p.x},${p.y}`;
     })
     .join(' ');
+}
+
+export default function RouteengineDemo() {
+  const { depot, stops, route, optimized } = useStore();
+  // Click mode: dropping a new stop or moving the depot.
+  const [mode, setMode] = useState<'stop' | 'depot'>('stop');
+  // Manual add-stop form fields.
+  const [form, setForm] = useState({ label: '', x: '', y: '' });
+
+  // Add a stop from the typed coordinates, clamping into the grid.
+  function handleAdd(event: React.FormEvent) {
+    event.preventDefault();
+    const x = Number(form.x);
+    const y = Number(form.y);
+    if (Number.isNaN(x) || Number.isNaN(y)) return;
+    addStop(x, y, form.label);
+    setForm({ label: '', x: '', y: '' });
+  }
+
+  const points = useMemo(
+    () => polylinePoints(route, depot, stops),
+    [route, depot, stops],
+  );
+
+  // Map a click in the SVG to grid coordinates and apply the active mode.
+  function handleMapClick(event: React.MouseEvent<SVGSVGElement>) {
+    const svg = event.currentTarget;
+    const rect = svg.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * GRID_MAX;
+    const y = ((event.clientY - rect.top) / rect.height) * GRID_MAX;
+    if (mode === 'depot') moveDepot(x, y);
+    else addStop(x, y);
+  }
+
+  // Visit index per stop id, for labelling markers in route order.
+  const visitOrder = useMemo(() => {
+    const map = new Map<string, number>();
+    let n = 0;
+    for (const id of route.order) {
+      if (id !== DEPOT_ID) map.set(id, ++n);
+    }
+    return map;
+  }, [route.order]);
+
+  // Naive vs optimized totals, recomputed from the current depot and stops, so
+  // the summary always shows the live improvement even before optimize is run.
+  const compare = useMemo(() => {
+    const naive = naiveRoute(depot, stops).total;
+    const best = optimizeRoute(depot, stops).total;
+    const saved = naive - best;
+    const pct = naive > 0 ? (saved / naive) * 100 : 0;
+    return { naive, best, saved, pct };
+  }, [depot, stops]);
+
+  // Stops sorted into the current visit order for the list panel.
+  const orderedStops = useMemo(() => {
+    const byId = new Map(stops.map((s) => [s.id, s]));
+    const out: { stop: Stop; n: number }[] = [];
+    let n = 0;
+    for (const id of route.order) {
+      if (id === DEPOT_ID) continue;
+      const stop = byId.get(id);
+      if (stop) out.push({ stop, n: ++n });
+    }
+    return out;
+  }, [route.order, stops]);
 
   return (
-    <div className="demo" aria-label="RouteEngine constraint-aware A* demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">A* around a storm cell</h3>
-      <p className="demo__lede">
-        A* explores the grid toward the goal with an admissible heuristic.
-        Drop the storm cell in and its edges get a {STORM_AVOID}x cost factor,
-        so the optimal path bends around it. A Dijkstra pass is the ground
-        truth and lands on the same route.
-      </p>
+    <section className="re" aria-label="Delivery route planner">
+      <header className="re__head">
+        <h2 className="re__title">RouteEngine</h2>
+        <p className="re__sub">
+          Place stops, then optimize the round trip from the depot with
+          nearest-neighbour and a 2-opt pass.
+        </p>
+      </header>
 
       <div className="re__stage">
-        <div className="re__grid">
+        <div className="re__mapwrap glass">
+          <div className="re__modes" role="group" aria-label="Map click mode">
+            <button
+              type="button"
+              className={`re__mode${mode === 'stop' ? ' re__mode--on' : ''}`}
+              aria-pressed={mode === 'stop'}
+              onClick={() => setMode('stop')}
+            >
+              Add stop
+            </button>
+            <button
+              type="button"
+              className={`re__mode${mode === 'depot' ? ' re__mode--on' : ''}`}
+              aria-pressed={mode === 'depot'}
+              onClick={() => setMode('depot')}
+            >
+              Move depot
+            </button>
+          </div>
+
           <svg
             className="re__svg"
-            viewBox={`0 0 ${W} ${H}`}
-            role="group"
-            aria-label="routing grid"
+            viewBox={`0 0 ${VIEW} ${VIEW}`}
+            role="img"
+            aria-label={`Route map with ${stops.length} stops, total distance ${fmt(route.total)}`}
+            onClick={handleMapClick}
           >
-            {Array.from({ length: ROWS }).map((_, r) =>
-              Array.from({ length: COLS }).map((_, c) => {
-                const k = key(r, c);
-                const isStorm = stormOn && inStorm(r, c);
-                const isVisited = visited.has(k);
-                let cls = 're__cell';
-                if (isStorm) cls += ' re__cell--storm';
-                else if (isVisited) cls += ' re__cell--visited';
-                return (
-                  <motion.rect
-                    key={k}
-                    x={PAD + c * (CELL + GAP)}
-                    y={PAD + r * (CELL + GAP)}
-                    width={CELL}
-                    height={CELL}
-                    rx={6}
-                    className={cls}
-                    initial={false}
-                    animate={{
-                      opacity: isVisited && !isStorm ? 1 : isStorm ? 1 : 0.5,
-                    }}
-                    transition={{ duration: reduce ? 0 : 0.18 }}
-                  />
-                );
-              })
-            )}
-
-            {/* storm-cost markers inside the cell */}
-            {stormOn &&
-              Array.from({ length: ROWS }).map((_, r) =>
-                Array.from({ length: COLS }).map((_, c) =>
-                  inStorm(r, c) ? (
-                    <text
-                      key={`x${r},${c}`}
-                      x={cx(c)}
-                      y={cy(r) + 4}
-                      textAnchor="middle"
-                      className="re__cost"
-                    >
-                      x{STORM_AVOID}
-                    </text>
-                  ) : null
-                )
-              )}
-
-            {/* optimal path */}
-            {pathLen > 1 && (
-              <polyline
-                points={pathPts}
-                fill="none"
-                className="re__path"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            )}
-
-            {/* start and goal markers */}
-            <circle cx={cx(START.c)} cy={cy(START.r)} r={9} className="re__start" />
-            <text x={cx(START.c)} y={cy(START.r) + 4} textAnchor="middle" className="re__pin">
-              S
-            </text>
-            <circle cx={cx(GOAL.c)} cy={cy(GOAL.r)} r={9} className="re__goal" />
-            <text x={cx(GOAL.c)} y={cy(GOAL.r) + 4} textAnchor="middle" className="re__pin">
-              G
-            </text>
-          </svg>
-        </div>
-
-        <div className="re__panel">
-          <div className="re__metrics">
-            <div className="re__metric">
-              <div className="re__metric-name">Expanded</div>
-              <div className="re__metric-val">
-                {visited.size}
-                <span className="re__metric-unit">cells</span>
-              </div>
-            </div>
-            <div className="re__metric">
-              <div className="re__metric-name">Path cost</div>
-              <div className="re__metric-val">
-                {result.cost.toFixed(0)}
-                <span className="re__metric-unit">units</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="re__factors">
-            <div className="re__factors-head">Edge cost factors</div>
-            <div className={`re__factor ${stormOn ? 're__factor--on' : ''}`}>
-              <span className="re__factor-name">storm_avoid</span>
-              <span className="re__factor-val">{stormOn ? `x${STORM_AVOID}` : 'x1'}</span>
-            </div>
-            <div className="re__factor">
-              <span className="re__factor-name">elevation_penalty</span>
-              <span className="re__factor-val">x1</span>
-            </div>
-            <div className="re__factor">
-              <span className="re__factor-name">road_type_bias</span>
-              <span className="re__factor-val">x1</span>
-            </div>
-            <p className="re__factors-note">
-              Factors multiply edge cost and only ever raise it, so the first
-              goal pop is still the optimal path.
-            </p>
-          </div>
-
-          <AnimatePresence>
-            {done && (
-              <motion.div
-                className="re__verdict"
-                initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.4, ease }}
+            <title>
+              Delivery route from the depot through {stops.length} stops and back
+            </title>
+            <defs>
+              <pattern
+                id="re-grid"
+                width="10"
+                height="10"
+                patternUnits="userSpaceOnUse"
               >
-                <span className="re__verdict-check">
-                  {sameAsGroundTruth ? 'matches Dijkstra' : 'check'}
-                </span>
-                <span className="re__verdict-text">
-                  A* result equals the Dijkstra ground truth. {QUALITY}% solution
-                  quality versus brute force, sub-{P99_MS}ms p99 on 50K-node
-                  graphs.
-                </span>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                <path d="M 10 0 L 0 0 0 10" className="re__gridline" />
+              </pattern>
+            </defs>
+            <rect x="0" y="0" width={VIEW} height={VIEW} fill="url(#re-grid)" />
+
+            {points && <polyline className="re__path" points={points} />}
+
+            {stops.map((s) => (
+              <g key={s.id} className="re__stop">
+                <circle cx={s.x} cy={s.y} r="2.6" className="re__stopdot" />
+                <text x={s.x} y={s.y + 0.9} className="re__stoporder">
+                  {visitOrder.get(s.id) ?? ''}
+                </text>
+              </g>
+            ))}
+
+            <g className="re__depot">
+              <rect
+                x={depot.x - 3}
+                y={depot.y - 3}
+                width="6"
+                height="6"
+                rx="1.2"
+                className="re__depotbox"
+              />
+            </g>
+          </svg>
+          <p className="re__hint" aria-live="polite">
+            Click the map to {mode === 'depot' ? 'move the depot' : 'add a stop'}.
+          </p>
+          <ul className="re__legend" aria-label="Map legend">
+            <li className="re__legenditem">
+              <span className="re__swatch re__swatch--depot" aria-hidden="true" />
+              Depot
+            </li>
+            <li className="re__legenditem">
+              <span className="re__swatch re__swatch--stop" aria-hidden="true" />
+              Stop
+            </li>
+            <li className="re__legenditem">
+              <span className="re__swatch re__swatch--path" aria-hidden="true" />
+              Route
+            </li>
+          </ul>
+        </div>
+
+        <div className="re__panel glass">
+          <div className="re__actions">
+            <button
+              type="button"
+              className="re__btn re__btn--primary"
+              onClick={() => optimize()}
+              disabled={stops.length < 2}
+            >
+              Optimize route
+            </button>
+            <button
+              type="button"
+              className="re__btn"
+              onClick={() => showNaive()}
+              aria-pressed={!optimized}
+            >
+              Naive order
+            </button>
+          </div>
+
+          <form className="re__add" onSubmit={handleAdd} aria-label="Add a stop by coordinates">
+            <label className="re__field">
+              Label
+              <input
+                className="re__input"
+                type="text"
+                value={form.label}
+                placeholder="Stop"
+                onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
+              />
+            </label>
+            <label className="re__field">
+              X
+              <input
+                className="re__input"
+                type="number"
+                min={GRID_MIN}
+                max={GRID_MAX}
+                value={form.x}
+                required
+                onChange={(e) => setForm((f) => ({ ...f, x: e.target.value }))}
+              />
+            </label>
+            <label className="re__field">
+              Y
+              <input
+                className="re__input"
+                type="number"
+                min={GRID_MIN}
+                max={GRID_MAX}
+                value={form.y}
+                required
+                onChange={(e) => setForm((f) => ({ ...f, y: e.target.value }))}
+              />
+            </label>
+            <button type="submit" className="re__btn">
+              Add
+            </button>
+          </form>
+
+          {stops.length === 0 ? (
+            <p className="re__empty">No stops yet. Click the map or add coordinates.</p>
+          ) : (
+            <ul className="re__list" aria-label="Delivery stops in visit order">
+              {orderedStops.map(({ stop, n }) => (
+                <li key={stop.id} className="re__row">
+                  <span className="re__rownum" aria-hidden="true">
+                    {n}
+                  </span>
+                  <span className="re__rowlabel">{stop.label}</span>
+                  <span className="re__rowcoord">
+                    {stop.x}, {stop.y}
+                  </span>
+                  <button
+                    type="button"
+                    className="re__remove"
+                    aria-label={`Remove ${stop.label}`}
+                    onClick={() => removeStop(stop.id)}
+                  >
+                    &times;
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <dl className="re__summary" aria-label="Route summary">
+            <div className="re__stat">
+              <dt className="re__statk">Stops</dt>
+              <dd className="re__statv">{stops.length}</dd>
+            </div>
+            <div className="re__stat">
+              <dt className="re__statk">Drawn distance</dt>
+              <dd className="re__statv">{fmt(route.total)}</dd>
+            </div>
+            <div className="re__stat">
+              <dt className="re__statk">Naive total</dt>
+              <dd className="re__statv">{fmt(compare.naive)}</dd>
+            </div>
+            <div className="re__stat">
+              <dt className="re__statk">Optimized total</dt>
+              <dd className="re__statv re__statv--good">{fmt(compare.best)}</dd>
+            </div>
+            <div className="re__stat">
+              <dt className="re__statk">Saved</dt>
+              <dd className="re__statv re__statv--good">{fmt(compare.saved)}</dd>
+            </div>
+            <div className="re__stat">
+              <dt className="re__statk">Improvement</dt>
+              <dd className="re__statv re__statv--good">{fmt(compare.pct)}%</dd>
+            </div>
+          </dl>
+
+          <div className="re__actions">
+            <button
+              type="button"
+              className="re__btn re__btn--ghost"
+              onClick={() => resetAll()}
+            >
+              Reset planner
+            </button>
+          </div>
         </div>
       </div>
-
-      <div className="demo__controls">
-        <button
-          className="demo__btn"
-          onClick={() => setStormOn((s) => !s)}
-          disabled={running}
-          aria-pressed={stormOn}
-        >
-          {stormOn ? 'Clear storm cell' : 'Drop storm cell'}
-        </button>
-        <button
-          className="demo__btn demo__btn--ghost"
-          onClick={play}
-          disabled={running}
-        >
-          Replay search
-        </button>
-        <span className="demo__hint">
-          {running ? 'Searching…' : `${result.path.length}-cell optimal path`}
-        </span>
-      </div>
-    </div>
+    </section>
   );
 }

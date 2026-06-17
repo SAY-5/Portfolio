@@ -1,361 +1,615 @@
 import { useMemo, useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useReducedMotion } from 'framer-motion';
 import '../styles/demo.css';
 import './talentagent.css';
+import { useTalentStore } from './talentagent/state';
+import {
+  addCandidate,
+  advanceCandidate,
+  rejectCandidate,
+  resetAll,
+  setScore,
+  updateRole,
+} from './talentagent/store';
+import {
+  canAdvance,
+  canReject,
+  funnelCounts,
+  nextStageOf,
+  rankCandidates,
+  rubricValid,
+  scoreCandidate,
+  weightSum,
+} from './talentagent/engine';
+import {
+  MAX_RATING,
+  STAGES,
+  type Candidate,
+  type Criterion,
+  type Role,
+  type Stage,
+} from './talentagent/types';
 
-// The role the agent matches against. Each requirement names the skill that
-// satisfies it, so evidence can only ever be a skill the candidate lists.
-const ROLE_REQS = [
-  { id: 'r1', label: 'Python', skill: 'Python' },
-  { id: 'r2', label: 'FastAPI services', skill: 'FastAPI' },
-  { id: 'r3', label: 'Embedding retrieval', skill: 'Embeddings' },
-  { id: 'r4', label: 'React frontend', skill: 'React' },
-  { id: 'r5', label: 'Docker / CI', skill: 'Docker' },
-] as const;
-
-type Candidate = {
-  id: string;
-  name: string;
-  title: string;
-  skills: string[]; // the only source of evidence
-  experienceFit: number; // 0..1
-  similarity: number; // 0..1
+const STAGE_LABEL: Record<Stage, string> = {
+  applied: 'Applied',
+  screen: 'Screen',
+  interview: 'Interview',
+  offer: 'Offer',
+  rejected: 'Rejected',
 };
 
-// Two pools. "clear" has a strong top match and a wide margin to the runner-up
-// so the gate returns confidently. "ambiguous" packs three near-equal profiles
-// so the top-to-runner-up margin is thin and the gate trips to review.
-const POOLS: Record<'clear' | 'ambiguous', Candidate[]> = {
-  clear: [
-    {
-      id: 'c1',
-      name: 'A. Okafor',
-      title: 'Backend / ML engineer',
-      skills: ['Python', 'FastAPI', 'Embeddings', 'React', 'Docker'],
-      experienceFit: 0.91,
-      similarity: 0.88,
-    },
-    {
-      id: 'c2',
-      name: 'M. Beck',
-      title: 'Platform engineer',
-      skills: ['Python', 'Docker'],
-      experienceFit: 0.58,
-      similarity: 0.52,
-    },
-    {
-      id: 'c3',
-      name: 'L. Haddad',
-      title: 'Frontend engineer',
-      skills: ['React'],
-      experienceFit: 0.4,
-      similarity: 0.36,
-    },
-  ],
-  ambiguous: [
-    {
-      id: 'd1',
-      name: 'R. Silva',
-      title: 'Full-stack engineer',
-      skills: ['Python', 'FastAPI', 'React'],
-      experienceFit: 0.66,
-      similarity: 0.64,
-    },
-    {
-      id: 'd2',
-      name: 'T. Nguyen',
-      title: 'ML engineer',
-      skills: ['Python', 'Embeddings', 'Docker'],
-      experienceFit: 0.68,
-      similarity: 0.62,
-    },
-    {
-      id: 'd3',
-      name: 'K. Adeyemi',
-      title: 'Backend engineer',
-      skills: ['Python', 'FastAPI', 'Docker'],
-      experienceFit: 0.63,
-      similarity: 0.6,
-    },
-  ],
-};
+const round = (v: number) => Math.round(v);
 
-// Score weighting: skill coverage, experience fit, semantic similarity.
-const W_COVERAGE = 0.5;
-const W_EXPERIENCE = 0.25;
-const W_SIMILARITY = 0.25;
-// Below this top-to-runner-up margin the result set is flagged for review.
-const MARGIN_THRESHOLD = 0.06;
-
-type Scored = Candidate & {
-  coverage: number;
-  met: string[]; // requirement ids satisfied
-  missed: string[]; // requirement ids not satisfied
-  score: number;
-};
-
-function scoreCandidate(c: Candidate): Scored {
-  const met: string[] = [];
-  const missed: string[] = [];
-  for (const r of ROLE_REQS) {
-    if (c.skills.includes(r.skill)) met.push(r.id);
-    else missed.push(r.id);
-  }
-  const coverage = met.length / ROLE_REQS.length;
-  const score =
-    coverage * W_COVERAGE +
-    c.experienceFit * W_EXPERIENCE +
-    c.similarity * W_SIMILARITY;
-  return { ...c, coverage, met, missed, score };
-}
-
-const pct = (v: number) => Math.round(v * 100);
-const ease = [0.22, 1, 0.36, 1] as const;
+type View = 'pipeline' | 'rubric';
+type RankMap = Map<string, number>;
+type Ranked = ReturnType<typeof rankCandidates>;
 
 export default function TalentAgentDemo() {
   const reduce = useReducedMotion();
-  const [pool, setPool] = useState<'clear' | 'ambiguous'>('clear');
-  const [open, setOpen] = useState<string | null>(null);
+  const { roles, candidates } = useTalentStore();
+  const [roleId, setRoleId] = useState<string>(roles[0]?.id ?? '');
+  const [openCandidate, setOpenCandidate] = useState<string | null>(null);
+  const [view, setView] = useState<View>('pipeline');
 
-  const ranked = useMemo(() => {
-    const scored = POOLS[pool].map(scoreCandidate);
-    scored.sort((a, b) => b.score - a.score);
-    return scored;
-  }, [pool]);
+  // The active role falls back to the first role if the selected one is gone.
+  const role = useMemo(
+    () => roles.find((r) => r.id === roleId) ?? roles[0],
+    [roles, roleId],
+  );
 
-  const top = ranked[0];
-  const runnerUp = ranked[1];
-  const margin = top && runnerUp ? top.score - runnerUp.score : 1;
-  const flagged = margin < MARGIN_THRESHOLD;
+  const ranked = useMemo(
+    () => (role ? rankCandidates(role, candidates) : []),
+    [role, candidates],
+  );
 
-  function pick(next: 'clear' | 'ambiguous') {
-    setPool(next);
-    setOpen(null);
+  const rankOf = useMemo(() => {
+    const map: RankMap = new Map();
+    ranked.forEach((s, i) => map.set(s.candidate.id, i + 1));
+    return map;
+  }, [ranked]);
+
+  const counts = useMemo(
+    () => (role ? funnelCounts(role, candidates) : null),
+    [role, candidates],
+  );
+
+  const open = openCandidate
+    ? candidates.find((c) => c.id === openCandidate) ?? null
+    : null;
+
+  if (!role || !counts) {
+    return (
+      <div className="demo" aria-label="talentagent applicant tracking">
+        <p className="demo__lede">No roles defined.</p>
+      </div>
+    );
   }
 
-  const reqLabel = (id: string) =>
-    ROLE_REQS.find((r) => r.id === id)?.label ?? id;
-  const reqSkill = (id: string) =>
-    ROLE_REQS.find((r) => r.id === id)?.skill ?? id;
-
   return (
-    <div className="demo" aria-label="talentagent ranked matching demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Ranked matches with a confidence gate</h3>
+    <div className="demo" aria-label="talentagent applicant tracking">
+      <span className="demo__tag">Interactive app</span>
+      <h3 className="demo__title">TalentAgent applicant tracking</h3>
       <p className="demo__lede">
-        The agent scores each candidate on skill coverage, experience fit, and
-        semantic similarity, then ranks them. Expand a match to see the bar
-        breakdown and the requirements it satisfies, with the matched skill as
-        evidence. Switch the field to ambiguous and the top-to-runner-up margin
-        narrows until the gate flags the set for human review.
+        Define a role rubric whose weighted criteria sum to 100, score each
+        candidate against it on a 0 to {MAX_RATING} scale, and watch them rank by
+        weighted percent. Move candidates through the funnel: advancing requires
+        clearing the score threshold you set, and a rejected candidate can never
+        be offered. Every number is the arithmetic of the rubric you defined.
       </p>
 
-      <div className="ta__stage">
-        <div className="ta__role">
-          <span className="ta__role-label">Role requires</span>
-          {ROLE_REQS.map((r) => (
-            <span key={r.id} className="ta__req">
-              {r.label}
-            </span>
-          ))}
-        </div>
-
-        <ol className="ta__board" aria-label="ranked candidates">
-          {ranked.map((c, i) => {
-            const isOpen = open === c.id;
-            const isTop = i === 0;
-            return (
-              <li
-                key={c.id}
-                className={`ta__card${isTop && flagged ? ' ta__card--gated' : ''}`}
-              >
-                <button
-                  className="ta__card-head"
-                  aria-expanded={isOpen}
-                  onClick={() => setOpen(isOpen ? null : c.id)}
-                >
-                  <span className="ta__rank" aria-hidden="true">
-                    {i + 1}
-                  </span>
-                  <span className="ta__who">
-                    <span className="ta__name">{c.name}</span>
-                    <span className="ta__title">{c.title}</span>
-                  </span>
-                  {isTop && flagged ? (
-                    <span className="ta__flag">review</span>
-                  ) : (
-                    <span aria-hidden="true" />
-                  )}
-                  <span className="ta__score">
-                    {pct(c.score)}
-                    <span className="ta__score-label">
-                      score{' '}
-                      <span aria-hidden="true" className="ta__chev">
-                        {isOpen ? '-' : '+'}
-                      </span>
-                    </span>
-                  </span>
-                </button>
-
-                <AnimatePresence initial={false}>
-                  {isOpen && (
-                    <motion.div
-                      className="ta__body"
-                      initial={{ height: reduce ? 'auto' : 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: reduce ? 'auto' : 0, opacity: 0 }}
-                      transition={{ duration: reduce ? 0 : 0.32, ease }}
-                    >
-                      <div className="ta__body-inner">
-                        <div className="ta__bars">
-                          <Bar
-                            name="Skill coverage"
-                            value={c.coverage}
-                            reduce={reduce}
-                          />
-                          <Bar
-                            name="Experience fit"
-                            value={c.experienceFit}
-                            reduce={reduce}
-                          />
-                          <Bar
-                            name="Similarity"
-                            value={c.similarity}
-                            reduce={reduce}
-                          />
-                        </div>
-
-                        <div className="ta__reqs">
-                          <div>
-                            <div className="ta__reqcol-head">
-                              Satisfied ({c.met.length})
-                            </div>
-                            <ul className="ta__reqlist">
-                              {c.met.map((rid) => (
-                                <li
-                                  key={rid}
-                                  className="ta__reqitem ta__reqitem--met"
-                                >
-                                  <span>{reqLabel(rid)}</span>
-                                  <span className="ta__evidence">
-                                    evidence: <b>{reqSkill(rid)}</b> listed
-                                  </span>
-                                </li>
-                              ))}
-                              {c.met.length === 0 && (
-                                <li className="ta__reqitem ta__reqitem--miss">
-                                  none
-                                </li>
-                              )}
-                            </ul>
-                          </div>
-                          <div>
-                            <div className="ta__reqcol-head">
-                              Missing ({c.missed.length})
-                            </div>
-                            <ul className="ta__reqlist">
-                              {c.missed.map((rid) => (
-                                <li
-                                  key={rid}
-                                  className="ta__reqitem ta__reqitem--miss"
-                                >
-                                  <span>{reqLabel(rid)}</span>
-                                  <span className="ta__evidence">
-                                    no matching skill listed
-                                  </span>
-                                </li>
-                              ))}
-                              {c.missed.length === 0 && (
-                                <li className="ta__reqitem ta__reqitem--met">
-                                  <span>all requirements met</span>
-                                </li>
-                              )}
-                            </ul>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </li>
-            );
-          })}
-        </ol>
-
-        <motion.div
-          key={flagged ? 'review' : 'confident'}
-          className={`ta__gate ${flagged ? 'ta__gate--review' : 'ta__gate--confident'}`}
-          initial={{ opacity: 0, y: reduce ? 0 : 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: reduce ? 0 : 0.3, ease }}
+      <div className="ta__nav" role="tablist" aria-label="TalentAgent view">
+        <button
+          role="tab"
+          aria-selected={view === 'pipeline'}
+          className={`ta__navbtn${view === 'pipeline' ? ' ta__navbtn--on' : ''}`}
+          onClick={() => setView('pipeline')}
         >
-          <div className="ta__gate-head">
-            <span className="ta__gate-title">
-              {flagged ? 'Flagged for review' : 'Confident match'}
-            </span>
-            <span className="ta__gate-margin">
-              margin {pct(margin)} pts vs threshold {pct(MARGIN_THRESHOLD)}
-            </span>
-          </div>
-          <p className="ta__gate-text">
-            {flagged
-              ? `The top score sits only ${pct(margin)} points above the runner-up, below the ${pct(MARGIN_THRESHOLD)}-point gate, so the agent declines to assert a winner and hands the set to a reviewer.`
-              : `${top?.name} leads the runner-up by ${pct(margin)} points, clearing the ${pct(MARGIN_THRESHOLD)}-point gate, so the agent returns the ranking with confidence.`}
-          </p>
-        </motion.div>
+          Pipeline
+        </button>
+        <button
+          role="tab"
+          aria-selected={view === 'rubric'}
+          className={`ta__navbtn${view === 'rubric' ? ' ta__navbtn--on' : ''}`}
+          onClick={() => setView('rubric')}
+        >
+          Role and rubric
+        </button>
+
+        <label className="ta__rolepick">
+          <span className="ta__rolepick-label">Role</span>
+          <select
+            className="ta__select"
+            value={role.id}
+            onChange={(e) => {
+              setRoleId(e.target.value);
+              setOpenCandidate(null);
+            }}
+          >
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.title}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
-      <div className="demo__controls" role="group" aria-label="field scenario">
+      {view === 'pipeline' ? (
+        <Pipeline
+          counts={counts}
+          ranked={ranked}
+          rankOf={rankOf}
+          onOpen={(id) => setOpenCandidate(id)}
+        />
+      ) : (
+        <RubricEditor role={role} ranked={ranked} rankOf={rankOf} />
+      )}
+
+      {open && (
+        <CandidateDetail
+          role={role}
+          candidate={open}
+          rank={rankOf.get(open.id) ?? 0}
+          reduce={!!reduce}
+          onClose={() => setOpenCandidate(null)}
+        />
+      )}
+
+      <div className="demo__controls" role="group" aria-label="store controls">
+        <AddCandidate roleId={role.id} />
         <button
-          className={`demo__btn${pool === 'clear' ? '' : ' demo__btn--ghost'}`}
-          aria-pressed={pool === 'clear'}
-          onClick={() => pick('clear')}
+          className="demo__btn demo__btn--ghost"
+          onClick={() => {
+            resetAll();
+            setOpenCandidate(null);
+          }}
         >
-          Clear field
-        </button>
-        <button
-          className={`demo__btn${pool === 'ambiguous' ? '' : ' demo__btn--ghost'}`}
-          aria-pressed={pool === 'ambiguous'}
-          onClick={() => pick('ambiguous')}
-        >
-          Ambiguous field
+          Reset to seed
         </button>
         <span className="demo__hint">
-          top {pct(top?.score ?? 0)} / runner-up {pct(runnerUp?.score ?? 0)}
+          {ranked.length} scored / threshold {role.advanceThreshold}%
         </span>
       </div>
     </div>
   );
 }
 
-function Bar({
-  name,
-  value,
-  reduce,
+// ---------- pipeline ----------
+
+function Pipeline({
+  counts,
+  ranked,
+  rankOf,
+  onOpen,
 }: {
-  name: string;
-  value: number;
-  reduce: boolean | null;
+  counts: Record<Stage, number>;
+  ranked: Ranked;
+  rankOf: RankMap;
+  onOpen: (id: string) => void;
 }) {
+  const byStage = useMemo(() => {
+    const map = new Map<Stage, Ranked>();
+    for (const s of STAGES) map.set(s, []);
+    for (const scored of ranked) {
+      map.get(scored.candidate.stage)?.push(scored);
+    }
+    return map;
+  }, [ranked]);
+
   return (
-    <div className="ta__bar-row">
-      <span className="ta__bar-name">{name}</span>
-      <div
-        className="ta__bar-track"
-        role="meter"
-        aria-label={name}
-        aria-valuenow={Math.round(value * 100)}
-        aria-valuemin={0}
-        aria-valuemax={100}
-      >
-        <motion.div
-          className="ta__bar-fill"
-          initial={{ width: reduce ? `${value * 100}%` : 0 }}
-          animate={{ width: `${value * 100}%` }}
-          transition={{ duration: reduce ? 0 : 0.5, ease }}
-        />
+    <div className="ta__stage">
+      <div className="ta__funnel" aria-label="stage funnel counts">
+        {STAGES.map((s) => (
+          <div key={s} className={`ta__funnel-cell ta__funnel-cell--${s}`}>
+            <span className="ta__funnel-count">{counts[s]}</span>
+            <span className="ta__funnel-stage">{STAGE_LABEL[s]}</span>
+          </div>
+        ))}
       </div>
-      <span className="ta__bar-val">{Math.round(value * 100)}</span>
+
+      <div className="ta__columns">
+        {STAGES.map((s) => {
+          const cards = byStage.get(s) ?? [];
+          return (
+            <section
+              key={s}
+              className={`ta__col ta__col--${s}`}
+              aria-label={`${STAGE_LABEL[s]} stage, ${cards.length} candidates`}
+            >
+              <header className="ta__col-head">
+                <span className="ta__col-name">{STAGE_LABEL[s]}</span>
+                <span className="ta__col-count">{cards.length}</span>
+              </header>
+              <ul className="ta__col-body">
+                {cards.map((scored) => {
+                  const c = scored.candidate;
+                  const rank = rankOf.get(c.id) ?? 0;
+                  return (
+                    <li key={c.id}>
+                      <button
+                        className="ta__card"
+                        onClick={() => onOpen(c.id)}
+                        aria-label={`Open ${c.name}, rank ${rank}, ${round(scored.percent)} percent`}
+                      >
+                        <span className="ta__card-rank" aria-hidden="true">
+                          #{rank}
+                        </span>
+                        <span className="ta__card-main">
+                          <span className="ta__card-name">{c.name}</span>
+                          <span className="ta__card-headline">
+                            {c.headline}
+                          </span>
+                        </span>
+                        <span className="ta__card-score">
+                          {round(scored.percent)}
+                          <span className="ta__card-pct">%</span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+                {cards.length === 0 && (
+                  <li className="ta__col-empty">none</li>
+                )}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
+
+      <p className="ta__legend">
+        Cards are ranked across the whole role by weighted percent, so the
+        leader carries rank #1 wherever they sit in the funnel. Open a card to
+        score the candidate and move them through the stages.
+      </p>
+    </div>
+  );
+}
+
+// ---------- candidate detail ----------
+
+function CandidateDetail({
+  role,
+  candidate,
+  rank,
+  onClose,
+}: {
+  role: Role;
+  candidate: Candidate;
+  rank: number;
+  reduce: boolean;
+  onClose: () => void;
+}) {
+  const scored = scoreCandidate(role, candidate);
+  const advance = canAdvance(role, candidate);
+  const reject = canReject(candidate);
+  const target = nextStageOf(candidate.stage);
+
+  return (
+    <div
+      className="ta__detail glass"
+      role="region"
+      aria-label={`Scoring ${candidate.name}`}
+    >
+      <header className="ta__detail-head">
+        <div className="ta__detail-id">
+          <span className="ta__detail-rank">#{rank}</span>
+          <span className="ta__detail-name">{candidate.name}</span>
+          <span className="ta__detail-headline">{candidate.headline}</span>
+        </div>
+        <div className="ta__detail-total" aria-live="polite">
+          <span className="ta__detail-total-val">{round(scored.percent)}</span>
+          <span className="ta__detail-total-label">
+            weighted % / stage {STAGE_LABEL[candidate.stage]}
+          </span>
+        </div>
+        <button
+          className="ta__detail-close"
+          onClick={onClose}
+          aria-label="Close candidate detail"
+        >
+          Close
+        </button>
+      </header>
+
+      <div className="ta__criteria">
+        {scored.breakdown.map((b) => (
+          <div key={b.id} className="ta__crit">
+            <div className="ta__crit-top">
+              <span className="ta__crit-label">{b.label}</span>
+              <span className="ta__crit-weight">weight {b.weight}</span>
+              <span className="ta__crit-points">{b.points.toFixed(1)} pts</span>
+            </div>
+            <div className="ta__crit-row">
+              <input
+                className="ta__crit-slider"
+                type="range"
+                min={0}
+                max={MAX_RATING}
+                step={1}
+                value={b.rating}
+                aria-label={`${b.label} rating, 0 to ${MAX_RATING}`}
+                onChange={(e) =>
+                  setScore(candidate.id, b.id, Number(e.target.value))
+                }
+              />
+              <output className="ta__crit-rating">
+                {b.rating}/{MAX_RATING}
+              </output>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="ta__actions">
+        <div className="ta__action-col">
+          <button
+            className="demo__btn"
+            disabled={!advance.ok}
+            onClick={() => advanceCandidate(candidate.id)}
+          >
+            {target ? `Advance to ${STAGE_LABEL[target]}` : 'Advance'}
+          </button>
+          <p className="ta__action-note">{advance.reason}</p>
+        </div>
+        <div className="ta__action-col">
+          <button
+            className="demo__btn demo__btn--ghost"
+            disabled={!reject.ok}
+            onClick={() => rejectCandidate(candidate.id)}
+          >
+            Reject
+          </button>
+          <p className="ta__action-note">{reject.reason}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- add candidate ----------
+
+function AddCandidate({ roleId }: { roleId: string }) {
+  const [name, setName] = useState('');
+  const [headline, setHeadline] = useState('');
+
+  function submit() {
+    const id = addCandidate(roleId, name, headline);
+    if (id) {
+      setName('');
+      setHeadline('');
+    }
+  }
+
+  return (
+    <div className="ta__add">
+      <input
+        className="ta__input"
+        placeholder="Candidate name"
+        value={name}
+        aria-label="New candidate name"
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit();
+        }}
+      />
+      <input
+        className="ta__input"
+        placeholder="Headline"
+        value={headline}
+        aria-label="New candidate headline"
+        onChange={(e) => setHeadline(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit();
+        }}
+      />
+      <button className="demo__btn" disabled={!name.trim()} onClick={submit}>
+        Add candidate
+      </button>
+    </div>
+  );
+}
+
+// ---------- rubric editor + scoreboard ----------
+
+function RubricEditor({
+  role,
+  ranked,
+  rankOf,
+}: {
+  role: Role;
+  ranked: Ranked;
+  rankOf: RankMap;
+}) {
+  // Draft edits live in local state so an invalid in-progress sum does not
+  // corrupt the persisted role; the store rejects an invalid rubric anyway.
+  const [draft, setDraft] = useState<Criterion[]>(role.criteria);
+  const [title, setTitle] = useState(role.title);
+  const [threshold, setThreshold] = useState(role.advanceThreshold);
+  const [savedAt, setSavedAt] = useState<'saved' | 'rejected' | null>(null);
+
+  // Reset the draft when the selected role changes underneath the editor.
+  const [trackedId, setTrackedId] = useState(role.id);
+  if (trackedId !== role.id) {
+    setTrackedId(role.id);
+    setDraft(role.criteria);
+    setTitle(role.title);
+    setThreshold(role.advanceThreshold);
+    setSavedAt(null);
+  }
+
+  const sum = weightSum(draft);
+  const valid = rubricValid(draft);
+
+  function setWeight(id: string, weight: number) {
+    setDraft((d) =>
+      d.map((c) =>
+        c.id === id
+          ? { ...c, weight: Math.max(0, Math.min(100, Math.round(weight) || 0)) }
+          : c,
+      ),
+    );
+    setSavedAt(null);
+  }
+
+  function setLabel(id: string, label: string) {
+    setDraft((d) => d.map((c) => (c.id === id ? { ...c, label } : c)));
+    setSavedAt(null);
+  }
+
+  function addCriterion() {
+    setDraft((d) => [
+      ...d,
+      {
+        id: `cr-${d.length}-${Math.floor(Math.random() * 1e6).toString(36)}`,
+        label: 'New criterion',
+        weight: 0,
+      },
+    ]);
+    setSavedAt(null);
+  }
+
+  function removeCriterion(id: string) {
+    setDraft((d) => d.filter((c) => c.id !== id));
+    setSavedAt(null);
+  }
+
+  function save() {
+    const ok = updateRole(role.id, {
+      title,
+      criteria: draft,
+      advanceThreshold: threshold,
+    });
+    setSavedAt(ok ? 'saved' : 'rejected');
+  }
+
+  return (
+    <div className="ta__rubric">
+      <div className="ta__rubric-grid">
+        <label className="ta__field">
+          <span className="ta__field-label">Role title</span>
+          <input
+            className="ta__input"
+            value={title}
+            aria-label="Role title"
+            onChange={(e) => {
+              setTitle(e.target.value);
+              setSavedAt(null);
+            }}
+          />
+        </label>
+        <label className="ta__field">
+          <span className="ta__field-label">
+            Advance threshold ({threshold}%)
+          </span>
+          <input
+            className="ta__crit-slider"
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={threshold}
+            aria-label="Advance threshold percent"
+            onChange={(e) => {
+              setThreshold(Number(e.target.value));
+              setSavedAt(null);
+            }}
+          />
+        </label>
+      </div>
+
+      <ul className="ta__critlist" aria-label="rubric criteria">
+        {draft.map((c) => (
+          <li key={c.id} className="ta__critedit">
+            <input
+              className="ta__input ta__input--label"
+              value={c.label}
+              aria-label="Criterion label"
+              onChange={(e) => setLabel(c.id, e.target.value)}
+            />
+            <input
+              className="ta__input ta__input--weight"
+              type="number"
+              min={0}
+              max={100}
+              value={c.weight}
+              aria-label={`${c.label} weight`}
+              onChange={(e) => setWeight(c.id, Number(e.target.value))}
+            />
+            <button
+              className="ta__critdel"
+              aria-label={`Remove ${c.label}`}
+              onClick={() => removeCriterion(c.id)}
+            >
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <div className="ta__rubric-foot">
+        <button className="demo__btn demo__btn--ghost" onClick={addCriterion}>
+          Add criterion
+        </button>
+        <span
+          className={`ta__sum${valid ? ' ta__sum--ok' : ' ta__sum--bad'}`}
+          aria-live="polite"
+        >
+          weights sum to {sum} / 100 {valid ? 'ok' : 'must equal 100'}
+        </span>
+        <button className="demo__btn" disabled={!valid} onClick={save}>
+          Save rubric
+        </button>
+        {savedAt === 'saved' && (
+          <span className="ta__saved" role="status">
+            saved
+          </span>
+        )}
+        {savedAt === 'rejected' && (
+          <span className="ta__saved ta__saved--bad" role="status">
+            rejected
+          </span>
+        )}
+      </div>
+
+      <div className="ta__scoreboard">
+        <h4 className="ta__scoreboard-head">Scoreboard</h4>
+        <ol className="ta__scorelist">
+          {ranked.map((scored) => {
+            const c = scored.candidate;
+            return (
+              <li key={c.id} className="ta__scorerow">
+                <span className="ta__scorerow-rank">
+                  #{rankOf.get(c.id) ?? 0}
+                </span>
+                <span className="ta__scorerow-name">{c.name}</span>
+                <span className="ta__scorerow-stage">
+                  {STAGE_LABEL[c.stage]}
+                </span>
+                <span
+                  className="ta__scorerow-bar"
+                  role="meter"
+                  aria-label={`${c.name} weighted percent`}
+                  aria-valuenow={round(scored.percent)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <span
+                    className="ta__scorerow-fill"
+                    style={{ width: `${scored.percent}%` }}
+                  />
+                </span>
+                <span className="ta__scorerow-pct">
+                  {round(scored.percent)}%
+                </span>
+              </li>
+            );
+          })}
+          {ranked.length === 0 && (
+            <li className="ta__col-empty">no candidates for this role</li>
+          )}
+        </ol>
+      </div>
     </div>
   );
 }

@@ -1,263 +1,375 @@
 import { useMemo, useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import '../styles/demo.css';
 import './doc-index-service.css';
+import { useStore } from './doc-index-service/state';
+import {
+  addDocument,
+  recordQuery,
+  removeDocument,
+  resetAll,
+  setQuery,
+} from './doc-index-service/store';
+import { search } from './doc-index-service/engine';
+import type { IndexEntry, SearchHit, SnippetPart } from './doc-index-service/types';
 
-// Real numbers from the project: each query runs a BM25 keyword retriever
-// (ts_rank_cd) and a 384-d HNSW cosine vector retriever in parallel, then fuses
-// the two ranked lists with reciprocal rank fusion at k=60. RRF is chosen over
-// weighted sums because BM25 and cosine live on different scales. Latencies over
-// 100,000 docs and 1000 queries: vector p50 2.8 ms, keyword p50 157 ms,
-// hybrid p50 171.1 ms.
-const RRF_K = 60;
-const KEYWORD_P50 = 157;
-const VECTOR_P50 = 2.8;
-const HYBRID_P50 = 171.1;
+// In-browser full-text search engine. The corpus is tokenized into an inverted
+// index (term -> postings with term frequency), and queries are ranked by summed
+// TF-IDF. Everything runs client-side over the corpus seed and is deterministic:
+// the same corpus and query always produce the same ranked results. There is no
+// eval and no network. Corpus edits re-index immediately and persist in
+// localStorage along with the search history.
 
-type Chunk = {
-  id: string;
-  doc: string;
-  keywordRank: number | null; // 1-based rank in the keyword list, null if absent
-  vectorRank: number | null; // 1-based rank in the vector list, null if absent
-};
+type Tab = 'search' | 'index' | 'corpus';
 
-// Two query scenarios, each with its own keyword/vector rankings, so toggling
-// the query visibly re-fuses the lists differently.
-const scenarios: Record<string, { label: string; chunks: Chunk[] }> = {
-  rollback: {
-    label: 'how do I roll back a migration',
-    chunks: [
-      { id: 'c12', doc: 'migrations.md', keywordRank: 1, vectorRank: 3 },
-      { id: 'c47', doc: 'cli-reference.md', keywordRank: 2, vectorRank: null },
-      { id: 'c08', doc: 'undo-changes.md', keywordRank: null, vectorRank: 1 },
-      { id: 'c33', doc: 'schema-versioning.md', keywordRank: 4, vectorRank: 2 },
-      { id: 'c21', doc: 'troubleshooting.md', keywordRank: 3, vectorRank: 5 },
-      { id: 'c55', doc: 'recovery-guide.md', keywordRank: null, vectorRank: 4 },
-    ],
-  },
-  auth: {
-    label: 'rotate an expired api token',
-    chunks: [
-      { id: 'a04', doc: 'auth-tokens.md', keywordRank: 2, vectorRank: 1 },
-      { id: 'a19', doc: 'rotation-policy.md', keywordRank: 1, vectorRank: 4 },
-      { id: 'a31', doc: 'expiry-and-renewal.md', keywordRank: null, vectorRank: 2 },
-      { id: 'a08', doc: 'cli-reference.md', keywordRank: 3, vectorRank: null },
-      { id: 'a22', doc: 'security-faq.md', keywordRank: 4, vectorRank: 3 },
-      { id: 'a40', doc: 'service-accounts.md', keywordRank: null, vectorRank: 5 },
-    ],
-  },
-};
-
-const ease = [0.22, 1, 0.36, 1] as const;
-
-function rrf(rank: number | null) {
-  return rank === null ? 0 : 1 / (RRF_K + rank);
+function Snippet({ parts }: { parts: SnippetPart[] }) {
+  return (
+    <span className="di__snippet">
+      {parts.map((p, i) =>
+        p.hit ? (
+          <mark className="di__mark" key={i}>
+            {p.text}
+          </mark>
+        ) : (
+          <span key={i}>{p.text}</span>
+        ),
+      )}
+    </span>
+  );
 }
 
 export default function DocIndexServiceDemo() {
-  const reduce = useReducedMotion();
-  const [scenarioKey, setScenarioKey] = useState<keyof typeof scenarios>(
-    'rollback',
-  );
-  const [fused, setFused] = useState(false);
+  const state = useStore();
+  const [tab, setTab] = useState<Tab>('search');
+  const [selectedTerm, setSelectedTerm] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState('');
+  const [draftBody, setDraftBody] = useState('');
 
-  const scenario = scenarios[scenarioKey];
-
-  const keywordList = useMemo(
-    () =>
-      scenario.chunks
-        .filter((c) => c.keywordRank !== null)
-        .sort((a, b) => (a.keywordRank! - b.keywordRank!)),
-    [scenario],
-  );
-  const vectorList = useMemo(
-    () =>
-      scenario.chunks
-        .filter((c) => c.vectorRank !== null)
-        .sort((a, b) => (a.vectorRank! - b.vectorRank!)),
-    [scenario],
+  const hits: SearchHit[] = useMemo(
+    () => search(state.index, state.corpus, state.query),
+    [state.index, state.corpus, state.query],
   );
 
-  const fusedList = useMemo(() => {
-    return scenario.chunks
-      .map((c) => ({
-        ...c,
-        kScore: rrf(c.keywordRank),
-        vScore: rrf(c.vectorRank),
-        score: rrf(c.keywordRank) + rrf(c.vectorRank),
-      }))
-      .sort((a, b) => b.score - a.score);
-  }, [scenario]);
+  const queryActive = state.query.trim().length > 0;
 
-  function pickScenario(key: keyof typeof scenarios) {
-    setScenarioKey(key);
-    setFused(false);
+  // Terms sorted by document frequency for the term explorer, descending so the
+  // most widespread terms surface first.
+  const sortedTerms: IndexEntry[] = useMemo(() => {
+    return Array.from(state.index.terms.values()).sort(
+      (a, b) => b.df - a.df || a.term.localeCompare(b.term),
+    );
+  }, [state.index]);
+
+  const activeEntry =
+    selectedTerm !== null ? state.index.terms.get(selectedTerm) || null : null;
+
+  function runSearch(q: string) {
+    setQuery(q);
+    recordQuery(q);
   }
 
+  function submitDoc(e: React.FormEvent) {
+    e.preventDefault();
+    const id = addDocument(draftTitle, draftBody);
+    if (id) {
+      setDraftTitle('');
+      setDraftBody('');
+    }
+  }
+
+  const titleById = useMemo(
+    () => new Map(state.corpus.map((d) => [d.id, d.title])),
+    [state.corpus],
+  );
+
   return (
-    <div className="demo" aria-label="doc-index-service hybrid retrieval demo">
+    <div className="demo" aria-label="doc-index-service full-text search engine">
       <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Two retrievers, one fused list</h3>
+      <h3 className="demo__title">Full-text search over an inverted index</h3>
       <p className="demo__lede">
-        A query fans out to a BM25 keyword retriever and a 384-d cosine vector
-        retriever in parallel. Reciprocal rank fusion at k={RRF_K} merges the two
-        ranked lists into one, chosen over a weighted sum because keyword and
-        cosine scores live on different scales.
+        A small document corpus is tokenized into an inverted index that maps
+        each term to its postings. Queries are ranked by summed TF-IDF, with
+        matched terms marked in each snippet. Inspect the index, then add or
+        remove documents to watch it update. Everything runs in the browser.
       </p>
 
-      <div className="dx__queries" role="group" aria-label="pick a query">
-        {(Object.keys(scenarios) as (keyof typeof scenarios)[]).map((key) => (
-          <button
-            key={key}
-            className={
-              key === scenarioKey ? 'dx__query dx__query--on' : 'dx__query'
-            }
-            aria-pressed={key === scenarioKey}
-            onClick={() => pickScenario(key)}
-          >
-            <span className="dx__query-prompt">/v1/query</span>
-            {scenarios[key].label}
-          </button>
-        ))}
+      <div className="di__tabs" role="tablist" aria-label="search engine views">
+        <button
+          role="tab"
+          id="di-tab-search"
+          aria-selected={tab === 'search'}
+          aria-controls="di-panel-search"
+          className={tab === 'search' ? 'di__tab di__tab--on' : 'di__tab'}
+          onClick={() => setTab('search')}
+        >
+          Search
+        </button>
+        <button
+          role="tab"
+          id="di-tab-index"
+          aria-selected={tab === 'index'}
+          aria-controls="di-panel-index"
+          className={tab === 'index' ? 'di__tab di__tab--on' : 'di__tab'}
+          onClick={() => setTab('index')}
+        >
+          Index inspector
+        </button>
+        <button
+          role="tab"
+          id="di-tab-corpus"
+          aria-selected={tab === 'corpus'}
+          aria-controls="di-panel-corpus"
+          className={tab === 'corpus' ? 'di__tab di__tab--on' : 'di__tab'}
+          onClick={() => setTab('corpus')}
+        >
+          Corpus
+        </button>
       </div>
 
-      <div className="dx__stage">
-        <div className="dx__col dx__col--keyword">
-          <div className="dx__col-head">
-            <span className="dx__col-name">keyword (BM25)</span>
-            <span className="dx__col-lat">p50 {KEYWORD_P50} ms</span>
-          </div>
-          <div className="dx__list">
-            {keywordList.map((c, i) => (
-              <div className="dx__row" key={c.id}>
-                <span className="dx__rank">{i + 1}</span>
-                <span className="dx__row-doc">{c.doc}</span>
-                <span className="dx__row-id">{c.id}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="dx__merge" aria-hidden="true">
-          <svg viewBox="0 0 40 200" className="dx__merge-svg" role="presentation">
-            <motion.path
-              d="M0 40 C 24 40, 16 100, 40 100"
-              fill="none"
-              stroke="var(--accent-line)"
-              strokeWidth={1.5}
-              animate={{ opacity: fused ? 1 : 0.35 }}
-              transition={{ duration: 0.4 }}
+      {tab === 'search' && (
+        <section
+          className="di__panel"
+          role="tabpanel"
+          id="di-panel-search"
+          aria-labelledby="di-tab-search"
+        >
+          <div className="di__searchbar glass">
+            <label className="di__sr-only" htmlFor="di-query">
+              Search the corpus
+            </label>
+            <span className="di__search-icon" aria-hidden="true">
+              /
+            </span>
+            <input
+              id="di-query"
+              className="di__input"
+              type="search"
+              placeholder="Search, for example: rank tf-idf snippet"
+              value={state.query}
+              autoComplete="off"
+              onChange={(e) => setQuery(e.target.value)}
+              onBlur={(e) => recordQuery(e.target.value)}
             />
-            <motion.path
-              d="M0 160 C 24 160, 16 100, 40 100"
-              fill="none"
-              stroke="var(--accent-line)"
-              strokeWidth={1.5}
-              animate={{ opacity: fused ? 1 : 0.35 }}
-              transition={{ duration: 0.4 }}
-            />
-          </svg>
-        </div>
-
-        <div className="dx__col dx__col--vector">
-          <div className="dx__col-head">
-            <span className="dx__col-name">vector (HNSW cosine)</span>
-            <span className="dx__col-lat">p50 {VECTOR_P50} ms</span>
-          </div>
-          <div className="dx__list">
-            {vectorList.map((c, i) => (
-              <div className="dx__row" key={c.id}>
-                <span className="dx__rank">{i + 1}</span>
-                <span className="dx__row-doc">{c.doc}</span>
-                <span className="dx__row-id">{c.id}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="dx__fusedwrap">
-        <div className="dx__col-head dx__col-head--fused">
-          <span className="dx__col-name dx__col-name--fused">
-            fused (RRF k={RRF_K})
-          </span>
-          <span className="dx__col-lat">hybrid p50 {HYBRID_P50} ms</span>
-        </div>
-        <div className="dx__fused">
-          <AnimatePresence initial={false}>
-            {(fused ? fusedList : []).map((c, i) => (
-              <motion.div
-                className={
-                  i === 0 ? 'dx__frow dx__frow--top' : 'dx__frow'
-                }
-                key={c.id}
-                layout={!reduce}
-                initial={{ opacity: 0, y: reduce ? 0 : 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{
-                  duration: reduce ? 0 : 0.4,
-                  delay: reduce ? 0 : i * 0.07,
-                  ease,
-                }}
+            {queryActive && (
+              <button
+                className="di__clear"
+                onClick={() => setQuery('')}
+                aria-label="Clear query"
               >
-                <span className="dx__frank">{i + 1}</span>
-                <span className="dx__frow-doc">{c.doc}</span>
-                <span className="dx__signals">
-                  <span
-                    className={
-                      c.keywordRank
-                        ? 'dx__sig dx__sig--kw'
-                        : 'dx__sig dx__sig--off'
-                    }
-                  >
-                    kw {c.keywordRank ? `#${c.keywordRank}` : '-'}
+                Clear
+              </button>
+            )}
+          </div>
+
+          <p className="di__count" aria-live="polite">
+            {queryActive
+              ? `${hits.length} ${hits.length === 1 ? 'result' : 'results'} ranked by TF-IDF`
+              : `Type a query to search ${state.corpus.length} documents`}
+          </p>
+
+          <ol className="di__results">
+            {hits.map((hit) => (
+              <li className="di__result glass" key={hit.docId}>
+                <div className="di__result-head">
+                  <span className="di__result-title">{hit.title}</span>
+                  <span className="di__score" title="summed TF-IDF score">
+                    {hit.score.toFixed(4)}
                   </span>
-                  <span
-                    className={
-                      c.vectorRank
-                        ? 'dx__sig dx__sig--vec'
-                        : 'dx__sig dx__sig--off'
-                    }
-                  >
-                    vec {c.vectorRank ? `#${c.vectorRank}` : '-'}
-                  </span>
-                  <span className="dx__sig dx__sig--score">
-                    {c.score.toFixed(4)}
-                  </span>
-                </span>
-              </motion.div>
+                </div>
+                <Snippet parts={hit.snippet} />
+                <div className="di__matched">
+                  <span className="di__matched-label">matched</span>
+                  {hit.matched.map((m) => (
+                    <span className="di__chip" key={m}>
+                      {m}
+                    </span>
+                  ))}
+                </div>
+              </li>
             ))}
-          </AnimatePresence>
-          {!fused && (
-            <div className="dx__fused-empty">
-              Run fusion to merge both lists by 1 / (k + rank).
+          </ol>
+
+          {queryActive && hits.length === 0 && (
+            <p className="di__empty">
+              No documents contain those terms. Try another query.
+            </p>
+          )}
+
+          {state.history.length > 0 && (
+            <div className="di__history">
+              <span className="di__history-label">Recent queries</span>
+              <div className="di__history-list">
+                {state.history.map((h) => (
+                  <button
+                    className="di__history-chip"
+                    key={h}
+                    onClick={() => runSearch(h)}
+                  >
+                    {h}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
-        </div>
-      </div>
+        </section>
+      )}
 
-      <div className="demo__controls">
-        <button
-          className="demo__btn"
-          onClick={() => setFused(true)}
-          disabled={fused}
+      {tab === 'index' && (
+        <section
+          className="di__panel"
+          role="tabpanel"
+          id="di-panel-index"
+          aria-labelledby="di-tab-index"
         >
-          {fused ? 'Fused' : 'Run fusion'}
-        </button>
-        <button
-          className="demo__btn demo__btn--ghost"
-          onClick={() => setFused(false)}
-          disabled={!fused}
+          <dl className="di__stats">
+            <div className="di__stat glass">
+              <dt>Documents</dt>
+              <dd>{state.stats.docCount}</dd>
+            </div>
+            <div className="di__stat glass">
+              <dt>Unique terms</dt>
+              <dd>{state.stats.uniqueTerms}</dd>
+            </div>
+            <div className="di__stat glass">
+              <dt>Total postings</dt>
+              <dd>{state.stats.totalPostings}</dd>
+            </div>
+            <div className="di__stat glass">
+              <dt>Avg doc length</dt>
+              <dd>{state.stats.avgDocLength.toFixed(1)}</dd>
+            </div>
+          </dl>
+
+          <div className="di__explorer">
+            <div className="di__terms glass">
+              <span className="di__terms-head">
+                Terms by document frequency
+              </span>
+              <ul className="di__termlist">
+                {sortedTerms.map((entry) => (
+                  <li key={entry.term}>
+                    <button
+                      className={
+                        selectedTerm === entry.term
+                          ? 'di__term di__term--on'
+                          : 'di__term'
+                      }
+                      aria-pressed={selectedTerm === entry.term}
+                      onClick={() => setSelectedTerm(entry.term)}
+                    >
+                      <span className="di__term-name">{entry.term}</span>
+                      <span className="di__term-df">df {entry.df}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="di__postings glass" aria-live="polite">
+              {activeEntry ? (
+                <>
+                  <span className="di__postings-head">
+                    Postings for{' '}
+                    <span className="di__postings-term">
+                      {activeEntry.term}
+                    </span>
+                  </span>
+                  <p className="di__postings-meta">
+                    document frequency {activeEntry.df}, appears in{' '}
+                    {activeEntry.postings.length}{' '}
+                    {activeEntry.postings.length === 1 ? 'document' : 'documents'}
+                  </p>
+                  <ul className="di__posting-rows">
+                    {activeEntry.postings.map((p) => (
+                      <li className="di__posting" key={p.docId}>
+                        <span className="di__posting-doc">
+                          {titleById.get(p.docId) || p.docId}
+                        </span>
+                        <span className="di__posting-tf">tf {p.tf}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="di__postings-empty">
+                  Pick a term to see its document frequency and postings.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {tab === 'corpus' && (
+        <section
+          className="di__panel"
+          role="tabpanel"
+          id="di-panel-corpus"
+          aria-labelledby="di-tab-corpus"
         >
-          Reset
-        </button>
-        <span className="demo__hint">
-          {fused
-            ? `top result fuses both signals: ${fusedList[0].doc}`
-            : 'score = 1/(k+keywordRank) + 1/(k+vectorRank)'}
-        </span>
-      </div>
+          <form className="di__add glass" onSubmit={submitDoc}>
+            <span className="di__add-head">Add a document</span>
+            <label className="di__sr-only" htmlFor="di-doc-title">
+              Document title
+            </label>
+            <input
+              id="di-doc-title"
+              className="di__input di__input--field"
+              type="text"
+              placeholder="Title"
+              value={draftTitle}
+              onChange={(e) => setDraftTitle(e.target.value)}
+            />
+            <label className="di__sr-only" htmlFor="di-doc-body">
+              Document body
+            </label>
+            <textarea
+              id="di-doc-body"
+              className="di__textarea"
+              placeholder="Body text. It is tokenized and merged into the inverted index."
+              rows={3}
+              value={draftBody}
+              onChange={(e) => setDraftBody(e.target.value)}
+            />
+            <button
+              className="demo__btn"
+              type="submit"
+              disabled={
+                draftTitle.trim().length === 0 || draftBody.trim().length === 0
+              }
+            >
+              Add and re-index
+            </button>
+          </form>
+
+          <ul className="di__doclist">
+            {state.corpus.map((doc) => (
+              <li className="di__doc glass" key={doc.id}>
+                <div className="di__doc-main">
+                  <span className="di__doc-title">{doc.title}</span>
+                  <span className="di__doc-body">{doc.body}</span>
+                </div>
+                <button
+                  className="di__remove"
+                  onClick={() => removeDocument(doc.id)}
+                  aria-label={`Remove document: ${doc.title}`}
+                  disabled={state.corpus.length <= 1}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <div className="demo__controls">
+            <button className="demo__btn demo__btn--ghost" onClick={resetAll}>
+              Reset corpus and history
+            </button>
+            <span className="demo__hint">
+              clears localStorage and restores the seed corpus
+            </span>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

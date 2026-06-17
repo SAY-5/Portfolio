@@ -1,351 +1,437 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useState } from 'react';
 import '../styles/demo.css';
 import './query-api.css';
+import { ROUTES } from './query-api/mockapi';
+import { useStore } from './query-api/state';
+import {
+  addRow,
+  editRow,
+  lastResponse,
+  loadDraft,
+  loadExample,
+  removeRow,
+  removeSaved,
+  resetAll,
+  saveToCollection,
+  send,
+  setBody,
+  setMethod,
+  setPath,
+  type State,
+} from './query-api/store';
+import type { HistoryEntry, KeyValue, Method } from './query-api/types';
 
-// Real mechanism from the project. The recent-orders endpoint replaced a naive
-// 1 + N + N*M query pattern with two fan-in queries, asserted by
-// QueryCountIntegrationTest. The explain-check CI job fails the build when a
-// Seq Scan appears over a table larger than 1000 rows. Numbers shown are from
-// the project: a load run reached ~1,426-1,447 achieved rps against a 1,500
-// target with 0 errors, and the smoke gate holds 200 rps at P50 2.2 ms.
+// In-browser REST request console. The user composes a request (method, path,
+// query params, headers, JSON body), sends it against a mock backend that runs
+// entirely client-side, and sees a realistic JSON response with status and
+// timing. Requests can be saved to a named collection and replayed, and every
+// send is recorded in a local history. Nothing leaves the browser: there is no
+// real fetch and no eval anywhere in the router.
 
-const N = 4; // orders fetched
-const M = 3; // line items per order
-const NAIVE = 1 + N + N * M; // 1 + 4 + 12 = 17
-const TUNED = 2;
+const METHODS: Method[] = ['GET', 'POST'];
 
-type Endpoint = {
-  id: string;
-  method: string;
-  path: string;
-  plan: PlanNode;
-  seqScan: boolean;
-  table: string;
-};
+function statusClass(status: number): string {
+  if (status >= 200 && status < 300) return 'ok';
+  if (status >= 400 && status < 500) return 'client';
+  if (status >= 500) return 'server';
+  return 'info';
+}
 
-type PlanNode = {
-  op: string;
-  detail: string;
-  cost: string;
-  seq?: boolean;
-  children?: PlanNode[];
-};
+function statusWord(status: number): string {
+  if (status >= 200 && status < 300) return 'Success';
+  if (status >= 400 && status < 500) return 'Client error';
+  if (status >= 500) return 'Server error';
+  return 'Informational';
+}
 
-const ENDPOINTS: Endpoint[] = [
-  {
-    id: 'recent-orders',
-    method: 'GET',
-    path: '/orders/recent',
-    table: 'orders',
-    seqScan: false,
-    plan: {
-      op: 'Limit',
-      detail: 'rows=50',
-      cost: '0.4 ms',
-      children: [
-        {
-          op: 'Index Scan Backward',
-          detail: 'orders_created_at_idx',
-          cost: '0.3 ms',
-          children: [
-            {
-              op: 'Hash Join',
-              detail: 'order_lines on order_id',
-              cost: '0.2 ms',
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    id: 'order-by-id',
-    method: 'GET',
-    path: '/orders/{id}',
-    table: 'orders',
-    seqScan: false,
-    plan: {
-      op: 'Index Scan',
-      detail: 'orders_pkey',
-      cost: '0.1 ms',
-      children: [
-        {
-          op: 'Index Scan',
-          detail: 'order_lines_order_id_idx',
-          cost: '0.1 ms',
-        },
-      ],
-    },
-  },
-  {
-    id: 'customer-summary',
-    method: 'GET',
-    path: '/customers/{id}/summary',
-    table: 'order_summary_mv',
-    seqScan: false,
-    plan: {
-      op: 'Index Scan',
-      detail: 'order_summary_mv_customer_idx',
-      cost: '0.2 ms',
-      children: [
-        {
-          op: 'Materialized View',
-          detail: 'order_summary_mv',
-          cost: 'precomputed',
-        },
-      ],
-    },
-  },
-  {
-    id: 'order-search',
-    method: 'GET',
-    path: '/orders/search',
-    table: 'orders',
-    seqScan: true,
-    plan: {
-      op: 'Gather',
-      detail: 'workers=2',
-      cost: '210 ms',
-      children: [
-        {
-          op: 'Seq Scan',
-          detail: 'orders (filter: status = ?)',
-          cost: '208 ms',
-          seq: true,
-        },
-      ],
-    },
-  },
-];
+function pretty(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
 
-const ease = [0.22, 1, 0.36, 1] as const;
+export default function QueryApiDemo() {
+  const state = useStore();
+  // Snapshot the wall clock into state at mount so render stays pure; each send
+  // refreshes it through an event handler, never during render.
+  const [clock, setClock] = useState(() => Date.now());
+  const [saveName, setSaveName] = useState('');
 
-function PlanTree({ node, depth }: { node: PlanNode; depth: number }) {
+  const current = lastResponse(state);
+
+  function onSend() {
+    const now = Date.now();
+    setClock(now);
+    send(now);
+  }
+
+  function onSave() {
+    if (saveName.trim().length === 0) return;
+    saveToCollection(saveName);
+    setSaveName('');
+  }
+
   return (
-    <div className="qa__plan-node" style={{ marginLeft: depth ? 18 : 0 }}>
-      <div className={`qa__plan-line ${node.seq ? 'qa__plan-line--seq' : ''}`}>
-        <span className="qa__plan-arrow" aria-hidden="true">
-          {depth ? '->' : ''}
-        </span>
-        <span className="qa__plan-op">{node.op}</span>
-        <span className="qa__plan-detail">{node.detail}</span>
-        <span className="qa__plan-cost">{node.cost}</span>
+    <div className="qa">
+      <header className="qa-head">
+        <div>
+          <p className="qa-eyebrow">REST console</p>
+          <h1 className="qa-title">query-api</h1>
+        </div>
+        <p className="qa-lede">
+          Compose a request, send it against the in-browser mock backend, and read
+          back a real JSON response with status and timing. No request ever leaves
+          the page.
+        </p>
+      </header>
+
+      <div className="qa-grid">
+        <Builder state={state} onSend={onSend} clock={clock} />
+        <Viewer current={current} bodyError={state.bodyError} />
       </div>
-      {node.children?.map((c, i) => (
-        <PlanTree key={i} node={c} depth={depth + 1} />
-      ))}
+
+      <Collections
+        state={state}
+        saveName={saveName}
+        setSaveName={setSaveName}
+        onSave={onSave}
+      />
     </div>
   );
 }
 
-export default function QueryApiDemo() {
-  const reduce = useReducedMotion();
-  const [active, setActive] = useState(0);
-  const [collapsed, setCollapsed] = useState(false); // N+1 trap collapsed to 2 queries
-  const [animating, setAnimating] = useState(false);
-  const [queryCount, setQueryCount] = useState(NAIVE);
-  const timer = useRef<number | null>(null);
+// ---------- request builder ----------
 
-  const ep = ENDPOINTS[active];
-
-  function stop() {
-    if (timer.current !== null) window.clearTimeout(timer.current);
-    timer.current = null;
-  }
-  useEffect(() => stop, []);
-
-  function selectEndpoint(i: number) {
-    if (animating) return;
-    setActive(i);
-  }
-
-  function collapse() {
-    if (animating) return;
-    if (collapsed) {
-      // reset back to the naive pattern
-      setCollapsed(false);
-      setQueryCount(NAIVE);
-      return;
-    }
-    setAnimating(true);
-    if (reduce) {
-      setQueryCount(TUNED);
-      setCollapsed(true);
-      setAnimating(false);
-      return;
-    }
-    // Count down query by query as the fan-in replaces the loop.
-    let c = NAIVE;
-    const step = () => {
-      c -= 1;
-      setQueryCount(Math.max(TUNED, c));
-      if (c <= TUNED) {
-        setCollapsed(true);
-        setAnimating(false);
-        timer.current = null;
-        return;
-      }
-      timer.current = window.setTimeout(step, 90);
-    };
-    timer.current = window.setTimeout(step, 120);
-  }
-
-  // The recent-orders endpoint is the one that carries the N+1 study.
-  const isStudy = ep.id === 'recent-orders';
-  const passing = !ep.seqScan;
-
+function Builder({
+  state,
+  onSend,
+  clock,
+}: {
+  state: State;
+  onSend: () => void;
+  clock: number;
+}) {
+  const { draft } = state;
   return (
-    <div className="demo" aria-label="query-api explain plan demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Committed plans, asserted query counts</h3>
-      <p className="demo__lede">
-        Every endpoint ships a committed EXPLAIN plan and a query-count
-        assertion. Pick an endpoint to read its plan tree, then collapse the
-        recent-orders N+1 trap from {NAIVE} queries down to {TUNED} fan-in queries
-        and watch the assertion turn green. The explain-check CI job fails the
-        build when a Seq Scan appears over a table larger than 1000 rows.
-      </p>
+    <section className="glass qa-panel" aria-labelledby="qa-builder-h">
+      <div className="qa-panel-head">
+        <h2 id="qa-builder-h" className="qa-panel-title">
+          Request
+        </h2>
+        <span className="qa-clock" aria-hidden="true">
+          session {new Date(clock).toLocaleTimeString()}
+        </span>
+      </div>
 
-      <div className="qa__tabs" role="tablist" aria-label="endpoints">
-        {ENDPOINTS.map((e, i) => (
-          <button
-            key={e.id}
-            role="tab"
-            aria-selected={i === active}
-            className={`qa__tab ${i === active ? 'qa__tab--on' : ''} ${
-              e.seqScan ? 'qa__tab--warn' : ''
-            }`}
-            onClick={() => selectEndpoint(i)}
+      <div className="qa-line">
+        <label className="qa-field qa-method">
+          <span className="qa-label">Method</span>
+          <select
+            value={draft.method}
+            onChange={(e) => setMethod(e.target.value as Method)}
           >
-            <span className="qa__tab-method">{e.method}</span>
-            {e.path}
+            {METHODS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="qa-field qa-path">
+          <span className="qa-label">Path</span>
+          <input
+            type="text"
+            value={draft.path}
+            spellCheck={false}
+            onChange={(e) => setPath(e.target.value)}
+            placeholder="/users"
+          />
+        </label>
+        <button type="button" className="qa-send" onClick={onSend}>
+          Send
+        </button>
+      </div>
+
+      <div className="qa-examples" role="group" aria-label="Example requests">
+        {ROUTES.map((r, i) => (
+          <button
+            key={r.path + r.method}
+            type="button"
+            className="qa-chip"
+            onClick={() => loadExample(i)}
+          >
+            <span className={`qa-verb ${r.method.toLowerCase()}`}>{r.method}</span>
+            {r.label}
           </button>
         ))}
       </div>
 
-      <div className="qa__panel">
-        <div className="qa__plan">
-          <div className="qa__plan-head">
-            <span>EXPLAIN (ANALYZE, BUFFERS)</span>
-            <span
-              className={`qa__gate ${passing ? 'qa__gate--ok' : 'qa__gate--fail'}`}
-            >
-              {passing ? 'explain-check pass' : 'explain-check fail'}
+      <Rows field="query" title="Query params" rows={draft.query} />
+      <Rows field="headers" title="Headers" rows={draft.headers} />
+
+      {draft.method === 'POST' && (
+        <label className="qa-field qa-body">
+          <span className="qa-label">JSON body</span>
+          <textarea
+            value={draft.body}
+            spellCheck={false}
+            rows={8}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder={'{\n  "name": "...",\n  "email": "...@..."\n}'}
+            aria-describedby={state.bodyError ? 'qa-body-err' : undefined}
+          />
+        </label>
+      )}
+    </section>
+  );
+}
+
+function Rows({
+  field,
+  title,
+  rows,
+}: {
+  field: 'query' | 'headers';
+  title: string;
+  rows: KeyValue[];
+}) {
+  return (
+    <fieldset className="qa-rows">
+      <legend className="qa-label">{title}</legend>
+      {rows.map((r) => (
+        <div className="qa-row" key={r.id}>
+          <input
+            type="checkbox"
+            checked={r.enabled}
+            onChange={(e) => editRow(field, r.id, { enabled: e.target.checked })}
+            aria-label={`Enable ${title} row`}
+          />
+          <input
+            type="text"
+            className="qa-k"
+            value={r.key}
+            spellCheck={false}
+            placeholder="key"
+            aria-label={`${title} key`}
+            onChange={(e) => editRow(field, r.id, { key: e.target.value })}
+          />
+          <input
+            type="text"
+            className="qa-v"
+            value={r.value}
+            spellCheck={false}
+            placeholder="value"
+            aria-label={`${title} value`}
+            onChange={(e) => editRow(field, r.id, { value: e.target.value })}
+          />
+          <button
+            type="button"
+            className="qa-x"
+            aria-label={`Remove ${title} row`}
+            onClick={() => removeRow(field, r.id)}
+          >
+            &times;
+          </button>
+        </div>
+      ))}
+      <button type="button" className="qa-add" onClick={() => addRow(field)}>
+        + Add {title.toLowerCase()}
+      </button>
+    </fieldset>
+  );
+}
+
+// ---------- response viewer ----------
+
+function Viewer({
+  current,
+  bodyError,
+}: {
+  current: HistoryEntry | null;
+  bodyError: string | null;
+}) {
+  return (
+    <section className="glass qa-panel" aria-labelledby="qa-resp-h" aria-live="polite">
+      <div className="qa-panel-head">
+        <h2 id="qa-resp-h" className="qa-panel-title">
+          Response
+        </h2>
+        {current && (
+          <span className="qa-timing">{current.durationMs.toFixed(2)} ms</span>
+        )}
+      </div>
+
+      {bodyError && (
+        <p id="qa-body-err" className="qa-note" role="alert">
+          {bodyError}
+        </p>
+      )}
+
+      {!current && !bodyError && (
+        <p className="qa-empty">Send a request to see the response here.</p>
+      )}
+
+      {current && (
+        <>
+          <div className="qa-status-line">
+            <span className={`qa-badge ${statusClass(current.status)}`}>
+              <span className="qa-vh">{statusWord(current.status)} response, status </span>
+              {current.status} {current.response.statusText}
+            </span>
+            <span className="qa-status-meta">
+              {current.method} {current.path}
             </span>
           </div>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={ep.id}
-              initial={{ opacity: 0, y: reduce ? 0 : 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: reduce ? 0 : -6 }}
-              transition={{ duration: reduce ? 0 : 0.25, ease }}
-            >
-              <PlanTree node={ep.plan} depth={0} />
-            </motion.div>
-          </AnimatePresence>
-          {ep.seqScan && (
-            <p className="qa__plan-warn">
-              Seq Scan over {ep.table} (more than 1000 rows). CI blocks this
-              plan until an index or rewrite removes the scan.
+
+          {current.status === 400 && (
+            <p className="qa-note" role="status">
+              Validation:{' '}
+              {String(
+                (current.response.body as { error?: string }).error ?? 'bad request',
+              )}
             </p>
+          )}
+
+          <h3 className="qa-sub" id="qa-body-h">
+            Body
+          </h3>
+          <pre
+            className="qa-json"
+            tabIndex={0}
+            role="region"
+            aria-labelledby="qa-body-h"
+          >
+            {pretty(current.response.body)}
+          </pre>
+
+          <h3 className="qa-sub">Response headers</h3>
+          <dl className="qa-headers">
+            {Object.entries(current.response.headers).map(([k, v]) => (
+              <div className="qa-hrow" key={k}>
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      )}
+    </section>
+  );
+}
+
+// ---------- collection + history ----------
+
+function Collections({
+  state,
+  saveName,
+  setSaveName,
+  onSave,
+}: {
+  state: State;
+  saveName: string;
+  setSaveName: (v: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <section className="glass qa-panel qa-collections" aria-labelledby="qa-coll-h">
+      <div className="qa-panel-head">
+        <h2 id="qa-coll-h" className="qa-panel-title">
+          Collection and history
+        </h2>
+        <button type="button" className="qa-reset" onClick={resetAll}>
+          Reset all
+        </button>
+      </div>
+
+      <form
+        className="qa-save"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave();
+        }}
+      >
+        <label className="qa-field qa-savefield">
+          <span className="qa-label">Save current request as</span>
+          <input
+            type="text"
+            value={saveName}
+            placeholder="List active users"
+            onChange={(e) => setSaveName(e.target.value)}
+          />
+        </label>
+        <button
+          type="submit"
+          className="qa-add"
+          disabled={saveName.trim().length === 0}
+        >
+          Save
+        </button>
+      </form>
+
+      <div className="qa-cols">
+        <div>
+          <h3 className="qa-sub">Saved ({state.collection.length})</h3>
+          {state.collection.length === 0 ? (
+            <p className="qa-empty">No saved requests yet.</p>
+          ) : (
+            <ul className="qa-list">
+              {state.collection.map((s) => (
+                <li key={s.id} className="qa-item">
+                  <button
+                    type="button"
+                    className="qa-item-main"
+                    onClick={() => loadDraft(s.request)}
+                  >
+                    <span className={`qa-verb ${s.request.method.toLowerCase()}`}>
+                      {s.request.method}
+                    </span>
+                    <span className="qa-item-name">{s.name}</span>
+                    <span className="qa-item-path">{s.request.path}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="qa-x"
+                    aria-label={`Delete saved request ${s.name}`}
+                    onClick={() => removeSaved(s.id)}
+                  >
+                    &times;
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div>
+          <h3 className="qa-sub">History ({state.history.length})</h3>
+          {state.history.length === 0 ? (
+            <p className="qa-empty">No requests sent yet.</p>
+          ) : (
+            <ul className="qa-list">
+              {state.history.map((h) => (
+                <li key={h.id} className="qa-item">
+                  <button
+                    type="button"
+                    className="qa-item-main"
+                    onClick={() => loadDraft(h.request)}
+                  >
+                    <span className={`qa-verb ${h.method.toLowerCase()}`}>
+                      {h.method}
+                    </span>
+                    <span className="qa-item-path">{h.path}</span>
+                    <span className={`qa-badge sm ${statusClass(h.status)}`}>
+                      {h.status}
+                    </span>
+                    <span className="qa-item-time">{h.durationMs.toFixed(1)} ms</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>
-
-      {isStudy && (
-        <div className="qa__study">
-          <div className="qa__queries">
-            <div className="qa__queries-head">
-              <span>recent-orders query pattern</span>
-              <span
-                className={`qa__assert ${collapsed ? 'qa__assert--ok' : 'qa__assert--pending'}`}
-              >
-                QueryCountIntegrationTest:{' '}
-                {collapsed ? 'assertEquals(2) pass' : `${queryCount} queries`}
-              </span>
-            </div>
-
-            <div className="qa__count-row">
-              <div className="qa__count-num" aria-live="polite">
-                {queryCount}
-              </div>
-              <div className="qa__count-formula">
-                {collapsed ? (
-                  <span className="qa__count-tuned">
-                    one orders query + one fan-in line-items query
-                  </span>
-                ) : (
-                  <>
-                    <b>1</b> orders + <b>{N}</b> per-order +{' '}
-                    <b>{N * M}</b> per-line lookups
-                  </>
-                )}
-              </div>
-            </div>
-
-            <ul className="qa__bars" aria-hidden="true">
-              {Array.from({ length: NAIVE }).map((_, i) => {
-                const gone = collapsed ? i >= TUNED : i >= queryCount;
-                return (
-                  <motion.li
-                    key={i}
-                    className={`qa__bar ${gone ? 'qa__bar--gone' : ''} ${
-                      i < TUNED ? 'qa__bar--keep' : ''
-                    }`}
-                    initial={false}
-                    animate={{
-                      opacity: gone ? 0.18 : 1,
-                      scaleY: gone ? 0.4 : 1,
-                    }}
-                    transition={{ duration: reduce ? 0 : 0.25, ease }}
-                  />
-                );
-              })}
-            </ul>
-          </div>
-        </div>
-      )}
-
-      <div className="qa__stats">
-        <div className="qa__stat">
-          <div className="qa__stat-val">1,447</div>
-          <div className="qa__stat-unit">achieved rps (1,500 target)</div>
-        </div>
-        <div className="qa__stat">
-          <div className="qa__stat-val">0</div>
-          <div className="qa__stat-unit">errors on the load run</div>
-        </div>
-        <div className="qa__stat">
-          <div className="qa__stat-val">2.2 ms</div>
-          <div className="qa__stat-unit">P50 at the 200 rps smoke gate</div>
-        </div>
-      </div>
-
-      <div className="demo__controls">
-        {isStudy ? (
-          <button className="demo__btn" onClick={collapse} disabled={animating}>
-            {animating
-              ? 'Collapsing…'
-              : collapsed
-                ? 'Show the N+1 trap'
-                : 'Collapse to two queries'}
-          </button>
-        ) : (
-          <button
-            className="demo__btn"
-            onClick={() => selectEndpoint(0)}
-            disabled={animating}
-          >
-            See the N+1 study
-          </button>
-        )}
-        <span className="demo__hint">
-          Honest finding: virtual threads did not win here because HikariCP caps
-          concurrent DB calls, so the Tomcat pool stayed cheaper.
-        </span>
-      </div>
-    </div>
+    </section>
   );
 }

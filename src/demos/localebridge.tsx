@@ -1,310 +1,453 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
+import { useReducedMotion } from 'framer-motion';
+import { useRef, useState } from 'react';
 import '../styles/demo.css';
 import './localebridge.css';
+import {
+  addKey,
+  addLocale,
+  deleteKey,
+  editBaseValue,
+  removeLocale,
+  resetCatalog,
+  setTranslation,
+  useCatalog,
+} from './localebridge/store';
+import {
+  collectIssues,
+  computeStats,
+  effectiveStatus,
+  exportLocale,
+  exportSummary,
+} from './localebridge/engine';
+import type { CatalogKey, TranslationStatus } from './localebridge/types';
 
-// Real facts from the project:
-// - Extracts from three patterns: t() calls, <Trans> tags, and props with a
-//   JSDoc @i18n annotation.
-// - Validates each locale for ICU MessageFormat parse correctness, NFC
-//   normalization, absence of bidi-control and zero-width attacks, and CLDR
-//   plural-category coverage.
-// - Default suite: en, es, fr, de, ja, ar (RTL), zh-CN, hi (multi-plural).
+// ---- small helpers ----
 
-type Source = 't()' | '<Trans>' | '@i18n';
+function statusLabel(s: TranslationStatus): string {
+  if (s === 'translated') return 'ok';
+  if (s === 'stale') return 'stale';
+  if (s === 'placeholder_mismatch') return 'mismatch';
+  return 'missing';
+}
 
-type StringRow = {
-  id: string;
-  line: number;
-  source: Source;
-  key: string;
-  text: string;
-  // plural keys carry a CLDR category set that some locales do not fully cover.
-  plural?: boolean;
+function statusClass(s: TranslationStatus): string {
+  if (s === 'translated') return 'lbapp__st--ok';
+  if (s === 'stale') return 'lbapp__st--stale';
+  if (s === 'placeholder_mismatch') return 'lbapp__st--mismatch';
+  return 'lbapp__st--missing';
+}
+
+// ---- sub-components ----
+
+type KeyRowProps = {
+  k: CatalogKey;
+  activeLocale: string;
+  onEdit: (id: string, base: string) => void;
 };
 
-const rows: StringRow[] = [
-  { id: 'r1', line: 7, source: 't()', key: 'cart.title', text: 'Your cart' },
-  {
-    id: 'r2',
-    line: 12,
-    source: '<Trans>',
-    key: 'cart.items',
-    text: '{count, plural, one {# item} other {# items}}',
-    plural: true,
-  },
-  {
-    id: 'r3',
-    line: 18,
-    source: '@i18n',
-    key: 'checkout.cta',
-    text: 'Checkout now',
-  },
-];
+function KeyRow({ k, activeLocale, onEdit }: KeyRowProps) {
+  const [editingBase, setEditingBase] = useState(false);
+  const [draftBase, setDraftBase] = useState(k.baseValue);
+  const [draftTx, setDraftTx] = useState(
+    k.translations[activeLocale]?.value ?? '',
+  );
+  const baseRef = useRef<HTMLInputElement>(null);
 
-type Locale = {
-  code: string;
-  label: string;
-  rtl?: boolean;
-  // outcome of the validators on the plural row for this locale.
-  plural: 'pass' | 'fail';
-  pluralNote: string;
-};
+  const entry = k.translations[activeLocale];
+  const txStatus: TranslationStatus = entry?.value
+    ? effectiveStatus(entry, k.baseRevision)
+    : 'untranslated';
 
-// hi and ar carry plural categories (one/two/few/many) that a naive
-// translation can leave uncovered, so the CLDR coverage check flags them.
-const locales: Locale[] = [
-  { code: 'en', label: 'English', plural: 'pass', pluralNote: 'one, other' },
-  { code: 'es', label: 'Spanish', plural: 'pass', pluralNote: 'one, other' },
-  { code: 'fr', label: 'French', plural: 'pass', pluralNote: 'one, other' },
-  { code: 'de', label: 'German', plural: 'pass', pluralNote: 'one, other' },
-  { code: 'ja', label: 'Japanese', plural: 'pass', pluralNote: 'other only' },
-  {
-    code: 'ar',
-    label: 'Arabic',
-    rtl: true,
-    plural: 'fail',
-    pluralNote: 'missing few, many',
-  },
-  { code: 'zh-CN', label: 'Chinese', plural: 'pass', pluralNote: 'other only' },
-  {
-    code: 'hi',
-    label: 'Hindi',
-    plural: 'fail',
-    pluralNote: 'missing one category',
-  },
-];
+  function commitBase() {
+    if (draftBase.trim() && draftBase.trim() !== k.baseValue) {
+      onEdit(k.id, draftBase.trim());
+    }
+    setEditingBase(false);
+  }
 
-const checks = [
-  'ICU MessageFormat parse',
-  'NFC normalization',
-  'No bidi-control / zero-width',
-  'CLDR plural coverage',
-];
+  function commitTx(val: string) {
+    setDraftTx(val);
+    setTranslation(k.id, activeLocale, val);
+  }
 
-const ease = [0.22, 1, 0.36, 1] as const;
+  return (
+    <div className="lbapp__row" role="row">
+      <div className="lbapp__row-key" aria-label="key name">
+        <code className="lbapp__key-name">{k.key}</code>
+        <button
+          className="lbapp__icon-btn"
+          aria-label={`Delete key ${k.key}`}
+          onClick={() => deleteKey(k.id)}
+        >
+          x
+        </button>
+      </div>
 
-type Phase = 'idle' | 'extract' | 'translate' | 'validate' | 'done';
+      <div className="lbapp__row-base" aria-label="base value">
+        {editingBase ? (
+          <input
+            ref={baseRef}
+            className="lbapp__input"
+            value={draftBase}
+            onChange={(e) => setDraftBase(e.target.value)}
+            onBlur={commitBase}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitBase();
+              if (e.key === 'Escape') {
+                setDraftBase(k.baseValue);
+                setEditingBase(false);
+              }
+            }}
+            aria-label={`Edit base value for ${k.key}`}
+          />
+        ) : (
+          <button
+            className="lbapp__value-btn"
+            onClick={() => {
+              setDraftBase(k.baseValue);
+              setEditingBase(true);
+              setTimeout(() => baseRef.current?.focus(), 0);
+            }}
+            aria-label={`Base value: ${k.baseValue}. Click to edit.`}
+          >
+            {k.baseValue}
+          </button>
+        )}
+      </div>
+
+      <div className="lbapp__row-tx" aria-label={`Translation for ${activeLocale}`}>
+        <input
+          className="lbapp__input"
+          value={draftTx}
+          placeholder="Enter translation..."
+          onChange={(e) => commitTx(e.target.value)}
+          aria-label={`Translation of ${k.key} into ${activeLocale}`}
+        />
+      </div>
+
+      <div className="lbapp__row-status" aria-label="status">
+        <span className={`lbapp__st ${statusClass(txStatus)}`}>
+          {statusLabel(txStatus)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ---- main component ----
+
+type Tab = 'catalog' | 'health' | 'export';
 
 export default function LocalebridgeDemo() {
   const reduce = useReducedMotion();
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [lifted, setLifted] = useState<number>(0);
-  const [validated, setValidated] = useState<number>(0);
-  const timers = useRef<number[]>([]);
+  const catalog = useCatalog();
+  const [tab, setTab] = useState<Tab>('catalog');
+  const [activeLocale, setActiveLocale] = useState<string>(
+    catalog.locales[0] ?? 'es',
+  );
+  const [newKey, setNewKey] = useState('');
+  const [newBase, setNewBase] = useState('');
+  const [newLocale, setNewLocale] = useState('');
+  const [copied, setCopied] = useState(false);
 
-  function clearTimers() {
-    timers.current.forEach((t) => window.clearTimeout(t));
-    timers.current = [];
+  const stats = computeStats(catalog);
+  const issues = collectIssues(catalog);
+
+  // Keep activeLocale valid when locales change.
+  const safeLocale = catalog.locales.includes(activeLocale)
+    ? activeLocale
+    : catalog.locales[0] ?? '';
+
+  function handleAddKey(e: React.FormEvent) {
+    e.preventDefault();
+    addKey(newKey, newBase);
+    setNewKey('');
+    setNewBase('');
   }
 
-  useEffect(() => clearTimers, []);
-
-  function reset() {
-    clearTimers();
-    setPhase('idle');
-    setLifted(0);
-    setValidated(0);
+  function handleAddLocale(e: React.FormEvent) {
+    e.preventDefault();
+    addLocale(newLocale);
+    setNewLocale('');
   }
 
-  function run() {
-    clearTimers();
-    setLifted(0);
-    setValidated(0);
-
-    if (reduce) {
-      setPhase('done');
-      setLifted(rows.length);
-      setValidated(locales.length);
-      return;
-    }
-
-    setPhase('extract');
-    rows.forEach((_, i) => {
-      timers.current.push(
-        window.setTimeout(() => setLifted(i + 1), 350 + i * 320),
-      );
+  function handleCopy() {
+    const json = JSON.stringify(exportLocale(catalog, safeLocale), null, 2);
+    navigator.clipboard.writeText(json).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
     });
-
-    timers.current.push(
-      window.setTimeout(() => setPhase('translate'), 350 + rows.length * 320),
-    );
-    timers.current.push(
-      window.setTimeout(
-        () => setPhase('validate'),
-        900 + rows.length * 320,
-      ),
-    );
-    locales.forEach((_, i) => {
-      timers.current.push(
-        window.setTimeout(
-          () => setValidated(i + 1),
-          1100 + rows.length * 320 + i * 180,
-        ),
-      );
-    });
-    timers.current.push(
-      window.setTimeout(
-        () => setPhase('done'),
-        1200 + rows.length * 320 + locales.length * 180,
-      ),
-    );
   }
 
-  const running = phase !== 'idle' && phase !== 'done';
-  const failing = locales.filter((l) => l.plural === 'fail').length;
+  const summary = exportSummary(catalog, safeLocale);
+  const exportJson = JSON.stringify(exportLocale(catalog, safeLocale), null, 2);
 
   return (
-    <div className="demo" aria-label="localebridge extraction and validation demo">
+    <div
+      className="demo lbapp"
+      aria-label="localebridge translation management demo"
+      data-reduce={reduce ? 'true' : 'false'}
+    >
       <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Lift strings, fan out, validate</h3>
+      <h3 className="demo__title">Localebridge</h3>
       <p className="demo__lede">
-        Run the pipeline to extract translatable strings from a React file,
-        route them through translation, then fan into eight locales where ICU,
-        Unicode, and CLDR plural checks turn each column green or red.
+        Manage a translation catalog in your browser. Add keys with base
+        (English) values, translate them per locale, and see live completeness
+        and validation. Stale keys highlight when the base value changes after a
+        translation was set. Placeholder tokens must match or the entry is
+        flagged. Export merged JSON for any locale.
       </p>
 
-      <div className="lb__stage">
-        <div className="lb__source" aria-label="React source file">
-          <div className="lb__file-head">
-            <span className="lb__dot" />
-            <span className="lb__dot" />
-            <span className="lb__dot" />
-            <span className="lb__filename">Cart.tsx</span>
-          </div>
-          <ol className="lb__code">
-            {rows.map((r, i) => {
-              const isLifted = lifted > i && phase !== 'idle';
-              return (
-                <li
-                  key={r.id}
-                  className={`lb__line${isLifted ? ' is-lifted' : ''}`}
-                >
-                  <span className="lb__ln" aria-hidden="true">
-                    {r.line}
-                  </span>
-                  <span className="lb__src-badge">{r.source}</span>
-                  <code className="lb__str">{r.text}</code>
-                </li>
-              );
-            })}
-          </ol>
-        </div>
-
-        <div className="lb__pipe" aria-hidden="true">
-          <motion.div
-            className="lb__pipe-track"
-            animate={{
-              opacity:
-                phase === 'translate' || phase === 'validate' || phase === 'done'
-                  ? 1
-                  : 0.25,
-            }}
-            transition={{ duration: 0.3 }}
-          />
-          <AnimatePresence>
-            {(phase === 'translate' || phase === 'validate') && (
-              <motion.span
-                className="lb__pipe-label"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-              >
-                translate + review
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </div>
-
-        <div className="lb__locales" role="list" aria-label="per-locale validation">
-          {locales.map((l, i) => {
-            const checked = validated > i && (phase === 'validate' || phase === 'done');
-            const failed = checked && l.plural === 'fail';
-            const state = !checked ? 'pending' : failed ? 'fail' : 'pass';
-            return (
-              <motion.div
-                key={l.code}
-                role="listitem"
-                className={`lb__loc is-${state}${l.rtl ? ' is-rtl' : ''}`}
-                initial={false}
-                animate={{
-                  scale: checked && !reduce ? [0.96, 1] : 1,
-                }}
-                transition={{ duration: 0.3, ease }}
-              >
-                <div className="lb__loc-head">
-                  <span className="lb__loc-code">{l.code}</span>
-                  {l.rtl && <span className="lb__loc-tag">RTL</span>}
-                  <span className="lb__loc-mark" aria-hidden="true">
-                    {state === 'pass' ? '✓' : state === 'fail' ? '✕' : ''}
-                  </span>
-                </div>
-                <div className="lb__loc-label">{l.label}</div>
-                <div className="lb__loc-note">
-                  {state === 'pending'
-                    ? 'queued'
-                    : state === 'fail'
-                      ? l.pluralNote
-                      : 'all checks pass'}
-                </div>
-                <span className="lb__sr">
-                  {l.label}: {state}
-                </span>
-              </motion.div>
-            );
-          })}
-        </div>
-      </div>
-
-      <ul className="lb__checks" aria-label="validators run per locale">
-        {checks.map((c, i) => {
-          const lit = phase === 'validate' || phase === 'done';
-          return (
-            <li
-              key={c}
-              className={`lb__check${lit ? ' is-on' : ''}`}
-              style={{ transitionDelay: reduce ? '0s' : `${i * 0.08}s` }}
-            >
-              {c}
-            </li>
-          );
-        })}
-      </ul>
-
-      <AnimatePresence>
-        {phase === 'done' && (
-          <motion.div
-            className="lb__verdict"
-            initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.4, ease }}
+      {/* Tabs */}
+      <div className="lbapp__tabs" role="tablist" aria-label="App sections">
+        {(['catalog', 'health', 'export'] as Tab[]).map((t) => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={tab === t}
+            className={`lbapp__tab${tab === t ? ' lbapp__tab--on' : ''}`}
+            onClick={() => setTab(t)}
           >
-            <span className="lb__verdict-count">{failing} of {locales.length}</span>
-            <span className="lb__verdict-text">
-              locales fail CLDR plural coverage on the {`{count, plural}`} key.
-              The PR diff comment blocks until ar and hi cover every required
-              category.
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="demo__controls">
-        <button className="demo__btn" onClick={run} disabled={running}>
-          {running ? 'Running…' : 'Run pipeline'}
-        </button>
-        <button
-          className="demo__btn demo__btn--ghost"
-          onClick={reset}
-          disabled={running}
-        >
-          Reset
-        </button>
-        <span className="demo__hint">
-          {rows.length} strings extracted, {locales.length} locales validated
-        </span>
+            {t}
+          </button>
+        ))}
       </div>
+
+      {/* ---- CATALOG TAB ---- */}
+      {tab === 'catalog' && (
+        <div className="lbapp__panel">
+          {/* locale switcher */}
+          <div className="lbapp__locale-row" role="group" aria-label="Target locale">
+            <span className="lbapp__locale-label">locale:</span>
+            {catalog.locales.map((l) => (
+              <button
+                key={l}
+                className={`lbapp__locale-btn${safeLocale === l ? ' lbapp__locale-btn--on' : ''}`}
+                onClick={() => setActiveLocale(l)}
+                aria-pressed={safeLocale === l}
+              >
+                {l}
+              </button>
+            ))}
+            <form
+              className="lbapp__add-locale-form"
+              onSubmit={handleAddLocale}
+              aria-label="Add target locale"
+            >
+              <input
+                className="lbapp__input lbapp__input--sm"
+                value={newLocale}
+                onChange={(e) => setNewLocale(e.target.value)}
+                placeholder="+ locale"
+                aria-label="New locale code"
+                maxLength={12}
+              />
+              <button
+                className="lbapp__ghost-btn"
+                type="submit"
+                aria-label="Add locale"
+              >
+                Add
+              </button>
+            </form>
+            {catalog.locales.length > 1 && (
+              <button
+                className="lbapp__ghost-btn lbapp__ghost-btn--danger"
+                onClick={() => removeLocale(safeLocale)}
+                aria-label={`Remove locale ${safeLocale}`}
+              >
+                Remove {safeLocale}
+              </button>
+            )}
+          </div>
+
+          {/* column headers */}
+          <div className="lbapp__header" role="rowgroup" aria-hidden="true">
+            <span>key</span>
+            <span>base (en)</span>
+            <span>{safeLocale}</span>
+            <span>status</span>
+          </div>
+
+          {/* key rows */}
+          <div className="lbapp__rows" role="table" aria-label="Translation keys">
+            {catalog.keys.length === 0 && (
+              <p className="lbapp__empty">No keys yet. Add one below.</p>
+            )}
+            {catalog.keys.map((k) => (
+              <KeyRow
+                key={k.id + safeLocale}
+                k={k}
+                activeLocale={safeLocale}
+                onEdit={editBaseValue}
+              />
+            ))}
+          </div>
+
+          {/* add key form */}
+          <form className="lbapp__add-form" onSubmit={handleAddKey} aria-label="Add new key">
+            <input
+              className="lbapp__input"
+              value={newKey}
+              onChange={(e) => setNewKey(e.target.value)}
+              placeholder="key.name"
+              aria-label="New key name"
+              maxLength={80}
+            />
+            <input
+              className="lbapp__input lbapp__input--wide"
+              value={newBase}
+              onChange={(e) => setNewBase(e.target.value)}
+              placeholder="Base value (English)"
+              aria-label="Base value"
+              maxLength={200}
+            />
+            <button
+              className="demo__btn"
+              type="submit"
+              disabled={!newKey.trim() || !newBase.trim()}
+            >
+              Add key
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* ---- HEALTH TAB ---- */}
+      {tab === 'health' && (
+        <div className="lbapp__panel">
+          <div className="lbapp__health-grid">
+            {stats.map((s) => (
+              <div
+                key={s.locale}
+                className={`lbapp__health-card${s.percent === 100 ? ' lbapp__health-card--full' : s.percent < 50 ? ' lbapp__health-card--low' : ''}`}
+              >
+                <div className="lbapp__health-head">
+                  <span className="lbapp__health-code">{s.locale}</span>
+                  <span className="lbapp__health-pct">{s.percent}%</span>
+                </div>
+                <div
+                  className="lbapp__bar-track"
+                  role="progressbar"
+                  aria-valuenow={s.percent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label={`${s.locale} completeness ${s.percent}%`}
+                >
+                  <div
+                    className="lbapp__bar-fill"
+                    style={{ width: `${s.percent}%` }}
+                  />
+                </div>
+                <div className="lbapp__health-counts">
+                  <span className="lbapp__hc lbapp__hc--ok">{s.translated} ok</span>
+                  {s.missing > 0 && (
+                    <span className="lbapp__hc lbapp__hc--missing">{s.missing} missing</span>
+                  )}
+                  {s.stale > 0 && (
+                    <span className="lbapp__hc lbapp__hc--stale">{s.stale} stale</span>
+                  )}
+                  {s.mismatch > 0 && (
+                    <span className="lbapp__hc lbapp__hc--mismatch">{s.mismatch} mismatch</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {issues.length === 0 ? (
+            <div className="lbapp__all-good">
+              All keys translated across all locales.
+            </div>
+          ) : (
+            <div className="lbapp__issues" aria-label="Validation issues">
+              <div className="lbapp__issues-head">
+                {issues.length} issue{issues.length !== 1 ? 's' : ''}
+              </div>
+              <ul className="lbapp__issue-list">
+                {issues.map((issue, i) => (
+                  <li
+                    key={i}
+                    className={`lbapp__issue lbapp__issue--${issue.kind}`}
+                  >
+                    <span className="lbapp__issue-kind">{issue.kind}</span>
+                    <span className="lbapp__issue-key">{issue.key}</span>
+                    <span className="lbapp__issue-locale">[{issue.locale}]</span>
+                    <span className="lbapp__issue-detail">{issue.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ---- EXPORT TAB ---- */}
+      {tab === 'export' && (
+        <div className="lbapp__panel">
+          <div className="lbapp__export-locale-row" role="group" aria-label="Export locale">
+            <span className="lbapp__locale-label">export locale:</span>
+            {catalog.locales.map((l) => (
+              <button
+                key={l}
+                className={`lbapp__locale-btn${safeLocale === l ? ' lbapp__locale-btn--on' : ''}`}
+                onClick={() => setActiveLocale(l)}
+                aria-pressed={safeLocale === l}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+
+          {/* dry validation summary */}
+          <div className="lbapp__export-summary" aria-label="Validation summary">
+            <div className="lbapp__export-summary-head">Dry-run validation</div>
+            <ul className="lbapp__summary-list">
+              {summary.map((row) => (
+                <li key={row.key} className="lbapp__summary-row">
+                  <code className="lbapp__key-name">{row.key}</code>
+                  <span className={`lbapp__st ${statusClass(row.status)}`}>
+                    {statusLabel(row.status)}
+                  </span>
+                  <span className="lbapp__summary-value">{row.value}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* JSON output */}
+          <div className="lbapp__export-block">
+            <div className="lbapp__export-head">
+              <span>{safeLocale}.json</span>
+              <button
+                className="lbapp__ghost-btn"
+                onClick={handleCopy}
+                aria-label="Copy JSON to clipboard"
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+            <pre className="lbapp__json" aria-label="Exported JSON">{exportJson}</pre>
+          </div>
+
+          <div className="demo__controls">
+            <button
+              className="demo__btn demo__btn--ghost"
+              onClick={() => {
+                resetCatalog();
+                setActiveLocale('es');
+                setTab('catalog');
+              }}
+              aria-label="Reset catalog to defaults"
+            >
+              Reset catalog
+            </button>
+            <span className="demo__hint">
+              Clears localStorage and restores defaults.
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

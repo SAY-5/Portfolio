@@ -1,309 +1,476 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
+import { useMemo, useState } from 'react';
+import { useReducedMotion } from 'framer-motion';
 import '../styles/demo.css';
 import './export-validator.css';
+import { useStore } from './export-validator/state';
+import {
+  addRule,
+  allFields,
+  invalidRowsCsv,
+  removeRule,
+  resetAll,
+  runValidation,
+  setRecordsFromText,
+  setRuleEnum,
+  updateRule,
+} from './export-validator/store';
+import type {
+  DataRecord,
+  FieldRule,
+  FieldType,
+  RecordResult,
+  RuleKind,
+  ValidationResult,
+} from './export-validator/types';
 
-// Real project facts. The validator walks a model leaf by leaf, exports each
-// leaf as a named ONNX output, runs PyTorch and ONNX Runtime on the same
-// bytes, and flags the first layer whose max-abs diff exceeds the tolerance as
-// the drift origin, then propagates downstream.
-//   ResNet-18 fp32: 60 layers, 0 over 1e-4, worst 9.537e-06 at layer4.1.relu,
-//   drift origin none.
-//   ViT-B/16: the only swept model with layers over 1e-4 (12 layers), drift
-//   originating at encoder layer 5's MLP block.
-const TOL = 1e-4;
-const TOL_EXP = -4; // log10 tolerance, the reference line on the plot
+// In-browser export validator. A ruleset of per-field rules (required, type,
+// a safely compiled regex, numeric bounds, an enum, and uniqueness) is checked
+// against a tabular record set pasted as CSV or JSON. The engine is pure and
+// the parsers read text only, so nothing is eval'd and nothing leaves the page.
+// The ruleset, records, and last result persist in localStorage.
 
-type Model = {
-  id: string;
-  label: string;
-  layerCount: number;
-  worst: number; // worst max-abs diff
-  worstLayer: string;
-  overCount: number;
-  originIndex: number | null; // index of first bar over tolerance
-  originLabel: string;
+const TYPES: FieldType[] = ['string', 'number', 'bool', 'date'];
+
+const RULE_LABELS: Record<RuleKind, string> = {
+  required: 'Required',
+  type: 'Type',
+  pattern: 'Pattern',
+  min: 'Below min',
+  max: 'Above max',
+  enum: 'Enum',
+  unique: 'Unique',
 };
 
-const MODELS: Record<string, Model> = {
-  resnet: {
-    id: 'resnet',
-    label: 'ResNet-18 fp32',
-    layerCount: 60,
-    worst: 9.537e-6,
-    worstLayer: 'layer4.1.relu',
-    overCount: 0,
-    originIndex: null,
-    originLabel: 'none',
-  },
-  vit: {
-    id: 'vit',
-    label: 'ViT-B/16',
-    layerCount: 48,
-    worst: 6.2e-3,
-    worstLayer: 'encoder.layer.5.mlp',
-    overCount: 12,
-    originIndex: 22, // drift origin around encoder layer 5's MLP block
-    originLabel: 'encoder.layer.5.mlp',
-  },
-};
-
-// log10 magnitude range shown on the plot: 1e-8 (floor) to 1e-2 (ceil)
-const LOG_FLOOR = -8;
-const LOG_CEIL = -2;
-
-function logToPct(diff: number) {
-  if (diff <= 0) return 0;
-  const l = Math.log10(diff);
-  const clamped = Math.max(LOG_FLOOR, Math.min(LOG_CEIL, l));
-  return ((clamped - LOG_FLOOR) / (LOG_CEIL - LOG_FLOOR)) * 100;
+// Quote a cell for CSV when it carries a comma, quote, or newline.
+function csvCell(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
-// Deterministic per-layer diffs so the SSR and client agree and the demo is
-// reproducible. Below-origin layers sit near float32 noise; at and past the
-// drift origin they jump over tolerance and stay elevated.
-function buildDiffs(m: Model): number[] {
-  const out: number[] = [];
-  for (let i = 0; i < m.layerCount; i++) {
-    // pseudo-random but stable per (model, index)
-    const seed = (i * 2654435761 + m.layerCount * 40503) >>> 0;
-    const r = ((seed % 1000) / 1000) * 0.6 + 0.2; // 0.2..0.8
-    if (m.originIndex !== null && i >= m.originIndex) {
-      // over tolerance: between ~1.2e-4 and ~6e-3, peaking at the origin
-      const dist = i - m.originIndex;
-      const peak = m.worst * Math.pow(0.86, dist) * (0.7 + r * 0.6);
-      out.push(Math.max(1.2e-4, peak));
-    } else {
-      // below tolerance noise floor, with the worst clean layer near the end
-      let v = 1e-7 * (1 + r * 80); // up to ~8e-6
-      if (m.originIndex === null && i === m.layerCount - 4) v = m.worst;
-      out.push(v);
-    }
-  }
-  return out;
+// Render the record set back into editable CSV text for the paste pane.
+function recordsToText(fields: string[], records: DataRecord[]): string {
+  const header = fields.join(',');
+  const lines = records.map((r) => fields.map((f) => csvCell(r[f] ?? '')).join(','));
+  return [header, ...lines].join('\n');
 }
-
-const ease = [0.22, 1, 0.36, 1] as const;
 
 export default function ExportValidatorDemo() {
+  const { ruleset, records, result } = useStore();
   const reduce = useReducedMotion();
-  const [modelId, setModelId] = useState<'resnet' | 'vit'>('vit');
-  const model = MODELS[modelId];
-  const diffs = useMemo(() => buildDiffs(model), [model]);
+  const fields = useMemo(
+    () => allFields({ ruleset, records, result }),
+    [ruleset, records, result],
+  );
 
-  const [revealed, setRevealed] = useState(0); // how many bars are checked
-  const [running, setRunning] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The records pane is an editable text buffer. While untouched it mirrors the
+  // store; once edited it commits on blur or when Run validation is pressed.
+  const storeText = useMemo(() => recordsToText(fields, records), [fields, records]);
+  const [draft, setDraft] = useState<string | null>(null);
+  const shownDraft = draft ?? storeText;
 
-  const clearTimer = useCallback(() => {
-    if (timerRef.current !== null) clearInterval(timerRef.current);
-    timerRef.current = null;
-  }, []);
+  const resultByIndex = useMemo(() => {
+    const map = new Map<number, RecordResult>();
+    if (result) for (const r of result.records) map.set(r.index, r);
+    return map;
+  }, [result]);
 
-  // Reset the reveal when switching models. React's adjust-state-on-input
-  // pattern: compare against the last seen model during render and reset in
-  // place, with the interval torn down by the effect below.
-  const [lastModelId, setLastModelId] = useState(modelId);
-  if (modelId !== lastModelId) {
-    setLastModelId(modelId);
-    setRunning(false);
-    setRevealed(0);
-  }
-  useEffect(() => clearTimer, [modelId, clearTimer]);
-
-  function run() {
-    if (running) return;
-    clearTimer();
-    setRevealed(0);
-    setRunning(true);
-
-    if (reduce) {
-      setRevealed(model.layerCount);
-      setRunning(false);
-      return;
+  function commitDraft() {
+    if (draft !== null) {
+      setRecordsFromText(draft);
+      setDraft(null);
     }
-
-    let i = 0;
-    timerRef.current = setInterval(() => {
-      i += 1;
-      setRevealed(i);
-      if (i >= model.layerCount) {
-        clearTimer();
-        setRunning(false);
-      }
-    }, 38);
   }
 
-  function reset() {
-    clearTimer();
-    setRunning(false);
-    setRevealed(0);
+  function handleRun() {
+    commitDraft();
+    runValidation();
   }
 
-  const finished = revealed >= model.layerCount;
-  const driftFound =
-    model.originIndex !== null && revealed > model.originIndex;
-  const tolPct = logToPct(TOL);
+  function handleReset() {
+    resetAll();
+    setDraft(null);
+  }
 
-  // which layer the cursor is currently on
-  const cursorLabel =
-    revealed === 0
-      ? 'not started'
-      : finished
-        ? `${model.layerCount} layers checked`
-        : `checking leaf ${revealed} of ${model.layerCount}`;
+  function exportInvalid() {
+    const csv = invalidRowsCsv({ ruleset, records, result });
+    if (!csv) return;
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'invalid-rows.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
-    <div className="demo" aria-label="export-validator per-layer parity demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Find the layer where exports diverge</h3>
+    <section className="demo" aria-labelledby="vex-title">
+      <span className="demo__tag">export validator</span>
+      <h3 className="demo__title" id="vex-title">
+        Validate a tabular export against a field ruleset
+      </h3>
       <p className="demo__lede">
-        Trace a model leaf by leaf as per-layer max-abs diff bars rise between
-        PyTorch and ONNX Runtime. The first bar to cross the 1e-4 tolerance line
-        is flagged as the drift origin and the divergence propagates downstream.
+        Define per-field rules, paste records as CSV or JSON, then run the
+        checks. Each record is marked pass or fail with its failing fields
+        highlighted, and the report groups every issue by the rule that caught
+        it. Validation runs in the browser over a pure engine; patterns compile
+        through a guarded RegExp, never eval.
       </p>
 
-      <div className="ev__tabs" role="tablist" aria-label="model to validate">
-        {Object.values(MODELS).map((m) => (
-          <button
-            key={m.id}
-            role="tab"
-            aria-selected={modelId === m.id}
-            className={`ev__tab ${modelId === m.id ? 'ev__tab--on' : ''}`}
-            onClick={() => setModelId(m.id as 'resnet' | 'vit')}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
+      <RulesetTable fields={ruleset.fields} />
 
-      <div className="ev__stage">
-        <div className="ev__plotwrap">
-          <div className="ev__tolrow">
-            <span>
-              max-abs diff per leaf, log scale 1e{LOG_FLOOR} to 1e{LOG_CEIL}
-            </span>
-            <span>
-              tolerance <b>1e{TOL_EXP}</b>
-            </span>
-          </div>
-          <div
-            className="ev__bars"
-            role="img"
-            aria-label={`per-layer diff bars for ${model.label}, ${model.overCount} over tolerance`}
-          >
-            <div
-              className="ev__tolline"
-              style={{ bottom: `${tolPct}%` }}
-              aria-hidden
-            />
-            {diffs.map((d, i) => {
-              const checked = i < revealed;
-              const over = d > TOL;
-              const isOrigin = model.originIndex === i;
-              const cls = !checked
-                ? 'ev__bar ev__bar--pending'
-                : isOrigin && checked
-                  ? 'ev__bar ev__bar--origin'
-                  : over
-                    ? 'ev__bar ev__bar--over'
-                    : 'ev__bar';
-              const heightPct = checked ? logToPct(d) : 0;
-              const flash =
-                isOrigin && checked && !reduce
-                  ? { opacity: [1, 0.45, 1] }
-                  : {};
-              return (
-                <motion.div
-                  key={i}
-                  className={cls}
-                  initial={false}
-                  animate={{ height: `${Math.max(checked ? 2 : 0, heightPct)}%`, ...flash }}
-                  transition={{
-                    height: { duration: reduce ? 0 : 0.18, ease },
-                    opacity: { duration: 0.5, repeat: isOrigin ? 2 : 0 },
-                  }}
-                  title={`layer ${i + 1}: ${d.toExponential(2)}`}
-                />
-              );
-            })}
-          </div>
-          <div className="ev__layerlabel">
-            {driftFound ? (
-              <>
-                drift origin: <b>{model.originLabel}</b>, propagating downstream
-              </>
-            ) : (
-              cursorLabel
-            )}
-          </div>
-        </div>
+      <RecordsPane
+        value={shownDraft}
+        onChange={(v) => setDraft(v)}
+        onBlur={commitDraft}
+      />
 
-        <div className="ev__readout">
-          <div className="ev__stat">
-            <div className="ev__stat-val">{model.layerCount}</div>
-            <div className="ev__stat-name">layers checked</div>
-          </div>
-          <div className="ev__stat">
-            <div className="ev__stat-val">
-              {finished ? model.overCount : driftFound ? '...' : 0}
-            </div>
-            <div className="ev__stat-name">over 1e-4</div>
-          </div>
-          <div
-            className={`ev__stat ${model.originIndex !== null && finished ? 'ev__stat--origin' : ''}`}
-          >
-            <div className="ev__stat-val" style={{ fontSize: '15px' }}>
-              {finished
-                ? model.worst.toExponential(3)
-                : revealed > 0
-                  ? diffs
-                      .slice(0, revealed)
-                      .reduce((a, b) => Math.max(a, b), 0)
-                      .toExponential(2)
-                  : '0'}
-            </div>
-            <div className="ev__stat-name">worst max-abs diff</div>
-          </div>
-        </div>
-
-        <AnimatePresence>
-          {finished && (
-            <motion.div
-              className={`ev__verdict ${model.originIndex !== null ? 'ev__verdict--drift' : ''}`}
-              initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.4, ease }}
-            >
-              <span className="ev__verdict-head">
-                {model.originIndex !== null
-                  ? `drift origin: ${model.originLabel}`
-                  : 'no drift'}
-              </span>
-              <span className="ev__verdict-text">
-                {model.originIndex !== null
-                  ? `${model.overCount} layers exceed 1e-4, first at ${model.originLabel}. Worst max-abs diff ${model.worst.toExponential(3)}. The C++ and Python comparators emit byte-identical JSON for this report.`
-                  : `${model.layerCount} layers checked, 0 exceeding 1e-4. Worst max-abs diff ${model.worst.toExponential(3)} at ${model.worstLayer}, so PyTorch and ONNX Runtime agree end to end.`}
-              </span>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+      <FieldsTable
+        fields={fields}
+        records={records}
+        resultByIndex={resultByIndex}
+        reduce={Boolean(reduce)}
+      />
 
       <div className="demo__controls">
-        <button className="demo__btn" onClick={run} disabled={running}>
-          {running ? 'Tracing...' : 'Trace layers'}
+        <button type="button" className="demo__btn" onClick={handleRun}>
+          Run validation
         </button>
         <button
+          type="button"
           className="demo__btn demo__btn--ghost"
-          onClick={reset}
-          disabled={running}
+          onClick={exportInvalid}
+          disabled={!result || result.invalidCount === 0}
+        >
+          Export invalid rows
+        </button>
+        <button
+          type="button"
+          className="demo__btn demo__btn--ghost"
+          onClick={handleReset}
         >
           Reset
         </button>
-        <span className="demo__hint">{cursorLabel}</span>
+        <span className="demo__hint" role="status">
+          {result
+            ? `${result.validCount} valid / ${result.invalidCount} invalid of ${result.total}`
+            : 'no run yet'}
+        </span>
       </div>
+
+      {result ? <Report result={result} /> : null}
+    </section>
+  );
+}
+
+// ---------- ruleset table ----------
+
+function RulesetTable({ fields }: { fields: FieldRule[] }) {
+  return (
+    <div className="vex__block">
+      <div className="vex__block-head">
+        <h4 className="vex__block-title">Field rules</h4>
+        <button type="button" className="vex__add" onClick={addRule}>
+          + Add field
+        </button>
+      </div>
+      <div className="vex__scroll">
+        <table className="vex__table" aria-label="Field rules">
+          <thead>
+            <tr>
+              <th scope="col">Field</th>
+              <th scope="col">Type</th>
+              <th scope="col">Required</th>
+              <th scope="col">Pattern</th>
+              <th scope="col">Min</th>
+              <th scope="col">Max</th>
+              <th scope="col">Enum</th>
+              <th scope="col">Unique</th>
+              <th scope="col">
+                <span className="vex__sr">Remove</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {fields.map((rule) => (
+              <RuleRow key={rule.id} rule={rule} />
+            ))}
+            {fields.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="vex__empty">
+                  No rules. Add a field to start.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function RuleRow({ rule }: { rule: FieldRule }) {
+  const isNumber = rule.type === 'number';
+  return (
+    <tr>
+      <td>
+        <input
+          className="vex__in"
+          aria-label={`field name for ${rule.field}`}
+          value={rule.field}
+          onChange={(e) => updateRule(rule.id, { field: e.target.value })}
+        />
+      </td>
+      <td>
+        <select
+          className="vex__in"
+          aria-label={`type for ${rule.field}`}
+          value={rule.type}
+          onChange={(e) => updateRule(rule.id, { type: e.target.value as FieldType })}
+        >
+          {TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="vex__center">
+        <input
+          type="checkbox"
+          aria-label={`required for ${rule.field}`}
+          checked={rule.required}
+          onChange={(e) => updateRule(rule.id, { required: e.target.checked })}
+        />
+      </td>
+      <td>
+        <input
+          className="vex__in vex__in--mono"
+          aria-label={`pattern for ${rule.field}`}
+          placeholder="(none)"
+          value={rule.pattern ?? ''}
+          onChange={(e) => updateRule(rule.id, { pattern: e.target.value })}
+        />
+      </td>
+      <td>
+        <input
+          className="vex__in vex__in--num"
+          type="number"
+          aria-label={`min for ${rule.field}`}
+          disabled={!isNumber}
+          value={rule.min ?? ''}
+          onChange={(e) =>
+            updateRule(rule.id, {
+              min: e.target.value === '' ? undefined : Number(e.target.value),
+            })
+          }
+        />
+      </td>
+      <td>
+        <input
+          className="vex__in vex__in--num"
+          type="number"
+          aria-label={`max for ${rule.field}`}
+          disabled={!isNumber}
+          value={rule.max ?? ''}
+          onChange={(e) =>
+            updateRule(rule.id, {
+              max: e.target.value === '' ? undefined : Number(e.target.value),
+            })
+          }
+        />
+      </td>
+      <td>
+        <input
+          className="vex__in"
+          aria-label={`allowed values for ${rule.field}`}
+          placeholder="a, b, c"
+          value={rule.enum ? rule.enum.join(', ') : ''}
+          onChange={(e) => setRuleEnum(rule.id, e.target.value)}
+        />
+      </td>
+      <td className="vex__center">
+        <input
+          type="checkbox"
+          aria-label={`unique for ${rule.field}`}
+          checked={rule.unique}
+          onChange={(e) => updateRule(rule.id, { unique: e.target.checked })}
+        />
+      </td>
+      <td className="vex__center">
+        <button
+          type="button"
+          className="vex__del"
+          aria-label={`remove ${rule.field}`}
+          onClick={() => removeRule(rule.id)}
+        >
+          &times;
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+// ---------- records paste pane ----------
+
+function RecordsPane({
+  value,
+  onChange,
+  onBlur,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onBlur: () => void;
+}) {
+  return (
+    <div className="vex__block">
+      <div className="vex__block-head">
+        <h4 className="vex__block-title">Records</h4>
+        <span className="vex__hint">paste CSV or a JSON array of objects</span>
+      </div>
+      <label className="vex__sr" htmlFor="vex-records">
+        Records as CSV or JSON
+      </label>
+      <textarea
+        id="vex-records"
+        className="vex__textarea"
+        spellCheck={false}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+        rows={8}
+      />
+    </div>
+  );
+}
+
+// ---------- per-record results table ----------
+
+function FieldsTable({
+  fields,
+  records,
+  resultByIndex,
+  reduce,
+}: {
+  fields: string[];
+  records: DataRecord[];
+  resultByIndex: Map<number, RecordResult>;
+  reduce: boolean;
+}) {
+  return (
+    <div className="vex__block">
+      <div className="vex__block-head">
+        <h4 className="vex__block-title">Parsed rows</h4>
+        <span className="vex__hint">{records.length} rows</span>
+      </div>
+      <div className="vex__scroll">
+        <table className="vex__table vex__table--rows" aria-label="Parsed records">
+          <thead>
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">Result</th>
+              {fields.map((f) => (
+                <th scope="col" key={f}>
+                  {f}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {records.map((record, idx) => {
+              const res = resultByIndex.get(idx);
+              const failing = new Set(res?.failingFields ?? []);
+              const status: 'none' | 'pass' | 'fail' = !res
+                ? 'none'
+                : res.ok
+                  ? 'pass'
+                  : 'fail';
+              return (
+                <tr key={idx} className={`vex__row vex__row--${status}`}>
+                  <td className="vex__idx">{idx + 1}</td>
+                  <td>
+                    <span
+                      className={`vex__badge vex__badge--${status}`}
+                      data-reduce={reduce ? 'true' : 'false'}
+                    >
+                      {status === 'none' ? 'idle' : status}
+                    </span>
+                  </td>
+                  {fields.map((f) => {
+                    const bad = failing.has(f);
+                    return (
+                      <td
+                        key={f}
+                        className={bad ? 'vex__cell vex__cell--bad' : 'vex__cell'}
+                        title={
+                          bad
+                            ? res?.issues
+                                .filter((i) => i.field === f)
+                                .map((i) => i.message)
+                                .join('; ')
+                            : undefined
+                        }
+                      >
+                        {record[f] ?? ''}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+            {records.length === 0 ? (
+              <tr>
+                <td colSpan={fields.length + 2} className="vex__empty">
+                  No records parsed.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ---------- report ----------
+
+function Report({ result }: { result: ValidationResult }) {
+  const max = Math.max(1, ...result.breakdown.map((b) => b.count));
+  return (
+    <div className="vex__report glass" role="region" aria-label="Validation report">
+      <div className="vex__summary">
+        <div className="vex__stat vex__stat--ok">
+          <span className="vex__stat-val">{result.validCount}</span>
+          <span className="vex__stat-unit">valid</span>
+        </div>
+        <div className="vex__stat vex__stat--bad">
+          <span className="vex__stat-val">{result.invalidCount}</span>
+          <span className="vex__stat-unit">invalid</span>
+        </div>
+        <div className="vex__stat">
+          <span className="vex__stat-val">{result.total}</span>
+          <span className="vex__stat-unit">rows</span>
+        </div>
+      </div>
+
+      <h4 className="vex__block-title vex__report-sub">Issues by rule</h4>
+      {result.breakdown.length === 0 ? (
+        <p className="vex__clean">Every record passed every rule.</p>
+      ) : (
+        <ul className="vex__bars">
+          {result.breakdown.map((b) => (
+            <li className="vex__bar-row" key={b.rule}>
+              <span className="vex__bar-label">{RULE_LABELS[b.rule]}</span>
+              <span className="vex__bar-track" aria-hidden="true">
+                <span
+                  className="vex__bar-fill"
+                  style={{ width: `${(b.count / max) * 100}%` }}
+                />
+              </span>
+              <span className="vex__bar-count">{b.count}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

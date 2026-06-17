@@ -1,340 +1,500 @@
 import { useEffect, useRef, useState } from 'react';
-import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
 import '../styles/demo.css';
 import './canvaslive.css';
+import {
+  addShape,
+  canRedoNow,
+  canUndoNow,
+  clearAll,
+  deleteShape,
+  getSnapshot,
+  redoAction,
+  reorderBackward,
+  reorderForward,
+  reorderToBack,
+  reorderToFront,
+  resetAll,
+  select,
+  setShapes,
+  undoAction,
+  updateShape,
+} from './canvaslive/store';
+import { useCanvasStore } from './canvaslive/state';
+import { boundingBox, hitTest, moveShape, resizeShape } from './canvaslive/engine';
+import { toJSON, toSVG } from './canvaslive/export';
+import { HANDLE_IDS, type HandleId, type Point, type Shape } from './canvaslive/types';
 
-// Real mechanism: two clients draw at once. Each op is add/remove/patch/noop
-// carrying { clientId, clientSeq, lamport }. The server stamps lamport and
-// serverSeq on acceptance, then the shared OT engine transforms each incoming
-// op against the ops the peer already applied so both canvases converge to the
-// same state. TP1 convergence is held by a 500-run property test (16 OT engine
-// tests, 25 passing overall). Default limit is 200 ops/sec per client.
-const PROPERTY_RUNS = 500;
-const OPS_PER_SEC = 200;
+// In-browser whiteboard editor. The document (shapes plus selection) lives in a
+// localStorage-backed external store; this component renders it as an SVG canvas
+// and turns pointer gestures into store edits. All geometry, hit-testing, and
+// z-order math runs through the pure engine, so the render path stays a function
+// of store state. A pointer drag on a shape moves it; a drag on a selection
+// handle resizes it; a single gesture is committed to undo history on release.
 
-type Who = 'A' | 'B';
-type Stroke = { id: string; who: Who; x: number; y: number; w: number; h: number };
+const CANVAS_W = 720;
+const CANVAS_H = 460;
 
-// Each client issues two ops. A and B both add a rect near the same region; the
-// engine offsets the later-stamped insert so they do not overlap-collapse, which
-// is the visible transform. clientSeq is local; lamport is the logical clock.
-type OpDef = {
-  who: Who;
-  clientSeq: number;
-  lamport: number;
-  kind: 'add' | 'patch';
-  desc: string;
-  // intended geometry, before transform
-  rect: { x: number; y: number; w: number; h: number };
-  // whether the OT engine had to transform it against a concurrent peer op
-  transformed: boolean;
-};
+// Active pointer gesture. move drags the whole shape; resize drags one handle.
+type Drag =
+  | { mode: 'move'; id: string; start: Point; origin: Shape }
+  | { mode: 'resize'; id: string; handle: HandleId; start: Point; origin: Shape }
+  | null;
 
-const A_OPS: OpDef[] = [
-  {
-    who: 'A',
-    clientSeq: 1,
-    lamport: 3,
-    kind: 'add',
-    desc: 'add rect',
-    rect: { x: 26, y: 22, w: 52, h: 36 },
-    transformed: false,
-  },
-  {
-    who: 'A',
-    clientSeq: 2,
-    lamport: 5,
-    kind: 'patch',
-    desc: 'patch fill',
-    rect: { x: 26, y: 22, w: 52, h: 36 },
-    transformed: true,
-  },
-];
-
-const B_OPS: OpDef[] = [
-  {
-    who: 'B',
-    clientSeq: 1,
-    lamport: 4,
-    kind: 'add',
-    desc: 'add rect',
-    rect: { x: 40, y: 30, w: 50, h: 40 },
-    transformed: true,
-  },
-  {
-    who: 'B',
-    clientSeq: 2,
-    lamport: 6,
-    kind: 'add',
-    desc: 'add line',
-    rect: { x: 96, y: 70, w: 64, h: 6 },
-    transformed: false,
-  },
-];
-
-// Interleave the two clients' ops by the order the server accepts them, which
-// is what produces concurrent conflicts. Server seq is the acceptance order.
-const ORDER: OpDef[] = [A_OPS[0], B_OPS[0], A_OPS[1], B_OPS[1]];
-
-type Applied = OpDef & { serverSeq: number; finalRect: Stroke };
-
-const ease = [0.22, 1, 0.36, 1] as const;
-
-// Transform a transformed op so it does not collapse onto the concurrent peer
-// rect: shift it right and down by a fixed delta. This stands in for the OT
-// engine's position adjustment that keeps both replicas identical.
-function transformRect(r: OpDef['rect'], transformed: boolean) {
-  if (!transformed) return r;
-  return { x: r.x + 22, y: r.y + 14, w: r.w, h: r.h };
+// Map a pointer event to canvas coordinates using the SVG element's box, so the
+// math is correct regardless of how the canvas is scaled in the page.
+function toCanvasPoint(svg: SVGSVGElement, clientX: number, clientY: number): Point {
+  const rect = svg.getBoundingClientRect();
+  const sx = CANVAS_W / rect.width;
+  const sy = CANVAS_H / rect.height;
+  return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy };
 }
 
 export default function CanvasliveDemo() {
-  const reduce = useReducedMotion();
-  const [applied, setApplied] = useState<Applied[]>([]);
-  const [step, setStep] = useState(0);
-  const [running, setRunning] = useState(false);
-  const [converged, setConverged] = useState(false);
-  const timer = useRef<number | null>(null);
+  const { doc } = useCanvasStore();
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const dragRef = useRef<Drag>(null);
+  const [dragging, setDragging] = useState(false);
 
-  function clearTimer() {
-    if (timer.current !== null) window.clearTimeout(timer.current);
-    timer.current = null;
-  }
-  useEffect(() => clearTimer, []);
+  const [exportFmt, setExportFmt] = useState<'none' | 'json' | 'svg'>('none');
+  const [copied, setCopied] = useState(false);
 
-  function reset() {
-    clearTimer();
-    setApplied([]);
-    setStep(0);
-    setRunning(false);
-    setConverged(false);
-  }
+  const selected = doc.shapes.find((s) => s.id === doc.selectedId) ?? null;
+  const ordered = [...doc.shapes].sort((a, b) => a.z - b.z);
+  const selBox = selected ? boundingBox([selected]) : null;
+  const undoable = canUndoNow();
+  const redoable = canRedoNow();
 
-  function applyOne(i: number) {
-    const op = ORDER[i];
-    const tr = transformRect(op.rect, op.transformed);
-    const stroke: Stroke = {
-      id: `${op.who}-${op.clientSeq}`,
-      who: op.who,
-      ...tr,
-    };
-    setApplied((prev) => [...prev, { ...op, serverSeq: i + 1, finalRect: stroke }]);
-    setStep(i + 1);
-  }
-
-  function play() {
-    if (running) return;
-    reset();
-    setRunning(true);
-
-    if (reduce) {
-      const all = ORDER.map((op, i) => {
-        const tr = transformRect(op.rect, op.transformed);
-        return {
-          ...op,
-          serverSeq: i + 1,
-          finalRect: { id: `${op.who}-${op.clientSeq}`, who: op.who, ...tr },
-        } as Applied;
-      });
-      setApplied(all);
-      setStep(ORDER.length);
-      setRunning(false);
-      setConverged(true);
-      return;
-    }
-
-    let i = 0;
-    const tick = () => {
-      applyOne(i);
-      i += 1;
-      if (i < ORDER.length) {
-        timer.current = window.setTimeout(tick, 760);
-      } else {
-        timer.current = window.setTimeout(() => {
-          setRunning(false);
-          setConverged(true);
-        }, 520);
+  // Keyboard history shortcuts. Cmd/Ctrl+Z undoes; adding Shift redoes. The
+  // listener skips events from form fields so typing in the inspector is safe.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redoAction();
+        else undoAction();
+        return;
       }
-    };
-    tick();
+      // Delete or Backspace removes the current selection when no field is focused.
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const id = getSnapshot().doc.selectedId;
+        if (id) {
+          e.preventDefault();
+          deleteShape(id);
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const exportText =
+    exportFmt === 'json'
+      ? toJSON(doc.shapes)
+      : exportFmt === 'svg'
+        ? toSVG(doc.shapes)
+        : '';
+
+  async function copyExport() {
+    try {
+      await navigator.clipboard.writeText(exportText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard may be blocked; the textarea stays selectable as a fallback.
+    }
   }
 
-  // Both boards render the same applied set, proving convergence by showing
-  // identical geometry on each side once the stream drains.
-  function renderCanvas(side: Who) {
-    return (
-      <svg
-        className="cv__canvas"
-        viewBox="0 0 200 120"
-        role="img"
-        aria-label={`Client ${side} canvas`}
-      >
-        {applied.map((a) => {
-          const r = a.finalRect;
-          const color = a.who === 'A' ? '#4fd08a' : 'var(--accent)';
-          const isLine = r.h <= 8;
-          return (
-            <motion.g
-              key={`${side}-${r.id}`}
-              initial={{ opacity: reduce ? 1 : 0, scale: reduce ? 1 : 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: reduce ? 0 : 0.4, ease }}
-            >
-              {isLine ? (
-                <rect
-                  x={r.x}
-                  y={r.y}
-                  width={r.w}
-                  height={r.h}
-                  rx={3}
-                  fill={color}
-                  opacity={0.85}
-                />
-              ) : (
-                <rect
-                  x={r.x}
-                  y={r.y}
-                  width={r.w}
-                  height={r.h}
-                  rx={6}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={2.4}
-                  opacity={0.92}
-                />
-              )}
-            </motion.g>
-          );
-        })}
-        {/* live cursors for each client */}
-        {(side === 'A' || step > 0) && (
-          <g>
-            <circle cx={side === 'A' ? 70 : 110} cy={side === 'A' ? 44 : 64} r={3} fill={side === 'A' ? '#4fd08a' : 'var(--accent)'} />
-            <text
-              x={side === 'A' ? 76 : 116}
-              y={side === 'A' ? 42 : 62}
-              className="cv__cursor-label"
-            >
-              {side === 'A' ? 'amy' : 'ben'}
-            </text>
-          </g>
-        )}
-      </svg>
+  // Handlers read the live store snapshot rather than closing over the rendered
+  // doc, so a mid-gesture pointer move always patches the freshest shapes array
+  // and the React Compiler can memoize without a stale dependency.
+  function onCanvasPointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const p = toCanvasPoint(svg, e.clientX, e.clientY);
+    const hit = hitTest(getSnapshot().doc.shapes, p);
+    if (hit) {
+      select(hit.id);
+      dragRef.current = { mode: 'move', id: hit.id, start: p, origin: hit };
+      setDragging(true);
+      svg.setPointerCapture(e.pointerId);
+    } else {
+      select(null);
+    }
+  }
+
+  function onHandlePointerDown(e: React.PointerEvent<SVGRectElement>, handle: HandleId) {
+    e.stopPropagation();
+    const svg = svgRef.current;
+    const current = getSnapshot().doc;
+    const target = current.shapes.find((s) => s.id === current.selectedId);
+    if (!svg || !target) return;
+    const p = toCanvasPoint(svg, e.clientX, e.clientY);
+    dragRef.current = {
+      mode: 'resize',
+      id: target.id,
+      handle,
+      start: p,
+      origin: target,
+    };
+    setDragging(true);
+    svg.setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    const drag = dragRef.current;
+    const svg = svgRef.current;
+    if (!drag || !svg) return;
+    const p = toCanvasPoint(svg, e.clientX, e.clientY);
+    const dx = p.x - drag.start.x;
+    const dy = p.y - drag.start.y;
+    const next =
+      drag.mode === 'move'
+        ? moveShape(drag.origin, dx, dy)
+        : resizeShape(drag.origin, drag.handle, dx, dy);
+    // Transient update mid-gesture: no undo commit until release.
+    setShapes(
+      getSnapshot().doc.shapes.map((s) => (s.id === drag.id ? next : s)),
+      false,
     );
   }
 
+  function endDrag() {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    setDragging(false);
+    // Commit the final geometry as one undo step.
+    setShapes(getSnapshot().doc.shapes, true);
+  }
+
   return (
-    <div className="demo" aria-label="canvaslive operational transform demo">
-      <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Concurrent edits, one converged canvas</h3>
+    <div className="demo cl">
+      <span className="demo__tag">Whiteboard Editor</span>
+      <h3 className="demo__title">CanvasLive</h3>
       <p className="demo__lede">
-        Two clients draw at the same instant. Each op carries a clientSeq and a
-        Lamport stamp; the server stamps a serverSeq on acceptance and the OT
-        engine transforms conflicting ops so both canvases land on identical
-        state. Play the stream and watch a transformed insert get nudged off its
-        concurrent peer.
+        Add shapes, then click to select, drag to move, and pull a handle to
+        resize. The document is kept in your browser and restored on reload.
       </p>
 
-      <div className="cv__stage">
-        <div className="cv__boards">
-          <div className={`cv__board cv__board--a${converged ? ' cv__board--converged' : ''}`}>
-            <div className="cv__board-head">
-              <span className="cv__board-dot" />
-              client amy
-              <span className="cv__board-seq">
-                {applied.filter((a) => a.who === 'A').length} ops
-              </span>
-            </div>
-            {renderCanvas('A')}
-          </div>
-          <div className={`cv__board cv__board--b${converged ? ' cv__board--converged' : ''}`}>
-            <div className="cv__board-head">
-              <span className="cv__board-dot" />
-              client ben
-              <span className="cv__board-seq">
-                {applied.filter((a) => a.who === 'B').length} ops
-              </span>
-            </div>
-            {renderCanvas('B')}
-          </div>
-        </div>
+      <p className="demo__hint cl__status" role="status" aria-live="polite">
+        {doc.shapes.length === 0
+          ? 'Empty canvas'
+          : `${doc.shapes.length} shape${doc.shapes.length === 1 ? '' : 's'}` +
+            (selected ? `, ${selected.kind} selected` : ', none selected')}
+      </p>
 
-        <div className="cv__stream">
-          <div className="cv__stream-head">
-            op stream
-            <span className="cv__stream-rate">{OPS_PER_SEC} ops/sec cap</span>
-          </div>
-          <ul className="cv__ops">
-            {applied.length === 0 && (
-              <li className="cv__ops-empty">
-                Press play to stream four concurrent ops through the engine.
-              </li>
-            )}
-            <AnimatePresence initial={false}>
-              {applied.map((a) => (
-                <motion.li
-                  key={`${a.who}-${a.clientSeq}`}
-                  className={`cv__op cv__op--${a.who.toLowerCase()}`}
-                  initial={{ opacity: reduce ? 1 : 0, x: reduce ? 0 : -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: reduce ? 0 : 0.32, ease }}
-                >
-                  <span className="cv__op-who">
-                    {a.who === 'A' ? 'amy' : 'ben'}
-                  </span>
-                  <span className="cv__op-body">
-                    <span className="cv__op-kind">{a.kind}</span> {a.desc}
-                    {a.transformed && (
-                      <>
-                        {' '}
-                        <span className="cv__op-xform">transformed</span>
-                      </>
-                    )}
-                  </span>
-                  <span className="cv__op-stamp">
-                    seq {a.clientSeq} · L{a.lamport} · srv {a.serverSeq}
-                  </span>
-                </motion.li>
-              ))}
-            </AnimatePresence>
-          </ul>
-        </div>
-
-        <AnimatePresence>
-          {converged && (
-            <motion.div
-              className="cv__verdict"
-              initial={{ opacity: 0, y: reduce ? 0 : 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.4, ease }}
-            >
-              <span className="cv__verdict-head">Both canvases identical</span>
-              <span className="cv__verdict-text">
-                Two transformed inserts converged with no lost edits. The same
-                transform property is checked by a {PROPERTY_RUNS}-run TP1
-                convergence test in the OT engine suite.
-              </span>
-            </motion.div>
-          )}
-        </AnimatePresence>
+      <div className="demo__controls cl__toolbar" role="toolbar" aria-label="Add shapes">
+        <button type="button" className="demo__btn" onClick={() => addShape('rect')}>
+          Rectangle
+        </button>
+        <button type="button" className="demo__btn" onClick={() => addShape('ellipse')}>
+          Ellipse
+        </button>
+        <button type="button" className="demo__btn" onClick={() => addShape('line')}>
+          Line
+        </button>
+        <button type="button" className="demo__btn" onClick={() => addShape('text')}>
+          Text
+        </button>
       </div>
 
-      <div className="demo__controls">
-        <button className="demo__btn" onClick={play} disabled={running}>
-          {running ? 'Streaming…' : converged ? 'Replay' : 'Play op stream'}
+      <div className="demo__controls cl__actions" role="toolbar" aria-label="Document actions">
+        <button
+          type="button"
+          className="demo__btn demo__btn--ghost"
+          onClick={() => undoAction()}
+          disabled={!undoable}
+          aria-keyshortcuts="Control+Z Meta+Z"
+        >
+          Undo
         </button>
         <button
+          type="button"
           className="demo__btn demo__btn--ghost"
-          onClick={reset}
-          disabled={running}
+          onClick={() => redoAction()}
+          disabled={!redoable}
+          aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z"
         >
+          Redo
+        </button>
+        <button
+          type="button"
+          className="demo__btn demo__btn--ghost"
+          onClick={() => setExportFmt(exportFmt === 'json' ? 'none' : 'json')}
+          aria-pressed={exportFmt === 'json'}
+        >
+          Export JSON
+        </button>
+        <button
+          type="button"
+          className="demo__btn demo__btn--ghost"
+          onClick={() => setExportFmt(exportFmt === 'svg' ? 'none' : 'svg')}
+          aria-pressed={exportFmt === 'svg'}
+        >
+          Export SVG
+        </button>
+        <button
+          type="button"
+          className="demo__btn demo__btn--ghost"
+          onClick={() => clearAll()}
+          disabled={doc.shapes.length === 0}
+        >
+          Clear
+        </button>
+        <button type="button" className="demo__btn demo__btn--ghost" onClick={() => resetAll()}>
           Reset
         </button>
-        <span className="demo__hint">
-          {step} of {ORDER.length} ops accepted
-        </span>
       </div>
+
+      <div className="cl__layout">
+        <div className="cl__stage">
+          <svg
+            ref={svgRef}
+            className="cl__canvas"
+            viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
+            role="img"
+            aria-label={`Canvas with ${doc.shapes.length} shapes`}
+            data-dragging={dragging ? 'true' : 'false'}
+            onPointerDown={onCanvasPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            {ordered.map((s) => (
+              <ShapeNode key={s.id} shape={s} selected={s.id === doc.selectedId} />
+            ))}
+
+            {selBox && selected ? (
+              <g className="cl__selection" pointerEvents="none">
+                <rect
+                  className="cl__selbox"
+                  x={selBox.x}
+                  y={selBox.y}
+                  width={selBox.w}
+                  height={selBox.h}
+                  fill="none"
+                />
+                {HANDLE_IDS.map((h) => {
+                  const pos = handlePosition(selBox, h);
+                  return (
+                    <rect
+                      key={h}
+                      className="cl__handle"
+                      x={pos.x - 5}
+                      y={pos.y - 5}
+                      width={10}
+                      height={10}
+                      pointerEvents="all"
+                      onPointerDown={(ev) => onHandlePointerDown(ev, h)}
+                    />
+                  );
+                })}
+              </g>
+            ) : null}
+          </svg>
+        </div>
+
+        <aside className="cl__inspector glass" aria-label="Inspector">
+          {selected ? (
+            <Inspector shape={selected} />
+          ) : (
+            <p className="demo__hint cl__empty">Add a shape, then click it to edit.</p>
+          )}
+        </aside>
+      </div>
+
+      {exportFmt !== 'none' ? (
+        <div className="cl__export glass">
+          <div className="cl__export-head">
+            <h4 className="cl__inspector-title">
+              {exportFmt === 'json' ? 'JSON export' : 'SVG export'}
+            </h4>
+            <button type="button" className="demo__btn" onClick={() => copyExport()}>
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <textarea
+            className="cl__export-text"
+            readOnly
+            value={exportText}
+            aria-label={`${exportFmt.toUpperCase()} export, read only`}
+            onFocus={(e) => e.currentTarget.select()}
+            rows={8}
+          />
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+// Edit panel for the selected shape. Each control writes straight to the store
+// as a committed edit, so every change is independently undoable.
+function Inspector({ shape }: { shape: Shape }) {
+  return (
+    <div className="cl__inspector-body">
+      <h4 className="cl__inspector-title">
+        {shape.kind.charAt(0).toUpperCase() + shape.kind.slice(1)}
+      </h4>
+
+      {shape.kind === 'text' ? (
+        <label className="cl__field">
+          <span>Text</span>
+          <input
+            type="text"
+            value={shape.text}
+            onChange={(e) => updateShape(shape.id, { text: e.target.value })}
+          />
+        </label>
+      ) : null}
+
+      {shape.kind !== 'line' && shape.kind !== 'text' ? (
+        <label className="cl__field">
+          <span>Fill</span>
+          <input
+            type="color"
+            value={toHex(shape.fill)}
+            onChange={(e) => updateShape(shape.id, { fill: e.target.value })}
+          />
+        </label>
+      ) : null}
+
+      <label className="cl__field">
+        <span>Stroke</span>
+        <input
+          type="color"
+          value={toHex(shape.stroke)}
+          onChange={(e) => updateShape(shape.id, { stroke: e.target.value })}
+        />
+      </label>
+
+      <div className="cl__dims">
+        <label className="cl__field cl__field--num">
+          <span>Width</span>
+          <input
+            type="number"
+            value={Math.round(shape.w)}
+            onChange={(e) => updateShape(shape.id, { w: Number(e.target.value) })}
+          />
+        </label>
+        <label className="cl__field cl__field--num">
+          <span>Height</span>
+          <input
+            type="number"
+            value={Math.round(shape.h)}
+            onChange={(e) => updateShape(shape.id, { h: Number(e.target.value) })}
+          />
+        </label>
+      </div>
+
+      <div className="cl__zrow" role="group" aria-label="Layer order">
+        <button type="button" className="demo__btn demo__btn--ghost" onClick={() => reorderToFront(shape.id)}>
+          To front
+        </button>
+        <button type="button" className="demo__btn demo__btn--ghost" onClick={() => reorderForward(shape.id)}>
+          Forward
+        </button>
+        <button type="button" className="demo__btn demo__btn--ghost" onClick={() => reorderBackward(shape.id)}>
+          Backward
+        </button>
+        <button type="button" className="demo__btn demo__btn--ghost" onClick={() => reorderToBack(shape.id)}>
+          To back
+        </button>
+      </div>
+
+      <button type="button" className="demo__btn cl__delete" onClick={() => deleteShape(shape.id)}>
+        Delete shape
+      </button>
+    </div>
+  );
+}
+
+// Color inputs require a #rrggbb value. Pass hex through; map anything else
+// (named colors, rgba fills) to a readable default so the picker still opens.
+function toHex(color: string): string {
+  if (/^#[0-9a-fA-F]{6}$/.test(color)) return color;
+  return '#3df0ff';
+}
+
+// Position of one handle on the selection box edge or corner.
+function handlePosition(
+  b: { x: number; y: number; w: number; h: number },
+  h: HandleId,
+): Point {
+  const midX = b.x + b.w / 2;
+  const midY = b.y + b.h / 2;
+  switch (h) {
+    case 'nw':
+      return { x: b.x, y: b.y };
+    case 'n':
+      return { x: midX, y: b.y };
+    case 'ne':
+      return { x: b.x + b.w, y: b.y };
+    case 'e':
+      return { x: b.x + b.w, y: midY };
+    case 'se':
+      return { x: b.x + b.w, y: b.y + b.h };
+    case 's':
+      return { x: midX, y: b.y + b.h };
+    case 'sw':
+      return { x: b.x, y: b.y + b.h };
+    case 'w':
+      return { x: b.x, y: midY };
+  }
+}
+
+// Render one shape as the appropriate SVG primitive. Pointer handling lives on
+// the canvas, so these are presentational and ignore their own pointer events.
+function ShapeNode({ shape, selected }: { shape: Shape; selected: boolean }) {
+  const sel = selected ? 'true' : 'false';
+  if (shape.kind === 'rect') {
+    return (
+      <rect
+        x={shape.x}
+        y={shape.y}
+        width={Math.max(0, shape.w)}
+        height={Math.max(0, shape.h)}
+        rx={6}
+        fill={shape.fill}
+        stroke={shape.stroke}
+        strokeWidth={2}
+        data-selected={sel}
+      />
+    );
+  }
+  if (shape.kind === 'ellipse') {
+    return (
+      <ellipse
+        cx={shape.x + shape.w / 2}
+        cy={shape.y + shape.h / 2}
+        rx={Math.abs(shape.w / 2)}
+        ry={Math.abs(shape.h / 2)}
+        fill={shape.fill}
+        stroke={shape.stroke}
+        strokeWidth={2}
+        data-selected={sel}
+      />
+    );
+  }
+  if (shape.kind === 'line') {
+    return (
+      <line
+        x1={shape.x}
+        y1={shape.y}
+        x2={shape.x + shape.w}
+        y2={shape.y + shape.h}
+        stroke={shape.stroke}
+        strokeWidth={2}
+        strokeLinecap="round"
+        data-selected={sel}
+      />
+    );
+  }
+  return (
+    <text x={shape.x} y={shape.y + 22} className="cl__text" fill={shape.stroke} data-selected={sel}>
+      {shape.text}
+    </text>
   );
 }
