@@ -100,10 +100,10 @@ export default function Detail() {
               </ul>
             </section>
 
-            {project.isFlagship &&
-              (demoReady ? (
-                <DemoSlot name={project.name} />
-              ) : (
+            {demoReady ? (
+              <DemoSlot name={project.name} />
+            ) : (
+              project.isFlagship && (
                 <section className="demo-slot" aria-labelledby="demo-title">
                   <span className="demo-slot__tag mono">Interactive demo</span>
                   <h2 id="demo-title" className="demo-slot__title">
@@ -115,7 +115,8 @@ export default function Detail() {
                   </p>
                   <p className="demo-slot__concept">{project.demoConcept}</p>
                 </section>
-              ))}
+              )
+            )}
           </div>
 
           <aside className="detail__aside">
