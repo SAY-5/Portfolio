@@ -14,7 +14,7 @@ export type Project = {
   isFlagship: boolean;
 };
 
-export const flagships: string[] = ["scanguard", "cloudshift", "agentdesk", "taskboard", "shopflow", "gradeview", "codelens", "learnloop"];
+export const flagships: string[] = ["scanguard", "cloudshift", "agentdesk", "taskboard", "shopflow", "gradeview", "codelens", "learnloop", "scan-sequencer", "diagkit", "snapvault"];
 
 export const projects: Project[] = [
   {
@@ -2676,6 +2676,96 @@ export const projects: Project[] = [
     demoConcept: `A job tracker that animates a request moving through the six provisioning stages with a progress bar, alongside a worker-pool view showing concurrent jobs and a days-to-minutes time comparison.`,
     flagshipScore: 9,
     isFlagship: false,
+  },
+  {
+    name: "scan-sequencer",
+    title: "scan-sequencer",
+    tagline: `Stateful scan sequencer that verifies hardware state before every action on a simulated PET scanner`,
+    summary: `scan-sequencer drives a small-animal PET scan workflow as a state machine with one rule: never start a test until the hardware is verified in a known-good state, and never record a slice until the bed has physically arrived. The original open-loop control fired each command and assumed it worked, which failed about 10 runs a week from leftover bed positions, stale output-file locks, and captures taken mid-travel. The sequencer homes the bed to true mechanical zero via the limit switch, releases leftover locks, confirms the detector, and confirms arrival before every capture. Everything runs against a simulated scanner on an injected virtual clock with a seeded fault stream, so results are fully deterministic.`,
+    category: "Instrumentation and Test",
+    language: "Go",
+    stack: ["Go", "Docker"],
+    highlights: [
+      `A deterministic backtest replays the same seeded week of jobs through naive and verified modes: failed runs drop from 10 a week to 3, with all 7 preventable failures removed and only the 3 genuine injected hardware faults remaining`,
+      `Homing to true mechanical zero via the limit switch defeats controller coordinate drift, so a bed position left over from a prior run can never poison the next one`,
+      `Confirm-before-capture polls arrival at each 10mm slice position before recording, removing the mid-travel captures that recorded data at the wrong position`,
+      `Fault injection flags (-leftover-pos, -lock-file, -detector-slow, -drift) reproduce each historical failure mode on demand, and everything reads time from an injected virtual clock so the whole suite runs under go test -race`,
+    ],
+    demoConcept: `A side-by-side replay of the same faulty job through naive and verified modes: naive fires commands blind and captures at the wrong position, while verified homes to the limit switch, confirms arrival at each slice, and passes`,
+    flagshipScore: 9,
+    isFlagship: true,
+  },
+  {
+    name: "scan-preflight",
+    title: "scan-preflight",
+    tagline: `TCP/IP SCPI preflight checklist that clears a scanner for a run in seconds`,
+    summary: `scan-preflight replaces a 13-step manual morning checklist for a networked PET scanner. It opens a TCP socket to the instrument, speaks SCPI, runs the eight data checks that were being read off by hand, and prints a single pass/fail summary, leaving only the five physical steps as a printed reminder. It runs every check and reports everything at the end rather than stopping at the first failure, and exits non-zero if anything fails so it can gate a downstream start-scan step. A simulated instrument ships with the tool, so the whole checklist runs with no scanner attached; pointing it at real hardware is dropping the --sim flag.`,
+    category: "Instrumentation and Test",
+    language: "Python",
+    stack: ["Python", "Click", "uv"],
+    highlights: [
+      `Eight automated checks: three detector channel sensitivities via MEAS:VOLT?, calibration values and calibration age from a JSON file, device self-test via *TST?, disk space above a 10 GB floor, and output-directory writability`,
+      `The calibration-age check enforces a 30-day recalibration rule from the last_calibrated stamp, catching the silent staleness a manual reader skips past`,
+      `The morning checklist went from 15 to 20 minutes of careful manual reading to about 8 seconds against the real instrument`,
+      `Fault-injection flags (--low-disk, --bad-channel, --fail-selftest, --expire-calibration) force individual failures so the report and the non-zero exit path are testable end to end`,
+    ],
+    demoConcept: `A checklist panel that connects to a simulated instrument and lights up all eight checks as their SCPI queries return, ending in a single cleared-for-scan verdict and the five manual steps as a reminder`,
+    flagshipScore: 7,
+    isFlagship: false,
+  },
+  {
+    name: "bench-reliability",
+    title: "bench-reliability",
+    tagline: `Reliability toolkit that removed the three recurring failure modes of shared lab benches`,
+    summary: `bench-reliability is a reproducible model of how a bank of shared lab workstations connected to serial peripherals was made reliable. Three root causes generated about eight support tickets a week: Windows Update silently replacing the vendor serial driver, Linux renaming USB serial ports by plug order, and a comms timeout shorter than the device's real reply time. The toolkit reproduces each root cause and its fix in code: a comms client with a measured timeout and retries, a udev rule generator mapping burned-in device serials to permanent names, and a ticket root-cause analyzer. The serial device is simulated behind a seeded, deterministic latency model on an injectable clock, so it runs entirely without hardware.`,
+    category: "Instrumentation and Test",
+    language: "Go",
+    stack: ["Go"],
+    highlights: [
+      `comms-bench measures 200 queries against a device that replies in 600 to 850 ms: the old 500 ms zero-retry policy succeeds 0% of the time, the measured 2000 ms plus 2-retry policy succeeds 100%, and the timeout is deliberately not 30 s so real failures still surface fast`,
+      `gen-udev turns a serial-to-name mapping into stable udev rules (ATTRS{serial} to SYMLINK) so software finds /dev/physio_monitor regardless of plug order, rejecting duplicate serials, duplicate names, and invalid symlink names`,
+      `The tickets command builds a root-cause histogram over the ticket set and shows the before/after volume: about eight tickets a week down to about two a month once the three root causes were removed`,
+      `Standard library only, with the latency model seeded and clocked through an injectable clock so every benchmark number is reproducible under go test -race`,
+    ],
+    demoConcept: `A response-time strip chart of queries landing between 600 and 850 ms with the 500 ms timeout line cutting them all off, then the fix sliding the line to 2000 ms and the success rate flipping from 0 to 100 percent`,
+    flagshipScore: 7,
+    isFlagship: false,
+  },
+  {
+    name: "diagkit",
+    title: "diagkit",
+    tagline: `Support diagnostic CLI that turns an incident's wall of noise into one ranked, explainable root cause`,
+    summary: `diagkit is a support diagnostic CLI for distributed services built from two cooperating halves that interoperate through a single versioned JSON incident bundle. The Go collector simulates a four-service topology (gateway, orders, payments, db) for an incident window, produces structured logs, distributed traces, and per-service metrics from a seeded PRNG, and normalizes each log message into a template so recurring failures group into signature clusters. The Python analyzer consumes the bundle and ranks each service with an explainable score built from signature density, metric spikes, and dependency propagation, printing the likely root cause with the evidence that produced it. Same seed, same scenario, same answer, every time.`,
+    category: "Infra and Distributed",
+    language: "Go",
+    stack: ["Go", "Python", "Click", "pytest", "uv", "Docker"],
+    highlights: [
+      `On the injected payments outage, the analyzer names payments with a score of 1.000 and says why: the densest error signature (181 log lines), a 4.2x p95 latency spike, a 74% peak error rate, and 100% of entry errors tracing through it`,
+      `Log normalization turns raw messages into templates so a 617-line incident window collapses into 4 signature clusters, separating one recurring failure from hundreds of repetitions of it`,
+      `The ranking score is explainable by construction: each component (signature density, latency spike multiple, error rate, entry-error share) is reported next to the rank, so the answer carries its own evidence`,
+      `The bundle schema is defined once on each side and carries a version both halves check, and the pipeline composes over a pipe: diagkit collect --out - | python -m diagkit_rca analyze -`,
+    ],
+    demoConcept: `A seeded mini incident where raw log lines from four services collapse into normalized signature clusters, then a ranked root-cause list assembles with each service's evidence bars, and a scenario toggle flips the culprit between a payments outage and a db slowdown`,
+    flagshipScore: 8,
+    isFlagship: true,
+  },
+  {
+    name: "snapvault",
+    title: "snapvault",
+    tagline: `Distributed backup and rapid-restore with content-addressed dedup and verified parallel recovery`,
+    summary: `snapvault takes incremental snapshots of a dataset using content-addressed storage, replicates the resulting chunks across simulated storage nodes, and restores them in parallel while verifying integrity through hashing and recovering across node failures. A C++17 engine owns content-addressed storage: a from-scratch SHA-256, a chunker, a deduplicating content store, and snapshot manifests. A Go engine owns the distributed layer: N simulated nodes, replication factor R, deterministic placement, parallel verified restore, and node-failure recovery. The two halves share one on-disk format defined in a single spec, and chunk placement is seeded by content hash, so runs are fully reproducible with no real cluster.`,
+    category: "Infra and Distributed",
+    language: "C++",
+    stack: ["C++17", "CMake", "CTest", "Go"],
+    highlights: [
+      `Content-addressed dedup stores identical chunks once: the first snapshot of a dataset with a duplicated file stores 33 new chunks for 63 chunk references, deduplicating the other 30`,
+      `An incremental snapshot after editing one file writes exactly 1 new chunk and dedups the remaining 62 references, which is the whole point of chunk-level content addressing`,
+      `The demo distributes 33 unique chunks as 99 copies across 5 nodes at replication 3, marks a node down, and the parallel restore still fetches and hash-verifies all 33 chunks from surviving replicas`,
+      `The finale is checkable: the restored tree is compared byte-for-byte against the original, so the node-failure-survived claim is an integrity verdict rather than an assertion`,
+    ],
+    demoConcept: `Files chunk into content-hashed blocks that visibly collapse into a deduplicated store, an edit adds exactly one new chunk, the chunks replicate across a node grid, then a node fails and the parallel restore draws verification ticks per chunk before a byte-for-byte integrity verdict`,
+    flagshipScore: 8,
+    isFlagship: true,
   },
 ];
 
