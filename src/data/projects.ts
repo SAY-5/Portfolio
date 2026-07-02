@@ -2717,7 +2717,7 @@ export const projects: Project[] = [
     name: "bench-reliability",
     title: "bench-reliability",
     tagline: `Reliability toolkit that removed the three recurring failure modes of shared lab benches`,
-    summary: `bench-reliability is a reproducible model of how a bank of shared lab workstations connected to serial peripherals was made reliable. Three root causes generated about eight support tickets a week: Windows Update silently replacing the vendor serial driver, Linux renaming USB serial ports by plug order, and a comms timeout shorter than the device's real reply time. The toolkit reproduces each root cause and its fix in code: a comms client with a measured timeout and retries, a udev rule generator mapping burned-in device serials to permanent names, and a ticket root-cause analyzer. The serial device is simulated behind a seeded, deterministic latency model on an injectable clock, so it runs entirely without hardware.`,
+    summary: `bench-reliability is a reproducible model of how a bank of shared lab workstations connected to serial peripherals was made reliable. Three root causes drove about eight support tickets a week: Windows Update silently replacing the vendor serial driver, Linux renaming USB serial ports by plug order, and a comms timeout shorter than the device's real reply time. The toolkit reproduces each root cause and its fix in code: a comms client with a measured timeout and retries, a udev rule generator mapping burned-in device serials to permanent names, and a ticket root-cause analyzer. The serial device is simulated behind a seeded, deterministic latency model on an injectable clock, so it runs entirely without hardware.`,
     category: "Instrumentation and Test",
     language: "Go",
     stack: ["Go"],
