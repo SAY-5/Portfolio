@@ -1,14 +1,15 @@
 # portfolio
 
-The portfolio hub for Sai Asish Y (GitHub: [SAY-5](https://github.com/SAY-5)).
-One site that collects 148 projects across systems, distributed infra, agents,
-full-stack web, and C++, with a home page, a project explorer, and a detail
-page for every project.
+Sai Asish Y's portfolio (GitHub: [SAY-5](https://github.com/SAY-5)). One site
+that indexes 153 public repos: systems and infrastructure work, agents, web
+apps, and a few C++ experiments. There is a home page with the whole catalog
+rendered as one object, an index you can filter and search, and a page per
+project with a summary, the parts worth knowing, and usually a live demo.
 
 ## Stack
 
-React, TypeScript, Vite, React Router, and Framer Motion. The build is a static
-single-page app.
+React 19, TypeScript, Vite, React Router, Framer Motion, and three.js through
+react-three-fiber for the hero object. The build is a static single page app.
 
 ## Run it locally
 
@@ -29,16 +30,23 @@ npm run lint     # run eslint
 
 ## Deploy
 
-The build output in `dist/` is static and ready for Vercel. `vercel.json`
-rewrites all routes to `index.html` so client-side routing works on refresh and
-deep links. No server is required.
+`dist/` is static and ready for Vercel. `vercel.json` rewrites every route to
+`index.html` so client side routing survives refreshes and deep links.
 
 ## Layout
 
-- `/` home: positioning, the eight featured projects, and a numbers band.
-- `/work` explorer: all 148 projects with category and language filters, search,
-  and sort.
-- `/p/:name` detail: summary, stack, highlights, and links for one project.
+- `/` home: the object, the eleven selected projects, and the catalog by
+  category.
+- `/work` index: all 153 projects with category and language filters, search,
+  and sort. Filters live in the URL, so a filtered view can be shared.
+- `/p/:name` detail: summary, highlights, stack, links, and the demo when one
+  exists.
+
+## Demos
+
+Each demo is one file under `src/demos/<repo-name>.tsx`, discovered
+automatically and loaded lazily on its own page. See
+`src/demos/CONVENTIONS.md`.
 
 ## License
 

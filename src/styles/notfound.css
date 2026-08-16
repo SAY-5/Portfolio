@@ -1,0 +1,35 @@
+.notfound {
+  padding-block: clamp(80px, 14vh, 160px) 140px;
+}
+.notfound__title {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.notfound__code {
+  display: block;
+  font-size: clamp(120px, 24vw, 280px);
+  letter-spacing: -0.07em;
+  line-height: 0.82;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.notfound__text {
+  font-size: clamp(22px, 2.6vw, 32px);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--paper-dim);
+}
+.notfound__sub {
+  margin-top: 18px;
+  max-width: 44ch;
+  color: var(--paper-dim);
+  font-size: 16px;
+}
+.notfound__links {
+  margin-top: 34px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+}

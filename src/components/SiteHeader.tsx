@@ -5,7 +5,7 @@ export default function SiteHeader() {
   return (
     <header className="site-header">
       <div className="wrap site-header__inner">
-        <Link to="/" className="brand">
+        <Link to="/" className="brand" aria-label="Sai Asish Y, home">
           <span className="brand__mark">SAY-5</span>
           Sai Asish Y
         </Link>
@@ -20,7 +20,7 @@ export default function SiteHeader() {
             target="_blank"
             rel="noreferrer"
           >
-            <GitHubIcon />
+            <GitHubIcon size={13} />
             <span className="site-nav__label">GitHub</span>
           </a>
         </nav>
