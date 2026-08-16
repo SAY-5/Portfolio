@@ -1,84 +1,156 @@
 :root {
-  /* Screening room: warm sepia-black, projector gold, oxblood ember */
-  --ink-900: #0b0806;
-  --ink-850: #100b07;
-  --ink-800: #15100a;
-  --ink-700: #1e160e;
-  --ink-600: #281d12;
-  --line: #2f2317;
-  --line-soft: #1f1810;
+  /* One material, one light. Graphite blocks under an acid-lime key. */
+  --ink-900: #0b0c0a;
+  --ink-850: #0e100d;
+  --ink-800: #121411;
+  --ink-700: #181b16;
+  --ink-600: #21251e;
+  --line: rgba(236, 246, 200, 0.1);
+  --line-soft: rgba(236, 246, 200, 0.06);
+  --line-strong: rgba(236, 246, 200, 0.2);
 
-  --paper: #f6efe1;
-  --paper-dim: #c8bba3;
-  --paper-faint: #8a7c66;
+  --paper: #eef1e4;
+  --paper-dim: #a9ae9d;
+  --paper-faint: #858b7b;
 
-  /* Projector gold (primary) */
-  --accent: #f2b13c;
-  --accent-soft: #ffd277;
-  --accent-glow: rgba(242, 177, 60, 0.16);
-  --accent-line: rgba(242, 177, 60, 0.44);
+  --lime: #cdf53a;
+  --lime-soft: #e6ff7a;
+  --lime-deep: #9fc41f;
+  --lime-glow: rgba(205, 245, 58, 0.14);
+  --lime-line: rgba(205, 245, 58, 0.42);
+  --lime-ink: #10140a;
 
-  /* Oxblood ember (secondary cinematic accent) */
-  --ember: #d8413f;
-  --ember-soft: #ff6a52;
-  --ember-glow: rgba(216, 65, 63, 0.18);
-  --ember-line: rgba(216, 65, 63, 0.42);
+  /* Semantic aliases used across pages and by the embedded demos. */
+  --accent: var(--lime);
+  --accent-soft: var(--lime-soft);
+  --accent-glow: var(--lime-glow);
+  --accent-line: var(--lime-line);
+  --ember: var(--paper);
+  --ember-soft: var(--paper);
+  --ember-glow: rgba(238, 241, 228, 0.1);
+  --ember-line: rgba(238, 241, 228, 0.32);
 
   --bg: var(--ink-900);
   --bg-raised: var(--ink-800);
   --text: var(--paper-dim);
   --text-strong: var(--paper);
   --text-faint: var(--paper-faint);
+  --text-dim: var(--paper-dim);
 
-  --display: 'Clash Display', Georgia, serif;
-  --display-cine: 'Fraunces', 'Clash Display', Georgia, serif;
-  --sans: 'General Sans', Avenir, sans-serif;
+  --display: 'Switzer', 'Helvetica Neue', Arial, sans-serif;
+  --display-cine: var(--display);
+  --sans: 'Switzer', 'Helvetica Neue', Arial, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-
-  /* Warm celluloid glass */
-  --glass-bg: rgba(32, 23, 14, 0.5);
-  --glass-border: rgba(255, 222, 150, 0.12);
-  --glass-blur: 16px;
-
-  /* Compatibility tokens for the vendored full apps: the standalone showcase
-     apps reference these names; map them onto the hub's cinematic palette so
-     the apps adopt the gold screening-room look inline. */
   --font-display: var(--display);
   --font-sans: var(--sans);
   --font-mono: var(--mono);
-  --magenta: var(--ember);
-  --magenta-soft: var(--ember-soft);
-  --magenta-glow: var(--ember-glow);
-  --text-dim: var(--paper-dim);
-  --ok: #3ddc91;
-  --warn: #ffcf5c;
 
-  --maxw: 1280px;
-  --gutter: clamp(20px, 5vw, 72px);
-  --radius: 14px;
+  --glass-bg: rgba(18, 20, 17, 0.62);
+  --glass-border: rgba(236, 246, 200, 0.1);
+  --glass-blur: 16px;
+
+  --magenta: var(--paper);
+  --magenta-soft: var(--paper);
+  --magenta-glow: rgba(238, 241, 228, 0.1);
+  --ok: var(--lime);
+  --warn: #dfb64a;
+  --bad: #e2634f;
+
+  --maxw: 1360px;
+  --gutter: clamp(20px, 4.5vw, 64px);
+  --radius: 12px;
+  --radius-lg: 22px;
+  --nav-h: 64px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur: 0.22s;
 
   color-scheme: dark;
   color: var(--text);
   background: var(--bg);
-  font: 400 17px/1.6 var(--sans);
-  letter-spacing: 0.1px;
+  font: 400 16px/1.55 var(--sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
 }
 
 * {
   box-sizing: border-box;
 }
 
+a,
+button,
+input {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea {
+  caret-color: var(--lime);
+}
+
+/* Scrollbar in the same material as the page. */
+html {
+  scrollbar-color: var(--ink-600) var(--ink-900);
+}
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: var(--ink-900);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ink-600);
+  border: 3px solid var(--ink-900);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--paper-faint);
+}
+
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--nav-h) + 16px);
+}
+
+body {
+  margin: 0;
+  min-height: 100svh;
+  background:
+    radial-gradient(120% 110% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.55) 100%),
+    var(--bg);
+  background-attachment: fixed;
+}
+/* The lime spill belongs to the object, so it only shows behind the hero. */
+body:has(.hero) {
+  background:
+    radial-gradient(1200px 640px at 50% -10%, rgba(205, 245, 58, 0.07), transparent 62%),
+    radial-gradient(120% 110% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.55) 100%),
+    var(--bg);
+}
+
+/* Fine grain so large dark fields do not read as flat digital black. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.86' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+  body::after {
+    display: none;
   }
   *,
   *::before,
@@ -86,34 +158,6 @@ html {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
-  }
-}
-
-body {
-  margin: 0;
-  background:
-    radial-gradient(1500px 760px at 50% -14%, rgba(242, 177, 60, 0.12), transparent 62%),
-    radial-gradient(1000px 640px at 86% 116%, rgba(216, 65, 63, 0.08), transparent 60%),
-    radial-gradient(130% 120% at 50% 46%, transparent 56%, rgba(0, 0, 0, 0.6) 100%),
-    var(--bg);
-  background-attachment: fixed;
-  min-height: 100svh;
-}
-
-/* Film grain: a fixed, non-interactive celluloid texture over the whole page. */
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  pointer-events: none;
-  opacity: 0.05;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-@media (prefers-reduced-motion: reduce) {
-  body::after {
-    display: none;
   }
 }
 
@@ -125,17 +169,6 @@ body::after {
   z-index: 0;
 }
 
-/* Warm celluloid glass surface for cinematic panels. */
-.glass-cine {
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow:
-    0 1px 0 rgba(255, 222, 150, 0.06) inset,
-    0 26px 64px rgba(0, 0, 0, 0.5);
-}
-
 h1,
 h2,
 h3 {
@@ -143,12 +176,14 @@ h3 {
   font-weight: 600;
   color: var(--text-strong);
   margin: 0;
-  letter-spacing: -0.02em;
-  line-height: 1.02;
+  letter-spacing: -0.035em;
+  line-height: 0.96;
+  text-wrap: balance;
 }
 
 p {
   margin: 0;
+  text-wrap: pretty;
 }
 
 a {
@@ -156,7 +191,8 @@ a {
   text-decoration: none;
 }
 
-ul {
+ul,
+ol {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -167,14 +203,14 @@ button {
 }
 
 ::selection {
-  background: var(--accent);
-  color: var(--ink-900);
+  background: var(--lime);
+  color: var(--lime-ink);
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent-soft);
+  outline: 2px solid var(--lime);
   outline-offset: 3px;
-  border-radius: 3px;
+  border-radius: 2px;
 }
 
 .mono {
@@ -182,7 +218,10 @@ button {
   font-feature-settings: 'zero' 1;
 }
 
-/* Shared layout */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
 .wrap {
   width: 100%;
   max-width: var(--maxw);
@@ -190,42 +229,34 @@ button {
   padding-inline: var(--gutter);
 }
 
-.eyebrow {
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--accent-soft);
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.eyebrow::before {
-  content: '';
-  width: 26px;
-  height: 1px;
-  background: var(--accent-line);
+/* Big number treated as type, never as a chart. */
+.metric {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: -0.06em;
+  line-height: 0.85;
+  font-feature-settings: "tnum" 1;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
 }
 
 .chip {
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.02em;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--paper-dim);
-  background: var(--ink-700);
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 4px 11px;
+  border-radius: 6px;
+  padding: 3px 8px;
   white-space: nowrap;
 }
 
 .skip-link {
   position: absolute;
   left: 16px;
-  top: -50px;
-  background: var(--accent);
-  color: var(--ink-900);
+  top: -60px;
+  background: var(--lime);
+  color: var(--lime-ink);
   padding: 10px 16px;
   border-radius: 8px;
   font-weight: 600;
@@ -236,11 +267,11 @@ button {
   top: 16px;
 }
 
-/* Buttons (shared across pages) */
+/* Buttons. One primary pill, one text link. */
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   font-size: 15px;
   font-weight: 500;
   padding: 13px 22px;
@@ -248,29 +279,61 @@ button {
   border: 1px solid transparent;
   cursor: pointer;
   transition:
-    transform 0.18s ease,
-    background 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease;
+    transform var(--dur) var(--ease-out),
+    background var(--dur) ease,
+    border-color var(--dur) ease,
+    color var(--dur) ease;
 }
-.btn:hover {
-  transform: translateY(-2px);
+.btn:active {
+  transform: translateY(1px) scale(0.99);
 }
 .btn--solid {
-  background: var(--accent);
-  color: var(--ink-900);
+  background: var(--lime);
+  color: var(--lime-ink);
   font-weight: 600;
 }
 .btn--solid:hover {
-  background: var(--accent-soft);
+  background: var(--lime-soft);
 }
 .btn--ghost {
-  border-color: var(--line);
+  border-color: var(--line-strong);
   color: var(--text-strong);
-  font-family: var(--mono);
-  font-size: 13px;
 }
 .btn--ghost:hover {
-  border-color: var(--accent-line);
-  background: var(--accent-glow);
+  border-color: var(--lime-line);
+  background: var(--lime-glow);
+}
+.btn__arrow {
+  display: inline-block;
+  transition: transform var(--dur) var(--ease-out);
+}
+.btn:hover .btn__arrow {
+  transform: translate(2px, -2px);
+}
+
+/* Text link with a hairline that draws in. */
+.tlink {
+  position: relative;
+  color: var(--text-strong);
+  padding-bottom: 2px;
+  background-image: linear-gradient(var(--lime), var(--lime));
+  background-repeat: no-repeat;
+  background-size: 0% 1px;
+  background-position: 0 100%;
+  transition:
+    background-size var(--dur) var(--ease-out),
+    color var(--dur) ease;
+}
+.tlink:hover {
+  background-size: 100% 1px;
+}
+
+/* Vertical rhythm helpers */
+.section {
+  padding-block: clamp(72px, 10vw, 140px);
+}
+.hairline {
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  margin: 0;
 }

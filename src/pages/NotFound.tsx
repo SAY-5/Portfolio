@@ -1,18 +1,25 @@
 import { Link } from 'react-router-dom';
+import Arrow from '../components/Arrow';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import '../styles/notfound.css';
 
 export default function NotFound() {
+  useDocumentTitle('Not found');
   return (
-    <section className="wrap" style={{ paddingBlock: '140px' }}>
-      <p className="eyebrow">404</p>
-      <h1 style={{ fontSize: 'clamp(40px, 8vw, 88px)', margin: '18px 0' }}>
-        Nothing here
+    <section className="wrap notfound" aria-labelledby="nf-title">
+      <h1 id="nf-title" className="notfound__title">
+        <span className="notfound__code">404</span>
+        <span className="notfound__text">Nothing at this address.</span>
       </h1>
-      <p style={{ maxWidth: '46ch', marginBottom: 28 }}>
-        That page does not exist. The work is still where it should be.
-      </p>
-      <Link className="chip" to="/work" style={{ padding: '10px 18px' }}>
-        Browse the work
-      </Link>
+      <p className="notfound__sub">Everything else is in the index.</p>
+      <div className="notfound__links">
+        <Link className="btn btn--solid" to="/work">
+          Open the index <Arrow className="btn__arrow" />
+        </Link>
+        <Link className="tlink" to="/">
+          Home
+        </Link>
+      </div>
     </section>
   );
 }
