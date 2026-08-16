@@ -96,7 +96,7 @@ export default function Detail() {
             </section>
 
             <section className="detail__section">
-              <h2 className="detail__h2">Worth knowing</h2>
+              <h2 className="detail__h2">Notes</h2>
               <ul className="detail__highlights">
                 {project.highlights.map((h, i) => (
                   <li key={i} className="detail__highlight">
