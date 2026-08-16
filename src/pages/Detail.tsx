@@ -117,13 +117,7 @@ export default function Detail() {
           <aside className="detail__aside">
             <div className="detail__panel">
               <h2 className="detail__panel-title">Stack</h2>
-              <ul className="detail__stack">
-                {project.stack.map((s) => (
-                  <li key={s} className="chip">
-                    {s}
-                  </li>
-                ))}
-              </ul>
+              <p className="detail__stack">{project.stack.join(', ')}</p>
             </div>
             <div className="detail__panel">
               <h2 className="detail__panel-title">Links</h2>

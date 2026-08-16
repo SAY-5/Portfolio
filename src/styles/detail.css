@@ -178,9 +178,9 @@
   font-weight: 500;
 }
 .detail__stack {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--paper-dim);
 }
 .detail__link-row {
   display: flex;

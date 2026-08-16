@@ -1,11 +1,8 @@
-import { projects, categories, languages } from './projects';
+import { projects, categories } from './projects';
 
 export type Bucket = { label: string; count: number };
 
 export const totalProjects = projects.length;
-
-// "Other" is a bucket, not a language.
-export const languageCount = languages.filter((l) => l !== 'Other').length;
 
 export const categoryBuckets: Bucket[] = categories
   .map((label) => ({
@@ -14,12 +11,3 @@ export const categoryBuckets: Bucket[] = categories
   }))
   .filter((b) => b.count > 0)
   .sort((a, b) => b.count - a.count);
-
-export const languageBuckets: Bucket[] = languages
-  .map((label) => ({
-    label,
-    count: projects.filter((p) => p.language === label).length,
-  }))
-  .sort((a, b) => b.count - a.count);
-
-export const topLanguages = languageBuckets.slice(0, 8);
