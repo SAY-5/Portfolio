@@ -20,7 +20,7 @@ export const flagships: string[] = ["scanguard", "cloudshift", "agentdesk", "tas
 export const projects: Project[] = [
   {
     name: "scanguard",
-    title: "scanguard",
+    title: "Scan preflight",
     tagline: `Preflight checks and bed orchestration for a research microPET scanner`,
     summary: `scanguard is the preflight and scan-sequence layer for a small-animal PET scanner. Before it there was a manual checklist and a script that kept failing. It runs a preflight engine over the checklist, then an orchestrator that drives the motorized bed, checks setup state, and waits for confirmation before each step. Instruments are addressed by serial and speak the SCPI text protocol, and every one of them can be simulated, so the whole thing runs with no hardware plugged in.`,
     category: "Instrumentation and Test",
@@ -38,7 +38,7 @@ export const projects: Project[] = [
   },
   {
     name: "quant-explorer",
-    title: "quant-explorer",
+    title: "Quantization explorer",
     tagline: `Post-training quantization tradeoffs on a CIFAR-10 CNN in PyTorch`,
     summary: `I wanted a clear answer to which PyTorch quantization mode is worth using on a small CNN, so quant-explorer trains an FP32 baseline on CIFAR-10 and then applies four configurations: dynamic INT8, static INT8 per-tensor, static INT8 per-channel, and quantization-aware training. Each one is measured on size, latency, peak memory, and top-1/top-5 accuracy, and the result is a Pareto-frontier table that marks which configs are not dominated, so a reader can pick a tradeoff. The same configs also run across two larger torchvision networks for a 12-cell grid. Those larger networks are measured from random-init weights, and the numbers say so rather than hiding it.`,
     category: "Data and ML",
@@ -72,7 +72,7 @@ export const projects: Project[] = [
   },
   {
     name: "streamcatalog",
-    title: "streamcatalog",
+    title: "Stream registry",
     tagline: `Catalog, access control, and lineage for Kafka event streams`,
     summary: `Teams register a Kafka stream in streamcatalog with its schema, owner, retention, tags, and access model, and consumers find and subscribe to it through a REST API without a manual handoff. Lineage is recorded, so from any stream you can walk to the producers upstream and the consumers downstream, and schema changes are checked against compatibility rules before they are accepted. It only catalogs and governs. The data itself never passes through it.`,
     category: "Infra and Distributed",
@@ -90,7 +90,7 @@ export const projects: Project[] = [
   },
   {
     name: "promptcatalog",
-    title: "promptcatalog",
+    title: "Pigeonhole",
     tagline: `Prompt taxonomy service with rules layered over a TF-IDF classifier`,
     summary: `promptcatalog takes incoming prompts, sorts them into a taxonomy, attaches an embedding to each, stores the result in PostgreSQL, and serves the categorized records to eval and drift-monitoring consumers over REST. The Go service owns the rules layer and the store; a Python sidecar runs a TF-IDF plus logistic regression classifier. Where a high-confidence rule fires, it overrides the classifier, which is the mechanism for correcting known classifier mistakes deterministically.`,
     category: "Data and ML",
@@ -108,7 +108,7 @@ export const projects: Project[] = [
   },
   {
     name: "equipfleet",
-    title: "equipfleet",
+    title: "Equipment uptime",
     tagline: `Equipment registry with daily utilization and uptime rollups`,
     summary: `Each piece of equipment registered in equipfleet has its status changes recorded over time as a step function, and a daily batch job rolls the day's events into per-asset and fleet-level utilization and uptime reports. The metric math sits in a pure interval calculator over a timeline of status segments, so the awkward cases (a status that spans midnight, events arriving out of order) can be tested on their own. One service layer backs both the REST API and the scheduled batch job. The stack is Java 21 and Spring Boot on PostgreSQL.`,
     category: "Web and Full-stack",
@@ -126,7 +126,7 @@ export const projects: Project[] = [
   },
   {
     name: "logiq",
-    title: "LogIQ",
+    title: "Partitioned log store",
     tagline: `Distributed log aggregation and query over a partitioned SQL store`,
     summary: `LogIQ takes log records in from an HTTP push endpoint and a file tailer, writes them into a partitioned SQL store, and answers queries over REST with indexed lookups and partition pruning. A batch is acknowledged only once it is written and flushed to a write-ahead log; after a crash, any batch that was acknowledged but not committed is replayed, and the replay is idempotent, so nothing is lost or duplicated. Partition keys come straight from a record's timestamp window, which lets workers write disjoint partitions without coordinating.`,
     category: "Infra and Distributed",
@@ -144,7 +144,7 @@ export const projects: Project[] = [
   },
   {
     name: "insightllm",
-    title: "InsightLLM",
+    title: "Reckoner",
     tagline: `Sales-table question answering through typed query intents`,
     summary: `Ask InsightLLM a question about a sales table in plain language and it turns the question into a typed query intent, runs that intent over the rows, and hands back the computed numbers together with the query that produced them. The translation goes through a provider seam that can only emit a typed QueryIntent, never an executable query string, and the runtime validates the intent against the schema before it touches any data. Grounding here means the numbers come from a real computation over the rows and the query sits next to the result.`,
     category: "Data and ML",
@@ -162,7 +162,7 @@ export const projects: Project[] = [
   },
   {
     name: "payscope",
-    title: "PayScope",
+    title: "Pay bands",
     tagline: `Salary percentile benchmarks by role and market over GraphQL`,
     summary: `Salary records go into PayScope through an ingestion pipeline, get normalized onto a canonical role and market taxonomy, and come out as pay percentile benchmarks (p10/p25/p50/p75/p90) by role and market. A React frontend reads the benchmarks over GraphQL and draws the percentile bands as interactive charts. Compensation cells are often sparse and heavy-tailed, so the benchmark layer uses rank-based percentiles, suppresses cells under a minimum sample count, and widens the tails when a cell is thin.`,
     category: "Web and Full-stack",
@@ -180,7 +180,7 @@ export const projects: Project[] = [
   },
   {
     name: "talentagent",
-    title: "TalentAgent",
+    title: "Shortlist",
     tagline: `Candidate-to-role matching agent with grounded, explained rankings`,
     summary: `TalentAgent takes a role, tool-calls a search backend to build a candidate pool, retrieves and ranks that pool through an embedding pipeline, and returns a ranked list where every entry comes with a grounded explanation. Each match shows a score breakdown (skill coverage, experience fit, semantic similarity), the requirements it satisfies with the matching skill as evidence, and the requirements it misses. When the top result is weak or two candidates are too close to call, a confidence gate flags the set for human review instead of asserting a match it is not sure of.`,
     category: "Agents and Language",
@@ -198,7 +198,7 @@ export const projects: Project[] = [
   },
   {
     name: "skillmatch",
-    title: "SkillMatch",
+    title: "Skill gaps",
     tagline: `Employee skill-gap inference from a calibrated scikit-learn model`,
     summary: `Give SkillMatch an employee's skill proficiencies and a target role's required levels and it works out which competencies sit below the role bar and by how much, then ranks development recommendations for closing those gaps. Under the hood a scikit-learn classifier predicts, per skill, whether a profile is below requirement; it is calibrated so the probability it returns is a usable confidence, and it is trained on a reproducible synthetic dataset kept in the repo. The React dashboard on top is checked for accessibility as part of the e2e run.`,
     category: "Data and ML",
@@ -216,7 +216,7 @@ export const projects: Project[] = [
   },
   {
     name: "talentllm",
-    title: "TalentLLM",
+    title: "Footnote",
     tagline: `Talent question answering with every answer traced to cited records`,
     summary: `TalentLLM answers plain-language questions over a structured talent and learning dataset. It retrieves the records relevant to the question, composes an answer strictly from those records, and returns the records it used as citations. A grounding guard checks that every content token in the answer traces back to a cited record, and if nothing clears the relevance threshold it declines rather than making something up. Both retrieval and composition run through a deterministic offline provider seam, which is also why the tests need no network.`,
     category: "Agents and Language",
@@ -234,7 +234,7 @@ export const projects: Project[] = [
   },
   {
     name: "agentflow",
-    title: "AgentFlow",
+    title: "Baton",
     tagline: `Workflow runtime for model-backed steps with retries, routing, and tracing`,
     summary: `A workflow in AgentFlow is a dependency DAG of named steps, and the runtime resolves execution order and passes each step's output forward to whatever depends on it. Every step runs under a retry policy with backoff and records its own trace. Model calls are routed across registered providers with fallback, and every model output is validated against a declared schema before it moves on. A FastAPI service exposes submit, status, result, and trace endpoints. The sleeper and clock behind the backoff are injected, so retry timing in CI is deterministic rather than tied to the wall clock.`,
     category: "Agents and Language",
@@ -252,7 +252,7 @@ export const projects: Project[] = [
   },
   {
     name: "testforge",
-    title: "testforge",
+    title: "Sluice",
     tagline: `CLI that proposes pytest cases, runs them, and reports uncovered lines`,
     summary: `testforge writes candidate pytest cases for a function you point it at, then compiles and runs each one under pytest in an isolated subprocess and keeps only the ones that pass. Whatever the kept cases still do not reach in the target gets listed as uncovered lines and branches, attributed to the functions that contain them and ranked worst first. The provider that ships is deterministic, so a run is repeatable and hermetic: the same target gives the same cases every time.`,
     category: "Instrumentation and Test",
@@ -270,7 +270,7 @@ export const projects: Project[] = [
   },
   {
     name: "triagegpt",
-    title: "TriageGPT",
+    title: "CI triage",
     tagline: `CI failure triage that finds similar past failures and suggests an owner`,
     summary: `When a CI job fails, TriageGPT reads the log, boils it down to a structured summary, and looks up the most similar past failures in an embeddings index ranked by cosine similarity. The neighbors' known owner and root-cause labels get aggregated into a ranked owner suggestion with a confidence, and the result comes out as JSON plus a Markdown comment a pipeline can post on its own. Summarization and embedding sit behind a provider seam, and the local defaults are deterministic, so the pipeline runs offline and the same log gets the same answer twice.`,
     category: "Developer Tools",
@@ -288,7 +288,7 @@ export const projects: Project[] = [
   },
   {
     name: "launchkit",
-    title: "LaunchKit",
+    title: "Groundwork",
     tagline: `Multi-tenant SaaS starter with auth, tenant isolation, and Stripe billing`,
     summary: `LaunchKit ships the day-one pieces of a new product: email and password auth with JWT, organization-scoped data, Stripe Checkout with a webhook handler, and one working in-product feature. Tenant isolation lives at the data-access layer in a TenantScope that injects the tenant filter, checks row ownership, and rejects cross-tenant reads and writes. FastAPI on Postgres for the backend, Next.js with TypeScript on the front.`,
     category: "Web and Full-stack",
@@ -306,7 +306,7 @@ export const projects: Project[] = [
   },
   {
     name: "cloudshift",
-    title: "cloudshift",
+    title: "Cutover",
     tagline: `Strangler-fig gateway and phased cutover for a Spring Boot monolith`,
     summary: `cloudshift is a worked example of carving one capability out of a Spring Boot monolith and moving its traffic to a new service one route at a time, no downtime. A Spring Cloud Gateway sits in front and sends each path to exactly one backend based on externalized routing state, which makes a cutover a config change instead of a code change. During the migration window both backends get every write and their stored records are compared, and rollback stays safe because the monolith never stops receiving writes. It is a reference toolkit: the example moves just one capability, reservations, and the gateway overhead numbers come from a local run.`,
     category: "Infra and Distributed",
@@ -324,7 +324,7 @@ export const projects: Project[] = [
   },
   {
     name: "clientflow",
-    title: "ClientFlow",
+    title: "Rulebook",
     tagline: `No-code rules engine with rules stored as data in Postgres`,
     summary: `ClientFlow keeps business rules as JSON in Postgres so someone who does not write code can change the logic from a React rule builder without anyone redeploying. A rule is a typed tree of comparisons and AND/OR groups. The interpreter walks that tree, never calls eval or exec, and returns false for any node it cannot perform safely. Every save creates a new version behind an atomic active pointer, and a dry-run evaluates a candidate version against sample inputs while the live one stays untouched.`,
     category: "Developer Tools",
@@ -342,7 +342,7 @@ export const projects: Project[] = [
   },
   {
     name: "agentdesk",
-    title: "AgentDesk",
+    title: "Concierge",
     tagline: `Customer-operations agent that resolves requests or hands off to a human`,
     summary: `An inbound customer request lands in AgentDesk, which runs a tool-calling loop against a backend and then either resolves it or, when its confidence drops below a threshold, escalates to a human. Confidence is the provider's signal for its proposal multiplied by the fraction of tool calls that succeeded, so a weak signal or a single failed call drags it down. A React console lets an operator watch the queue, the tool trace, the proposed resolution, and the escalations waiting on a decision. Nothing gets resolved without a full transcript behind it, and a human can replay one to approve or override.`,
     category: "Agents and Language",
@@ -360,7 +360,7 @@ export const projects: Project[] = [
   },
   {
     name: "taskboard",
-    title: "TaskBoard",
+    title: "Kanban board",
     tagline: `Collaborative Kanban board with conflict resolution over WebSocket`,
     summary: `TaskBoard keeps boards and cards as MongoDB documents behind a Spring Boot REST and WebSocket service, and a React drag-and-drop frontend pushes every change to every connected client. The board structure is one document, and each column's cardOrder array is the source of truth for where a card sits and in what order. When two people move the same card at once, optimistic locking decides which save wins and a monotonic seq breaks the tie for the final column, so the card is never duplicated or lost. Presence tracking and an activity feed sit alongside, so you can see who is looking and who did what.`,
     category: "Web and Full-stack",
@@ -378,7 +378,7 @@ export const projects: Project[] = [
   },
   {
     name: "shopflow",
-    title: "ShopFlow",
+    title: "Storefront services",
     tagline: `Spring Boot e-commerce services behind a REST gateway, one database each`,
     summary: `ShopFlow breaks an e-commerce platform into catalog, cart, and orders services, each with its own Postgres database, all behind a single Spring Cloud Gateway that the React storefront talks to. Placing an order crosses the catalog and orders services as a saga: it reserves inventory line by line and, if any step fails, runs compensating releases in reverse, so a failed placement leaves no units reserved and no order row. Each gateway route sits inside a Resilience4j circuit breaker with a timeout and a fallback, so one sick service does not hang the gateway. Migrations are Flyway and the tests run against Testcontainers.`,
     category: "Infra and Distributed",
@@ -396,7 +396,7 @@ export const projects: Project[] = [
   },
   {
     name: "tracesift",
-    title: "TraceSift",
+    title: "Failure signatures",
     tagline: `CLI that clusters intermittent test failures by signature and correlates with telemetry`,
     summary: `TraceSift reads test-run and device logs across many runs, strips the timestamps, addresses, PIDs, paths and numbers out of each failure to get a canonical signature, then clusters the signatures that recur and correlates each cluster with the per-run telemetry. Out of that it ranks which telemetry conditions most likely drive a failure and labels each cluster real or flaky. There are no model or network calls, so the same input always produces the same report, which is what makes it usable as a CI gate.`,
     category: "Instrumentation and Test",
@@ -414,7 +414,7 @@ export const projects: Project[] = [
   },
   {
     name: "hilbench",
-    title: "HILBench",
+    title: "HIL test runner",
     tagline: `Hardware-in-the-loop test runner driving a simulated device through YAML scenarios`,
     summary: `HILBench runs a device under test through scripted YAML scenarios, records the response and latency of every step, and checks each against an expected value and a timing budget, then writes JSON, JUnit XML, and human-readable reports for CI to pick up. The DUT that ships is a simulated motor-controller state machine; the same scenarios run against real hardware by swapping the in-process transport for a TCP one. Timing tolerance, bounded retry on transient failures, and flake detection are there for noisy benches.`,
     category: "Instrumentation and Test",
@@ -432,7 +432,7 @@ export const projects: Project[] = [
   },
   {
     name: "gradeview",
-    title: "GradeView",
+    title: "Report card",
     tagline: `Learning-analytics dashboard with hand-rolled D3 charts over SQL aggregation`,
     summary: `GradeView shows how a class of learners moves through a term: class-wide trends, then a drill into a single skill to see where people struggle and which questions fail most. Aggregation (running mastery, percentile bands, struggle ranking, change-point detection) happens in Postgres, and the charts are written straight against the d3 modules instead of a chart library. The seed data bakes in two signals: one skill that is hard for everyone, and a whole-class regression on one skill in a single week.`,
     category: "Data and ML",
@@ -450,7 +450,7 @@ export const projects: Project[] = [
   },
   {
     name: "frameprobe",
-    title: "FrameProbe",
+    title: "Frame budget",
     tagline: `C++20 pipeline that measures vision inference against a real-time frame budget`,
     summary: `I wanted to know how an object detector holds up when it has to keep pace with a soft real-time frame budget, so FrameProbe decodes a video with OpenCV, runs a detector over each frame, and measures the result. The pipeline is three threads joined by bounded queues; each frame carries an arrival timestamp and a target FPS sets its deadline. When inference falls behind, the bounded queue applies back-pressure or drops frames, and an adaptive controller skips frames in proportion to how far behind things are. The detector that runs in CI is a deterministic stub, so output is bit-identical across thread counts while the latency numbers are still real timings.`,
     category: "Systems and C++",
@@ -468,7 +468,7 @@ export const projects: Project[] = [
   },
   {
     name: "reviewmate",
-    title: "reviewmate",
+    title: "Second opinion",
     tagline: `Advisory code review over a unified diff, with risk ranking`,
     summary: `Give reviewmate a unified diff and it walks the changed files and hunks, runs a review agent over them, and hands back structured review comments plus a ranked list of the risky changes. It is advisory only: it never approves and never merges. The agent pulls extra context on demand through a small tool interface, and every call out to a model provider goes through guardrails: an input size cap, secret redaction, output schema validation, and a tool-call allowlist. Risk scoring is deterministic, so two runs over the same diff rank the same.`,
     category: "Developer Tools",
@@ -486,7 +486,7 @@ export const projects: Project[] = [
   },
   {
     name: "codelens",
-    title: "codelens",
+    title: "Symbol graph",
     tagline: `Go AST symbol and reference graph, served over GraphQL`,
     summary: `Point codelens at a Go source tree and it indexes definitions, references, and call edges into Postgres, then serves that graph over GraphQL to a React browser that does jump-to-definition and find-references. The indexer is its own binary. A Python sidecar ranks related symbols behind a provider seam, so the ranking backend can be swapped out. The find-references path was the hot spot; it now answers from a covering index with a single join instead of the N+1 baseline.`,
     category: "Developer Tools",
@@ -504,7 +504,7 @@ export const projects: Project[] = [
   },
   {
     name: "fleetwatch",
-    title: "FleetWatch",
+    title: "Eye chart",
     tagline: `Precision, recall, and mAP tracking across a simulated robot fleet`,
     summary: `FleetWatch scores object detection across a robot fleet. Each unit sends per-frame detections, those get matched against ground-truth labels, and out come precision, recall, and mAP per unit, tracked over time so drift is visible. Dashboards and trend alerts point at which units got worse and under which conditions (lighting, weather, distance). Ingest and the dashboard are Python 3.12; the number crunching sits in a separate C++20 aggregator.`,
     category: "Data and ML",
@@ -522,7 +522,7 @@ export const projects: Project[] = [
   },
   {
     name: "learnloop",
-    title: "LearnLoop",
+    title: "Sparring partner",
     tagline: `Adaptive practice with Elo-style difficulty and per-skill mastery tracking`,
     summary: `LearnLoop is a web app where a learner answers questions and an Elo-style engine picks the next one based on how they have been doing lately. Every learner carries a rating per skill and every question carries a difficulty rating; both move with an Elo formula after each answer. The selector picks the question whose expected success is closest to 70 percent. Per-skill mastery comes out of an event-sourced log of responses, bucketed into levels.`,
     category: "Web and Full-stack",
@@ -540,7 +540,7 @@ export const projects: Project[] = [
   },
   {
     name: "promptaudit",
-    title: "PromptAudit",
+    title: "Bouncer",
     tagline: `Safety, jailbreak-resistance, and quality checks that fail the CI build`,
     summary: `PromptAudit is a pre-merge check, not a service. It takes a model's or prompt's outputs, runs them through three gates (safety, jailbreak-resistance, quality), scores each against a rubric, compares the result to a committed baseline, and fails the build if anything regressed. Each run writes a structured per-model report. Every baseline comparison carries a two-proportion z-test, so the report can say whether a drop is significant instead of just negative.`,
     category: "Agents and Language",
@@ -558,7 +558,7 @@ export const projects: Project[] = [
   },
   {
     name: "govgate",
-    title: "GovGate",
+    title: "Intake register",
     tagline: `Risk-scored intake register for model tools inside an organization`,
     summary: `When a team inside an organization wants to adopt a model tool, they submit it to GovGate. It checks the tool against a configurable requirements checklist, scores risk per category and overall, writes a structured report, and files the result in a register you can query later. The register API and the deterministic checklist scoring are a Go service on Postgres, sized for high throughput; the report writer is a separate Python service.`,
     category: "Agents and Language",
@@ -576,7 +576,7 @@ export const projects: Project[] = [
   },
   {
     name: "cloudflow",
-    title: "CloudFlow",
+    title: "Hybrid cloud ops",
     tagline: `Hybrid-cloud microservices on Kubernetes with a log-grounded ops-assistant`,
     summary: `CloudFlow is a small fleet of Java 21 and Spring Boot services behind a gateway. Their structured logs land in Postgres with pgvector, and an ops-assistant answers operational questions grounded in those logs and the platform's runbooks. A React dashboard fronts it; a Helm chart puts the whole thing on Kubernetes. When the retrieval endpoint answers, it cites the specific log line and doc-section ids it used, and a test enforces that every cited id was in the retrieved candidate set. It cannot cite something it never fetched.`,
     category: "Infra and Distributed",
@@ -594,7 +594,7 @@ export const projects: Project[] = [
   },
   {
     name: "datapipe",
-    title: "DataPipe",
+    title: "Step runner",
     tagline: `Containerized workflow steps run in dependency order with retries and resume`,
     summary: `DataPipe runs containerized processing steps in dependency order, retries the ones that fail, and exposes a REST API for submitting and watching workflow runs. Workflows are YAML, and the DAG edges are inferred from step input references. Every run and every step result goes into PostgreSQL, so any execution can be rebuilt from the database after the fact. Steps normally run in their own Docker image, but they can also run as a local process, which is how the tests stay hermetic.`,
     category: "Infra and Distributed",
@@ -612,7 +612,7 @@ export const projects: Project[] = [
   },
   {
     name: "clusterrun",
-    title: "ClusterRun",
+    title: "Dispatcher",
     tagline: `Distributed job runner in C++20 with capability matching and checkpoints`,
     summary: `ClusterRun coordinates a controller and a fleet of workers over a shared queue for heavy compute jobs. Workers can be local processes or AWS instances; each one reports what it has (cpu, memory, AVX2, GPU) and jobs declare what they need in a requires block. The controller only places a job where it fits. Lose a worker mid-run and the controller redrives the job elsewhere. Long jobs checkpoint to object storage, so the redriven job resumes from the last checkpoint on a different worker instead of starting over. In CI the queue and object store are LocalStack, not real AWS.`,
     category: "Infra and Distributed",
@@ -630,7 +630,7 @@ export const projects: Project[] = [
   },
   {
     name: "meshslice",
-    title: "meshslice",
+    title: "Parallel mesh ops",
     tagline: `Parallel 3D mesh processing in C++20 with bit-identical output`,
     summary: `Give meshslice a triangle mesh and it partitions it into independent spatial work units, runs each on a bounded-memory thread pool, and merges the results in a canonical order. The output is bit-identical regardless of thread count or scheduling. Four per-unit operators ship (decimate, normals, bbox stats, voxel count), and the embarrassingly-parallel ones scale near-linearly across cores. A streaming loader partitions as it reads, so peak memory stays bounded no matter how big the input is.`,
     category: "Systems and C++",
@@ -666,7 +666,7 @@ export const projects: Project[] = [
   },
   {
     name: "speclang",
-    title: "SpecLang",
+    title: "Procedure DSL",
     tagline: `Step-based procedure DSL with a sandboxed Python execution engine`,
     summary: `SpecLang is a small language for procedures: declare reusable step definitions, compose them into a procedure, run it. A Lark parser turns source into a typed Pydantic AST, a validator checks the AST, and the engine executes each step's short Python body inside a sandbox. The bodies are real Python, but only a fenced-in slice of it, and each one runs on a clock. Types go through mypy and the code through ruff.`,
     category: "Developer Tools",
@@ -684,7 +684,7 @@ export const projects: Project[] = [
   },
   {
     name: "localebridge",
-    title: "LocaleBridge",
+    title: "Phrasebook",
     tagline: `Extracts, translates, and validates UI strings on every pull request`,
     summary: `LocaleBridge is a localization pipeline for web apps: it finds the translatable strings, gets them translated, checks the results, and writes them back per locale, all inside the pull request flow. A TypeScript extractor walks the React source tree; a Python orchestrator routes the strings through translation and review. Before anything is written to the per-locale JSON files, validators check ICU MessageFormat correctness, Unicode safety, and plural-rule coverage. It runs as a CI action and leaves a diff comment on each PR.`,
     category: "Web and Full-stack",
@@ -702,7 +702,7 @@ export const projects: Project[] = [
   },
   {
     name: "evalforge",
-    title: "EvalForge",
+    title: "Referee",
     tagline: `Inline scoring and moderation gate for model outputs`,
     summary: `Other services call EvalForge, a FastAPI service, in the hot path: send a model output to POST /v1/evaluate and get back a verdict scored on quality, safety, and moderation. Every check is persisted to Postgres. Anything flagged lands in a review queue where a human triages it, and corrections on false positives feed back into the scorer. A React dashboard lets you look at flagged outputs across prompt versions. The under-200ms p99 figure comes from CI runs with a FakeProvider.`,
     category: "Agents and Language",
@@ -720,7 +720,7 @@ export const projects: Project[] = [
   },
   {
     name: "promptforge",
-    title: "PromptForge",
+    title: "Better or worse",
     tagline: `Regression checks that say whether prompt v3 beats v2`,
     summary: `PromptForge answers one question: did the new version of a prompt get better or worse? Templates are stored as immutable (name, version) pairs and each version runs against a 200-example test suite. Scoring parses every response against a Pydantic schema and compares key fields, with per-call cost and latency recorded alongside. A two-proportion z-test flags regressions, and a FastAPI dashboard shows per-prompt history, cost, and latency. Since v4 there is also a spending cap: a run whose projected cost would push an org past its daily budget is refused with BudgetError.`,
     category: "Agents and Language",
@@ -738,7 +738,7 @@ export const projects: Project[] = [
   },
   {
     name: "convoengine",
-    title: "ConvoEngine",
+    title: "Switchboard",
     tagline: `Conversation backend that follows one user across email and chat`,
     summary: `ConvoEngine is a FastAPI service that handles conversation turns for one user across email and chat. It finds the existing conversation by sender identity, which is how a thread that starts in a polled inbox carries on over a chat webhook without losing its place. Each conversation has its own state machine, encoded as data and persisted to Postgres, and every model response is validated against a Pydantic schema before anything acts on it. When confidence falls under a configurable threshold, the service replies with a template or hands the thread to an operator queue.`,
     category: "Agents and Language",
@@ -774,7 +774,7 @@ export const projects: Project[] = [
   },
   {
     name: "flowdeck",
-    title: "FlowDeck",
+    title: "Ops console",
     tagline: `Ops console for triaging high-volume records, with optimistic updates and RBAC`,
     summary: `FlowDeck is an internal operations console for working through large volumes of operational records. React and TypeScript on the front, Python gRPC behind, with an Envoy grpc_web filter between them so the browser speaks gRPC-web while the backend stays plain gRPC. Filtering is faceted and the server sends facet counts back with every page of records. Actions on a record are optimistic: the cache changes before the server answers, and rolls back if the call fails. Access is split into three roles (viewer, operator, supervisor), enforced in a gRPC interceptor.`,
     category: "Web and Full-stack",
@@ -792,7 +792,7 @@ export const projects: Project[] = [
   },
   {
     name: "ledgercore",
-    title: "ledgercore",
+    title: "Double entry",
     tagline: `Concurrent double-entry payments ledger in C++20 with lock-free intake and a WAL`,
     summary: `ledgercore takes payment transactions over gRPC and runs them through a strict path: per-worker lock-free SPSC ring buffers on intake, a write-ahead log entry before any state changes, then apply to memory and to Postgres. The double-entry rule, that debit and credit sums must be equal, is checked at three points along the way, and three layers of idempotency keys stop the same payment from being charged twice. Workers are partitioned by account, which is what keeps throughput high on a single host. The apply-time check does not try to recover: if it finds memory corruption, it calls abort().`,
     category: "Systems and C++",
@@ -810,7 +810,7 @@ export const projects: Project[] = [
   },
   {
     name: "reviewdeck",
-    title: "ReviewDeck",
+    title: "Docket",
     tagline: `Document review app with faceted search and a virtualized 100k-row list`,
     summary: `ReviewDeck is a document review app with React and TypeScript on the front and a .NET minimal API over Postgres behind it. It has faceted search, cursor pagination, role-based access control, and a virtualized list meant to stay smooth at 100k rows. The README calls it a work in progress, with the endpoints, schema, and benchmarks still to be written up once the build is done.`,
     category: "Web and Full-stack",
@@ -828,7 +828,7 @@ export const projects: Project[] = [
   },
   {
     name: "ingestforge",
-    title: "IngestForge",
+    title: "Thresher",
     tagline: `Kafka-fed pipeline that pulls text out of PDF, DOCX, HTML, and email`,
     summary: `IngestForge pulls documents off Kafka and turns them into text. It is C# on .NET 8, with pluggable extractors for PDF, DOCX, HTML, plain text, and RFC822 email. Every message carries a dedup key that gets recorded in Postgres before any work starts; a redelivered message does nothing. A partitioned worker pool with manual commit and bounded per-partition parallelism is sized for 200k documents per hour on one node. Poison messages go to a dead-letter topic after a set number of attempts, and a benchmark suite in the repo reports real throughput numbers.`,
     category: "Data and ML",
@@ -846,7 +846,7 @@ export const projects: Project[] = [
   },
   {
     name: "configmesh",
-    title: "configmesh",
+    title: "Config push",
     tagline: `Config and feature-flag service that pushes changes over gRPC streams`,
     summary: `configmesh is a Go config and feature-flag service. Instead of polling, clients hold a long-lived gRPC bidi stream and the server sends config changes down it within milliseconds of a write. Storage is Redis, with monotonic per-key versions from atomic INCR and SET, and a token-bucket rate limiter written as a Redis Lua script keeps a misbehaving client from flooding the streaming layer. Feature flags are stable-hash percentage rollouts. There is a propagation test that measures write-to-subscriber latency against a real Redis.`,
     category: "Infra and Distributed",
@@ -864,7 +864,7 @@ export const projects: Project[] = [
   },
   {
     name: "vectorsearch",
-    title: "vectorsearch",
+    title: "Hybrid search",
     tagline: `Hybrid search that fuses vector and BM25 rankings with Reciprocal Rank Fusion`,
     summary: `vectorsearch is a hybrid semantic search engine in Go on top of pgvector. Documents come in from a Kafka topic and get both a vector embedding and a BM25 inverted-index entry in Postgres. A query runs vector cosine top-K and BM25 top-K in parallel and merges the two lists with Reciprocal Rank Fusion. The Kafka consumer is idempotent on (source, doc_id), so replaying the topic changes nothing. Out of the box the embedder is a deterministic hash, which keeps CI hermetic; a real embedder sits behind an env flag.`,
     category: "Data and ML",
@@ -882,7 +882,7 @@ export const projects: Project[] = [
   },
   {
     name: "mcp-agentlab",
-    title: "AgentLab",
+    title: "Agent loop",
     tagline: `Go orchestrator running an agent loop over MCP-style tool subprocesses`,
     summary: `Eight Python tool servers, each speaking JSON-RPC 2.0 over stdio, and a Go orchestrator that runs a multi-step agent loop across them. Every tool declares a JSON Schema for its result and the orchestrator validates each response before the next step sees it. Retries are bounded, with an explicit classifier deciding whether an error is transient or permanent, and every step emits an OpenTelemetry-style span tree that records attempts and result previews.`,
     category: "Agents and Language",
@@ -900,7 +900,7 @@ export const projects: Project[] = [
   },
   {
     name: "edgemesh",
-    title: "EdgeMesh",
+    title: "Edge sidecar",
     tagline: `Go service-mesh sidecar for Kubernetes pods on flaky edge networks`,
     summary: `Every pod gets an edgemesh sidecar, and the sidecar owns the outbound RPC path: gRPC client multiplexing, active health checking, retry with classified backoff, and round-robin or least-pending load balancing. Defaults assume an edge network, meaning variable latency, asymmetric partitions, and nodes that drop out for minutes at a time. A 12-node chaos suite is committed to the repo and runs on every CI build, timing how long the mesh takes to converge after each fault.`,
     category: "Infra and Distributed",
@@ -918,7 +918,7 @@ export const projects: Project[] = [
   },
   {
     name: "mfg-test-controller",
-    title: "mfg-test-controller",
+    title: "Modbus test station",
     tagline: `Python TCP test-station controller with simulated Modbus instruments and fault injection`,
     summary: `A manufacturing test controller in Python. It talks to simulated instruments over loopback TCP/IP with Modbus-style register reads and writes, checks each measurement against a per-step threshold, and writes a pass/fail report for the station. The simulated devices can be told to misbehave: drift, freeze a register, delay, corrupt a CRC, or drop the connection. A Flask web UI streams each step to the browser over Server-Sent Events.`,
     category: "Instrumentation and Test",
@@ -936,7 +936,7 @@ export const projects: Project[] = [
   },
   {
     name: "station-diag-dashboard",
-    title: "station-diag-dashboard",
+    title: "Bench diagnostics",
     tagline: `Go WebSocket diagnostics dashboard for a hardware test bench`,
     summary: `Test stations write newline-delimited JSON log lines. The service ingests them, persists each run, fans events out to browser dashboards over WebSocket, and runs a YAML-driven rule engine that flags actuator failure signatures as they happen. Failures that show up across several subsystems in the same window get correlated into one incident with a probable root cause, and operators can attach notes and export a Markdown report.`,
     category: "Instrumentation and Test",
@@ -954,7 +954,7 @@ export const projects: Project[] = [
   },
   {
     name: "mdfeed-itch",
-    title: "mdfeed-itch",
+    title: "ITCH feed handler",
     tagline: `NASDAQ ITCH 5.0 multicast feed handler with gap-fill recovery`,
     summary: `mdfeed-itch reads the NASDAQ TotalView-ITCH 5.0 wire format straight off a UDP multicast group and keeps a depth-10 order book per symbol. Sequence numbers are tracked per stock locate, so a missing packet shows up as a gap; when that happens the handler requests a snapshot plus gap-fill over a TCP control channel and rebuilds from there. It also publishes binary depth-10 book snapshots that subscribers rebuild and verify on their side. The whole thing is C++20; parse and book-apply run on a single thread, and that is how the numbers below were measured.`,
     category: "Systems and C++",
@@ -972,7 +972,7 @@ export const projects: Project[] = [
   },
   {
     name: "raftkv",
-    title: "raftkv",
+    title: "Raft KV",
     tagline: `Raft consensus key-value store in C++20 across a 3-node cluster`,
     summary: `Raft, written from scratch in C++20: leader election, AppendEntries log replication, InstallSnapshot compaction, and a gRPC Put/Get/Delete client API on a 3-node cluster. The correctness story is a chaos suite that partitions nodes, kills and restarts them, and adds random per-RPC delays while clients keep writing, plus property tests that check the Raft Figure-2 log invariants after every step. It has been benched at 3, 5, and 7 nodes as well, and throughput falls as fan-out grows.`,
     category: "Infra and Distributed",
@@ -990,7 +990,7 @@ export const projects: Project[] = [
   },
   {
     name: "columnstore",
-    title: "columnstore",
+    title: "Column store",
     tagline: `In-memory columnar query engine with AVX2 filter and sum kernels`,
     summary: `columnstore is a C++17 column-store query engine with hand-written AVX2 intrinsics for int32 filter and sum. Columns move through the pipeline in 4096-value batches, low-cardinality columns get run-length or dictionary encoding, and CPU-feature detection picks the AVX2 or scalar path at runtime. Every SIMD operator has a scalar reference and the two are checked for bit-exact equality. The filter kernel gets a large speedup over scalar; the sum kernel gets a more modest 1.32x.`,
     category: "Data and ML",
@@ -1044,7 +1044,7 @@ export const projects: Project[] = [
   },
   {
     name: "mdfeed-handler",
-    title: "mdfeed-handler",
+    title: "Consolidated tape",
     tagline: `UDP feed handler normalizing two venue formats into one BBO book`,
     summary: `mdfeed-handler takes simulated price updates from two synthetic venues over UDP, one speaking a binary wire format and the other ASCII, and normalizes both into a single internal message before updating a per-symbol best-bid/best-offer book in a flat hash map. Latency is measured per message with an HDR-style log-linear histogram, and there are two separate percentile streams: one for the sub-microsecond parse and one for the venue-to-recv syscall path, which lives in the microsecond range. Everything is C++20 on POSIX UDP, and the venues are synthetic, not real exchange feeds.`,
     category: "Systems and C++",
@@ -1062,7 +1062,7 @@ export const projects: Project[] = [
   },
   {
     name: "CStyleCheck",
-    title: "CStyleCheck",
+    title: "Embedded C linter",
     tagline: `Style and naming checker for embedded C, run in CI or pre-commit`,
     summary: `A stdlib-only Python linter for embedded C source that enforces Barr-C:2018 and MISRA-C complementary rules across 50 rule IDs. Run it as a GitHub Action, a pre-commit hook, or a Docker image; output is text, JSON, or SARIF 2.1.0, and the SARIF feeds GitHub Code Scanning. Baseline suppression is there so a team can switch it on against legacy code and see only new violations instead of a wall of day-one noise. The linter itself is about 3,200 lines, and each rule category has pytest coverage.`,
     category: "Developer Tools",
@@ -1080,7 +1080,7 @@ export const projects: Project[] = [
   },
   {
     name: "task-processor",
-    title: "task-processor",
+    title: "SQS task worker",
     tagline: `SQS and DynamoDB task processor with idempotent dedup and DLQ routing`,
     summary: `A Java consumer that pulls tasks off SQS, writes per-task state to DynamoDB, and sends anything that exhausts its retries to a dead-letter queue. SQS is at-least-once, so the dedup critical section is a single DynamoDB conditional put; there are no locks and no Redis. Failed tasks live in two places on purpose, a queryable DynamoDB table and a replayable SQS queue, and an admin endpoint pushes one back onto the main queue. Per-consumer metrics go to CloudWatch, and the dashboard JSON is committed to the repo and installed at boot.`,
     category: "Infra and Distributed",
@@ -1098,7 +1098,7 @@ export const projects: Project[] = [
   },
   {
     name: "inventory-tracker",
-    title: "inventory-tracker",
+    title: "Earmark",
     tagline: `Oversell-proof SKU reservations across three warehouse nodes on DynamoDB`,
     summary: `Three warehouse nodes in a Java service share stock counts through DynamoDB, and every reservation is a conditional UpdateItem, so two nodes racing on the same SKU cannot oversell it. When a write succeeds it fans out over SQS and the peer nodes refresh a local Caffeine cache; CloudWatch alarms are reconciled from a YAML file at startup. The one rule I held to is that DynamoDB is the only source of truth. SQS messages are derived cache refreshers with request-id deduplication, nothing more.`,
     category: "Infra and Distributed",
@@ -1116,7 +1116,7 @@ export const projects: Project[] = [
   },
   {
     name: "inference-router",
-    title: "inference-router",
+    title: "Last call",
     tagline: `Linux TCP request router with a thread pool and zero-drop graceful shutdown`,
     summary: `inference-router accepts client connections on a single epoll acceptor, hands each request to a fixed worker thread pool, and forwards it over a thread-safe connection pool to backend workers. The wire protocol is a 4-byte big-endian length prefix and an opaque payload the router never parses. Shutdown is a drain protocol: on SIGTERM it closes the listening socket, waits for in-flight requests to finish, then stops the workers, and CI checks that the dropped counter stays at zero. Linux only, C++20, and what is inside the payload is none of its business.`,
     category: "Systems and C++",
@@ -1134,7 +1134,7 @@ export const projects: Project[] = [
   },
   {
     name: "eval-observability",
-    title: "eval-observability",
+    title: "Traced evals",
     tagline: `Eval framework with per-call OpenTelemetry traces and daily regression detection`,
     summary: `Every call in this eval framework emits a nested OpenTelemetry span hierarchy (suite, category, example, llm_call), and the structured logs carry the matching trace_id, so a log line and its trace can be found from each other. Runs go through a Click CLI. A daily cron job compares the last 7 days against the 7 before that, per category, and writes a regression report to Postgres. Categories get flagged only when the mean drops by more than 2 percentage points and the t-test reaches significance, and that t-test is pure Python rather than a scipy import.`,
     category: "Agents and Language",
@@ -1152,7 +1152,7 @@ export const projects: Project[] = [
   },
   {
     name: "onnx-deploy",
-    title: "onnx-deploy",
+    title: "Chain of custody",
     tagline: `PyTorch to ONNX export with parity checks, batch benchmarks, and manifests`,
     summary: `Takes a PyTorch module, exports it to ONNX, then checks that the serving runtime agrees numerically with training by reporting every output index whose absolute difference exceeds a per-dtype tolerance. It benchmarks latency at batch sizes [1, 4, 16, 64] on both PyTorch and ONNX Runtime and builds a Docker image whose /manifest endpoint reports the model, the parity result, and the exact artifact sha256. That manifest is how a running container gets traced back to the export that produced it. One thing I learned from the bench: on CPU, fp16 shrinks the file but does not make it faster.`,
     category: "Data and ML",
@@ -1170,7 +1170,7 @@ export const projects: Project[] = [
   },
   {
     name: "compliance-bootstrap",
-    title: "compliance-bootstrap",
+    title: "Punch list",
     tagline: `Linux compliance auditor with 33 CIS-flavored checks and Bash remediation snippets`,
     summary: `A pull-based audit runner for Linux hosts. It evaluates 33 checks across filesystem, SSH, PAM, auditd, network, packages, and kernel, modelled on the CIS Ubuntu 22.04 benchmark, and each one comes back as pass, fail, skip, or unavailable. When something fails, the Markdown report carries a shellcheck-clean, idempotent Bash snippet right next to it, ready to paste and run. A YAML policy names which checks run and rejects unknown ids up front, so a typo cannot quietly skip a control. On the sample macOS run, 19 of the 33 checks come back unavailable.`,
     category: "Infra and Distributed",
@@ -1188,7 +1188,7 @@ export const projects: Project[] = [
   },
   {
     name: "query-api",
-    title: "query-api",
+    title: "Read path",
     tagline: `Java read API with committed EXPLAIN plans and a CI plan-regression gate`,
     summary: `The read path is the whole point here. It is a Spring Boot 3 API over JDBC and Postgres 16 where every endpoint has a committed EXPLAIN (ANALYZE, BUFFERS) plan and a query-count assertion in its tests. On each PR a CI job regenerates the plans and fails the build if a sequential scan shows up over a large table. Along the way I removed an N+1 with fan-in queries, added a strategic index set and a materialized view, and compared virtual threads against the Tomcat pool on local hardware. Virtual threads lost that comparison, and I kept the result rather than burying it.`,
     category: "Web and Full-stack",
@@ -1224,7 +1224,7 @@ export const projects: Project[] = [
   },
   {
     name: "infra-monitor",
-    title: "infra-monitor",
+    title: "Alarm panel",
     tagline: `Infra alerts with an arming state machine and HMAC-signed webhooks`,
     summary: `Metrics from Linux hosts and from AWS land in the same store: hosts report through a psutil agent, AWS through CloudWatch GetMetricData, and the samples go into SQLite as time series with trend charts on a FastAPI dashboard. Threshold alerts walk through OK, ARMING, FIRING, and COOLDOWN, send HMAC-signed webhooks, and can run a configurable Bash remediation script. Under hypothesis testing with random metric streams, the state machine fires at most once per cooldown window. Each script run goes into an audit log with the exit code and stdout and stderr excerpts, so you can see what the monitor did to a host and when.`,
     category: "Infra and Distributed",
@@ -1242,7 +1242,7 @@ export const projects: Project[] = [
   },
   {
     name: "devops-pipeline",
-    title: "devops-pipeline",
+    title: "Carbon copy",
     tagline: `Reference Node.js CI/CD pipeline mirrored in GitHub Actions and Azure DevOps`,
     summary: `The app is a small Express, TypeScript, and Zod todo API, and it exists mainly so the pipeline has something real to gate. Lint, typecheck, and unit tests with a coverage gate run in parallel, then a Cypress e2e matrix across Chrome, Firefox, and Edge with cypress-axe accessibility checks, then a Docker build and one staging deploy that waits on every job before it. The same pipeline is written twice, once as a GitHub Actions workflow and once as a 1:1 Azure DevOps mirror with the same job set.`,
     category: "Developer Tools",
@@ -1260,7 +1260,7 @@ export const projects: Project[] = [
   },
   {
     name: "export-validator",
-    title: "export-validator",
+    title: "Layer parity check",
     tagline: `Layer-by-layer parity check between PyTorch and its ONNX export`,
     summary: `A top-level output diff tells you an ONNX export drifted, not where. This walks the model leaf by leaf, exports each leaf as a named ONNX graph output, runs PyTorch and ONNX Runtime on the same input bytes, and reports the first layer whose max-abs diff crosses tolerance as the drift origin. The comparator exists twice, in C++20 and in pure Python, and a test checks that both emit byte-identical JSON. A separate module catches NCHW/NHWC layout mismatches by permuting one activation tensor and seeing whether agreement comes back.`,
     category: "Data and ML",
@@ -1278,7 +1278,7 @@ export const projects: Project[] = [
   },
   {
     name: "live-events-spa",
-    title: "live-events-spa",
+    title: "Live event feed",
     tagline: `React app streaming domain events over SSE from a Spring Boot backend`,
     summary: `A React and TypeScript single-page app that shows domain events as they happen. The feed arrives over Server-Sent Events from a Spring Boot backend, with a Kafka topic as the durable upstream log and Postgres as a read-model. In the browser, events land in an in-memory ring buffer that you filter and search without a round trip, and a streaming server endpoint handles CSV export. History queries and CSV exports filter server-side using the same filter shape as the live view.`,
     category: "Web and Full-stack",
@@ -1296,7 +1296,7 @@ export const projects: Project[] = [
   },
   {
     name: "agentic-runner",
-    title: "agentic-runner",
+    title: "Detour",
     tagline: `Agent loop that re-plans on a failed validation rather than retrying`,
     summary: `A goal comes in, a planner splits it into subtasks, a selector picks a tool per subtask, and each tool's output is validated against a Pydantic schema. When validation fails the runner gets a typed FailureReason and re-plans instead of retrying the same call: it can swap tools, decompose the goal differently, or give up and say so. Budgets at four levels (steps, replans, cost, wall-clock) mean running out turns into an honest abort rather than a retry storm.`,
     category: "Agents and Language",
@@ -1314,7 +1314,7 @@ export const projects: Project[] = [
   },
   {
     name: "kube-deploy",
-    title: "kube-deploy",
+    title: "Allotment",
     tagline: `Go CLI for Kubernetes namespaces on top of Terraform-provisioned AWS`,
     summary: `kdeploy provisions a Kubernetes namespace, applies templated application manifests, wires up monitoring, and tears the whole environment down again on demand. A Terraform root module next to it provisions the AWS pieces the workload needs: VPC, EKS, RDS, S3. The split is deliberate. Terraform owns infrastructure and kdeploy owns the workload, and both halves are idempotent, so running up against an environment that already exists is a no-op rather than an error.`,
     category: "Infra and Distributed",
@@ -1332,7 +1332,7 @@ export const projects: Project[] = [
   },
   {
     name: "health-monitor",
-    title: "health-monitor",
+    title: "Three strikes",
     tagline: `Endpoint health monitor that fires recovery hooks after three straight failures`,
     summary: `A Python service that polls HTTP and TCP endpoints, tracks uptime and response latency, and fires a Bash recovery hook once an endpoint has failed three checks in a row. Every recovery action goes into a SQLite audit table you can query from the CLI. Hooks follow a Protocol pattern, so a new hook type is one class and not another branch through the dispatcher.`,
     category: "Infra and Distributed",
@@ -1350,7 +1350,7 @@ export const projects: Project[] = [
   },
   {
     name: "api-platform",
-    title: "api-platform",
+    title: "Tollbooth",
     tagline: `Public API platform with Redis sliding-window rate limits and daily usage metering`,
     summary: `API keys, per-key rate limiting, usage metering, and tiered access, in TypeScript on Fastify. Rate limits are sliding windows backed by Redis, and there are two limiter implementations, an exact log-based one and an approximate counter-based one, each written as a single atomic Lua script. Daily usage is metered in Redis and flushed to Postgres idempotently. Keys are shown in plaintext exactly once at creation and afterwards verified in constant time against a stored SHA-256 hash.`,
     category: "Web and Full-stack",
@@ -1368,7 +1368,7 @@ export const projects: Project[] = [
   },
   {
     name: "event-enricher",
-    title: "event-enricher",
+    title: "Exactly-once enricher",
     tagline: `Kafka enrichment processor with exactly-once delivery tested under broker restarts`,
     summary: `A Java stream processor that reads events from an inbound Kafka topic, enriches each one by joining against a Postgres lookup table (Caffeine cache in front, bulk JDBC behind it), and writes the result to an outbound topic. Consume, enrich, and produce all happen inside one Kafka transaction with idempotent producer settings, so the outbound topic sees each inbound event at most once even when the process dies and comes back. I wrote the pipeline twice: once on the raw consumer and producer with explicit transactions, and once as a Kafka Streams topology.`,
     category: "Data and ML",
@@ -1386,7 +1386,7 @@ export const projects: Project[] = [
   },
   {
     name: "job-controller",
-    title: "job-controller",
+    title: "Save point",
     tagline: `Job controller with WAL-backed crash recovery proven by a SIGKILL chaos test`,
     summary: `Long-running CPU work on Linux, supervised by a Go controller and executed by C++ workers in Docker containers. State lives in SQLite with WAL journaling. The crash-recovery contract is checked by a chaos test that SIGKILLs the controller mid-job and asserts the worker resumes to a byte-identical final state. Three crash modes are handled distinctly, from the controller alone dying and re-attaching to both sides dying and resuming from a checkpoint.`,
     category: "Systems and C++",
@@ -1404,7 +1404,7 @@ export const projects: Project[] = [
   },
   {
     name: "spark-evolve",
-    title: "spark-evolve",
+    title: "Schema evolution",
     tagline: `Spark batch pipeline with a testable Avro schema-evolution validator`,
     summary: `The interesting part is the schema-evolution validator, a separately testable library that decides whether a new Avro schema can replace an old one under a stated compatibility level. Around it sits a Scala and Spark batch pipeline: Avro-encoded events come off Kafka, each record is validated against a registered schema, per-key tumbling-window aggregates are computed, and partitioned Parquet goes to an S3-compatible store. Records that fail go to a dead-letter sink with their original payload and a structured failure reason. The benchmark numbers come from in-process local mode on a laptop.`,
     category: "Data and ML",
@@ -1422,7 +1422,7 @@ export const projects: Project[] = [
   },
   {
     name: "hw-preflight",
-    title: "hw-preflight",
+    title: "Hardware preflight",
     tagline: `24 Linux hardware checks that report pass, fail, skip, or unavailable`,
     summary: `Run it on a Linux host before you rely on the box and it tells you what is off. hw-preflight has 24 checks across CPU, memory, disk, kernel, thermal, serial, network, GPIO, I2C, systemd, NVMe SMART, USB, RTC drift, IOMMU, VM overcommit, and SELinux, and each one ends in one of four states: pass, fail, skip, or unavailable. Reports come out as JSON and Markdown with the raw measured value printed next to the threshold. Checks read /proc and /sys, shell out to standard binaries, and talk to a serial device; the CPUID feature-flag check calls a C++ helper compiled with CMake and pybind11.`,
     category: "Systems and C++",
@@ -1440,7 +1440,7 @@ export const projects: Project[] = [
   },
   {
     name: "devenv-manager",
-    title: "devenv-manager",
+    title: "Hostel",
     tagline: `Docker-backed dev environments with browser terminals and no orphaned containers`,
     summary: `A Go service that hands out Docker-backed dev environments on demand. Each session is a fresh container with a PTY shell streamed to a React frontend over WebSockets. Containers carry a TTL, so idle sessions get reaped, and so do orphans left behind when the manager itself crashes. Session identity lives in Docker labels rather than in the manager's memory, so a restarted manager can rebuild its session table from the daemon instead of losing track of what it started.`,
     category: "Developer Tools",
@@ -1458,7 +1458,7 @@ export const projects: Project[] = [
   },
   {
     name: "doc-index-service",
-    title: "doc-index-service",
+    title: "Concordance",
     tagline: `Keyword and vector search over documents behind one query endpoint`,
     summary: `Keyword search and vector search rank things differently, so doc-index-service runs both and merges the results behind a single /v1/query endpoint. The HTTP API and bulk indexer are Go; embeddings come from a separate Python sidecar; storage is Postgres 16 with pgvector and tsvector. Each query runs a BM25 keyword retriever and a cosine-distance vector retriever in parallel and fuses the two ranked lists with reciprocal rank fusion. Indexing is idempotent on a SHA-256 of the body. There is an optional rerank stage that can hand the top results to a cross-encoder, at a latency cost.`,
     category: "Agents and Language",
@@ -1476,7 +1476,7 @@ export const projects: Project[] = [
   },
   {
     name: "ner-pipeline",
-    title: "ner-pipeline",
+    title: "Entity extraction pipeline",
     tagline: `Transformer NER into Postgres with idempotent ingest and CoNLL eval in CI`,
     summary: `Unstructured text goes in one end and deduplicated entity records come out the other. A pretrained transformer NER model tags PER, ORG, LOC, and MISC spans, and the pipeline writes them to Postgres with character offsets into the original text preserved. Everything is built around an Extractor Protocol so the real model can be swapped for a mock in tests, and ingestion is idempotent on a SHA-256 of the source text. The same weights can be served through PyTorch or ONNX Runtime, with a parity check gating the two backends against each other.`,
     category: "Agents and Language",
@@ -1494,7 +1494,7 @@ export const projects: Project[] = [
   },
   {
     name: "bug-triage",
-    title: "bug-triage",
+    title: "Precedent",
     tagline: `Bug-report triage with closed-enum labels and retrieval-backed diff suggestions`,
     summary: `An incoming bug report gets a severity, a component, and a suggested fix. bug-triage is a Python service that classifies the report, retrieves similar past resolutions from a corpus of bug-report and fix pairs grounded in a real Java toy project, and proposes a unified diff with a short rationale. There is a REST API and a CLI. An optional apply-and-test loop copies the Java project, applies the diff, and runs mvn verify, and a draft-PR mode can open a guardrailed pull request, but only when every check passes.`,
     category: "Agents and Language",
@@ -1512,7 +1512,7 @@ export const projects: Project[] = [
   },
   {
     name: "genai-eval",
-    title: "genai-eval",
+    title: "Proctor",
     tagline: `Multilingual GenAI evaluation with a CI gate and regression-trend dashboard`,
     summary: `Model outputs get benchmarked across 5 task types and 3 languages, every run is stored, and a dashboard shows pass rates and regression trends per model version. On every push the full eval matrix runs against a deterministic FakeProvider and asserts that pass rates match a committed baseline within 1e-6, so a behavioral change in scoring or in a task module fails the build. For non-English outputs there is a second layer beyond the task metrics: script correctness, honorific appropriateness, and calque artifacts.`,
     category: "Instrumentation and Test",
@@ -1530,7 +1530,7 @@ export const projects: Project[] = [
   },
   {
     name: "pulseroute",
-    title: "PulseRoute",
+    title: "Model broker",
     tagline: `Gateway that routes, caches, and cost-caps traffic across model providers`,
     summary: `PulseRoute is an HTTP gateway that sits between an application and several model providers and exposes a model-provider-compatible API. For each request it compiles the tenant context plus a named policy into an ordered candidate list, skips providers whose circuit breaker is open, and checks a semantic cache before calling anyone, with cache hits gated on cosine similarity. A golden eval suite runs as a CI gate on every PR. The hot path is FastAPI on uvicorn; analytics land in ClickHouse.`,
     category: "Agents and Language",
@@ -1548,7 +1548,7 @@ export const projects: Project[] = [
   },
   {
     name: "recommendation-quiz",
-    title: "Recommendation Quiz",
+    title: "Twelve questions",
     tagline: `Twelve-question quiz scored against a product catalog with weighted attributes`,
     summary: `Twelve questions in, three products out. The backend scores a user's answers against a catalog of 30 products with a weighted-attribute algorithm and returns the top three, each with a short reason summary. Nothing in the scoring engine knows about coffee; swap the seed data and the attribute mapping and it targets any domain you can express as attributes. Coffee is just the worked example.`,
     category: "Web and Full-stack",
@@ -1566,7 +1566,7 @@ export const projects: Project[] = [
   },
   {
     name: "lexscribe",
-    title: "Lexscribe",
+    title: "Fine print",
     tagline: `Contract diligence answers with citations pinned to page and character range`,
     summary: `Lexscribe reads M&A contracts and answers questions about them, and every answer carries citations pinned to the exact page and character range. Retrieval is hybrid: BM25, pgvector dense vectors, and a cross-encoder rerank. Generation is constrained to cite only indices from the retrieved set, so an answer cannot point at a source that was never retrieved. Retrieval quality and faithfulness are both checked in CI by an eval suite; on five real EDGAR merger agreements precision@1 sits at 0.50.`,
     category: "Agents and Language",
@@ -1584,7 +1584,7 @@ export const projects: Project[] = [
   },
   {
     name: "pagerunner",
-    title: "PageRunner",
+    title: "Leash",
     tagline: `Browser agent runs with hard budgets, deterministic replay, and golden-flow tests`,
     summary: `PageRunner is a control plane for browser agents. It accepts flow definitions and run requests, drives Playwright browsers through tool-using agent loops, and holds each run to hard step, token, wall-clock, and cost budgets. A failed run can be replayed deterministically against captured DOM snapshots. Much of the point is studying how these loops behave under backpressure, retries, and partial failure, so there is a golden-flow regression suite that catches loop bugs separately from model regressions.`,
     category: "Agents and Language",
@@ -1602,7 +1602,7 @@ export const projects: Project[] = [
   },
   {
     name: "subscription-portal",
-    title: "Subscription Portal",
+    title: "Subscription portal",
     tagline: `Self-service subscription portal for plans, skipped orders, and payment methods`,
     summary: `Customers see their plan, change delivery preferences, skip or reschedule an upcoming order, and manage payment methods. The payment processor sits behind a small interface and is mocked, so the whole thing runs self-contained with no real keys and no network calls. Every state change fans out as an HMAC-signed webhook, and every order has a downloadable PDF receipt that is byte-identical each time it is rendered.`,
     category: "Web and Full-stack",
@@ -1620,7 +1620,7 @@ export const projects: Project[] = [
   },
   {
     name: "sparkscale",
-    title: "SparkScale",
+    title: "Clickstream batch jobs",
     tagline: `Scala/Spark batch framework that cut a clickstream pipeline's runtime by 65%`,
     summary: `Spark jobs over clickstream data tend to burn money in three places: shuffle, Parquet compression and column ordering, and date partition pruning. SparkScale goes after all three with a custom user-day partitioner, a cardinality-aware Parquet columnar writer, and sessionization plus daily-aggregation stages. On a 500 GB/day workload the whole pipeline's runtime dropped 65%. That number holds across cluster sizes, which says the wins come from the shape of the workload rather than from adding nodes.`,
     category: "Data and ML",
@@ -1638,7 +1638,7 @@ export const projects: Project[] = [
   },
   {
     name: "adstream",
-    title: "AdStream",
+    title: "Gavel",
     tagline: `Real-time second-price ad auctions with frequency caps and per-bidder budget guards`,
     summary: `AdStream runs second-price ad auctions in real time, in Java, against a Kafka-shaped streaming contract. Each auction is Vickrey style, so the winner pays the second-highest bid. Sliding-window frequency caps limit how often one user sees an ad, and an atomic per-bidder budget guard keeps concurrent auctions from pushing anyone over their cap. The auction engine itself holds no state, which is what lets pipeline workers scale out horizontally. Latency is recorded in an HDR-shaped lock-free histogram and asserted as a CI gate.`,
     category: "Infra and Distributed",
@@ -1656,7 +1656,7 @@ export const projects: Project[] = [
   },
   {
     name: "streamflow",
-    title: "StreamFlow",
+    title: "Drawing board",
     tagline: `Stateful event processing on Kafka and Flink with exactly-once delivery`,
     summary: `The plan for StreamFlow is a distributed real-time event-processing platform on Java, Kafka, and Flink: stateful operators, exactly-once delivery, and routing that respects backpressure. That is the description, and right now it is all there is, because the repository is empty. The only other context comes from the sibling projects SparkScale and AdStream, which reference it as the shared Java/JVM streaming piece.`,
     category: "Infra and Distributed",
@@ -1673,7 +1673,7 @@ export const projects: Project[] = [
   },
   {
     name: "tradingetl",
-    title: "TradingETL",
+    title: "Market data fan-out",
     tagline: `Real-time market-data ETL fanning equities and fixed-income ticks to five services`,
     summary: `TradingETL takes tick data for equities and fixed income, lands it in a Postgres-shaped warehouse and a Redis-shaped cache, and fans it out to five downstream services, each with its own failure tracking so one bad consumer does not take the rest down. The target is p99 under 100ms from feed-in to consumer-notified. Ingest failures go to a dead-letter queue and can be replayed. I made the CLI exit non-zero whenever the pipeline misses the latency target, so CI can fail the build on it.`,
     category: "Data and ML",
@@ -1709,7 +1709,7 @@ export const projects: Project[] = [
   },
   {
     name: "quantbacktest",
-    title: "QuantBacktest",
+    title: "Fixed-income backtester",
     tagline: `Vectorized pandas backtester for fixed-income factor strategies`,
     summary: `QuantBacktest is a backtesting framework for fixed-income factor strategies. Carry, momentum, and value signals are computed as vectorized pandas math over yield-curve history, so a full backtest takes milliseconds instead of a per-bar Python loop; the README puts the resulting cut in research iteration time at 60%. Around the engine sit a walk-forward harness, a risk report, and a grid-search optimizer that backtests each parameter config and ranks them by Sharpe. Transaction costs are handled in the engine, and the whole thing sits on 22 tests.`,
     category: "Data and ML",
@@ -1727,7 +1727,7 @@ export const projects: Project[] = [
   },
   {
     name: "disttrace",
-    title: "DistTrace",
+    title: "Critical path",
     tagline: `Go tracing platform with per-service p99 rollups and critical-path detection`,
     summary: `DistTrace ingests OTLP-shaped spans in Go, groups them into trace trees, and rolls up p50/p95/p99 latency per service. On top of that it has a bottleneck detector, which flags any service whose p99 sits above a threshold, and a critical-path walker that finds the longest synchronous chain from root to leaf. I modeled only the OTLP fields the analyzer needs, so services already emitting OTel spans can ship them without touching their SDK.`,
     category: "Infra and Distributed",
@@ -1745,7 +1745,7 @@ export const projects: Project[] = [
   },
   {
     name: "netprobekit",
-    title: "NetProbeKit",
+    title: "Device probes",
     tagline: `Pytest probes against a C daemon that fakes an embedded device`,
     summary: `NetProbeKit is a test-automation framework that drives pytest suites against a small C daemon standing in for an embedded device, talking line-delimited JSON over a TCP channel. The Python probes issue the same RPCs a real hardware probe would: ping, throughput, CRC integrity, CAN frame read and transmit, sensor reads with history, and firmware version checks. Every round-trip emits structured data, and the runner folds it into one report.json per session. The suites run against that simulated C daemon over its TCP channel.`,
     category: "Instrumentation and Test",
@@ -1763,7 +1763,7 @@ export const projects: Project[] = [
   },
   {
     name: "datachat",
-    title: "DataChat",
+    title: "Question to chart",
     tagline: `Plain-English questions turned into generated Python and Plotly charts`,
     summary: `DataChat takes a plain-English question and answers it with a chart. A model writes the Python, the code streams back into the chat, and the backend runs it in a sandboxed subprocess before the React side renders whatever Plotly figure came out. The model that writes the code is a mock by default. On first run it seeds a demo orders dataset so there is something to ask about. A real model provider can be wired in, but that path is optional and off by default.`,
     category: "Data and ML",
@@ -1781,7 +1781,7 @@ export const projects: Project[] = [
   },
   {
     name: "convoagent",
-    title: "convoagent",
+    title: "Tier one",
     tagline: `Customer-support agent with intent classes, sentiment scoring, and an escalation policy`,
     summary: `convoagent pairs a Python NLP backend with a TypeScript and React shell. Every turn goes through an intent classifier, a sentiment scorer, and an escalation policy that decides between a canned response and handing the case to a human. Intent, sentiment, action, and tokens all stream over an SSE endpoint, so a UI can show the agent working turn by turn. Sentiment is lexicon-based with intensifier handling.`,
     category: "Agents and Language",
@@ -1799,7 +1799,7 @@ export const projects: Project[] = [
   },
   {
     name: "videoagent",
-    title: "VideoAgent",
+    title: "Cutting room",
     tagline: `English editing instructions turned into verified FFmpeg operations`,
     summary: `Give VideoAgent an instruction like cut the first 10 seconds and add a fade at 1:30 and it plans a set of FFmpeg operations, runs them, and streams the result to a timeline UI. The planner is Python: it emits a plan from closed-set Pydantic op schemas, then a source-aware verifier rejects edits that are structurally valid but impossible against the actual file before FFmpeg ever runs. A Go pipeline owns the job queue and the FFmpeg subprocesses. Even with both of those layers, a frame-level eval harness was what caught the remaining failure: hallucinated timecodes that look valid and produce the wrong edit.`,
     category: "Agents and Language",
@@ -1817,7 +1817,7 @@ export const projects: Project[] = [
   },
   {
     name: "datafinder",
-    title: "DataFinder",
+    title: "Reference desk",
     tagline: `Research-dataset finder that routes queries, sequences tools, and cites sources`,
     summary: `Ask DataFinder for something like knee MRI datasets with at least 50 subjects, age 40+ and it routes the query, sequences tool calls across semantic search, metadata filtering, and dataset preview, then grounds the answer with source citations. It judges for itself whether the retrieved context was enough, and if the answer references no dataset it actually saw, it refines the system message and tries again. This is a re-implementation against synthetic data, so routing, tool sequencing, and grounding all run end-to-end without any lab infrastructure.`,
     category: "Agents and Language",
@@ -1835,7 +1835,7 @@ export const projects: Project[] = [
   },
   {
     name: "releaseguard",
-    title: "ReleaseGuard",
+    title: "Drift check",
     tagline: `CI/CD gate that reports environment drift next to the test result`,
     summary: `ReleaseGuard sits between pytest and kubectl apply. The same suite runs across several target environments and comes out as one structured report, with configuration drift flagged right beside the test outcome. Checks cover Python version, env vars, pinned packages, file checksums, and exec probes. A green run that also detects drift blocks the release unless the operator passes --allow-drift. The pytest plugin loads itself through an entry point and emits structured per-test events.`,
     category: "Developer Tools",
@@ -1853,7 +1853,7 @@ export const projects: Project[] = [
   },
   {
     name: "ticketsearch",
-    title: "TicketSearch",
+    title: "Box office",
     tagline: `Go ticketing API with a hot availability cache and idempotent orders`,
     summary: `TicketSearch is a Go REST API for event search and seat inventory. Reads come from a hot availability cache, seat and pricing data live in a source-of-truth store, and full-text event lookup goes through a search index. Every write decrements the availability counter atomically before it touches the store; orders carry an idempotency key so a retry replays the original instead of charging twice; seats have an optimistic version lock so two concurrent orders serialize and one aborts cleanly. A background janitor sweeps expired holds every 5 seconds and puts the seats back.`,
     category: "Web and Full-stack",
@@ -1871,7 +1871,7 @@ export const projects: Project[] = [
   },
   {
     name: "inferencegateway",
-    title: "InferenceGateway",
+    title: "Replica router",
     tagline: `C++ dispatcher that routes model requests across replicas by load`,
     summary: `InferenceGateway is a C++ router: one dispatch thread sends requests across several backend replicas, picking by current load. The scheduler pulls from an MPSC request queue and records enqueue-to-dispatch overhead in a Prometheus histogram. Routing policies are pure functions that pick a backend from a snapshot of in-flight counters. An HTTP/JSON layer exists only so the scheduler can be driven from outside, since real model stacks like vLLM and TGI already speak a model provider-compatible HTTP.`,
     category: "Systems and C++",
@@ -1889,7 +1889,7 @@ export const projects: Project[] = [
   },
   {
     name: "jobagent",
-    title: "JobAgent",
+    title: "Dry run",
     tagline: `Easy Apply form filler that classifies fields and never submits by default`,
     summary: `JobAgent fills LinkedIn-style Easy Apply forms. Each form label gets classified into one of about 17 resume-section slots using structured outputs, and anything outside the schema is rejected. Before any model call, a regex prefilter and a cache get first crack at the label; a separate policy engine then decides fill, review, or skip from confidence, the kind of field, and whether it is required. By default it runs in shadow mode: fill the form, take a screenshot, never press submit. The audit log is the point, not the submission.`,
     category: "Agents and Language",
@@ -1907,7 +1907,7 @@ export const projects: Project[] = [
   },
   {
     name: "distributedkv",
-    title: "DistributedKV",
+    title: "Linearizable KV",
     tagline: `Replicated key-value store on Raft with linearizable reads and chaos tests`,
     summary: `DistributedKV is a replicated key-value store: three or more Go nodes in one Raft group, with linearizable reads and snapshot-based recovery. A GET on the leader calls VerifyLeader and a Barrier before it answers, which is what makes the read linearizable. Compare-and-swap uses a monotone version per key, and there is a routing layer with jump consistent hashing meant for sharding later. faultctl kills the leader and checks that a new one is elected before a deadline. A separate single-node binary runs the same FSM with no Raft at all, so you can measure what consensus costs.`,
     category: "Infra and Distributed",
@@ -1925,7 +1925,7 @@ export const projects: Project[] = [
   },
   {
     name: "apiforge",
-    title: "apiforge",
+    title: "Spec check",
     tagline: `OpenAPI linter, breaking-change detector, and mock server in Go`,
     summary: `apiforge lints OpenAPI specs against a configurable rule set, diffs two versions of a spec to flag breaking changes, and stands up a stub mock server from any spec. The merge gate is severity-weighted: errors block, warnings only notify. New rules register into the same registry as the defaults. Findings can be emitted as JSON-Lines or SSE-shaped events for streaming into a CI dashboard.`,
     category: "Developer Tools",
@@ -1943,7 +1943,7 @@ export const projects: Project[] = [
   },
   {
     name: "defecttracer",
-    title: "defecttracer",
+    title: "Coroner",
     tagline: `Crash replay under gdb with rule-based root-cause classification`,
     summary: `Give defecttracer a crash trace and a canonical input and it drives a gdb subprocess to replay the crash, parses the backtrace, and sorts the root cause into one of seven categories. The classifier is a set of rules rather than a model, which is deliberate: the same trace gets the same label on every CI run, and a reviewer can read the rules and predict the answer. A 60-issue canonical corpus is gated at 95% accuracy in CI. Whatever falls into the remaining 5% is left for a human.`,
     category: "Developer Tools",
@@ -1961,7 +1961,7 @@ export const projects: Project[] = [
   },
   {
     name: "sensorsim",
-    title: "sensorsim",
+    title: "Fake sensors",
     tagline: `Software sensors with drift, noise, and fault injection for CI`,
     summary: `I wanted data-processing code to run against sensors in CI without a bench of real hardware. The C core models drift, Gaussian noise, and ADC quantization, plus four fault patterns: stuck-at, periodic spike, dropped samples, and range clamp. Test runs are driven from a Python orchestrator. A golden-trace generator records what a given sensor configuration produces so CI can replay it later and catch behavioral drift.`,
     category: "Systems and C++",
@@ -1979,7 +1979,7 @@ export const projects: Project[] = [
   },
   {
     name: "clinicalrag",
-    title: "clinicalrag",
+    title: "Grand rounds",
     tagline: `Biomedical literature retrieval with citations and a hallucination guard`,
     summary: `clinicalrag ingests biomedical documents, chunks them, embeds each chunk through a pluggable embedder into a FAISS-shaped vector index, and answers questions from a FastAPI endpoint with citations attached to the response. Before an answer goes out, a hallucination guard scores how much each claim overlaps the retrieved evidence and flags or refuses anything under the threshold. Answer tokens and interleaved citations stream back over SSE. A deterministic HashEmbedder and production embeddings sit behind the same contract.`,
     category: "Agents and Language",
@@ -1997,7 +1997,7 @@ export const projects: Project[] = [
   },
   {
     name: "sysvalidation",
-    title: "sysvalidation",
+    title: "Shakedown",
     tagline: `Linux release gate that runs defect scenarios and classifies what fails`,
     summary: `sysvalidation is a Linux validation framework: C++ scenario binaries deliberately trip specific defect classes (data races, leaks, use-after-free, double-free), and a Python orchestrator runs them, classifies what comes back, and emits a release-go or release-no-go verdict. The block list is configurable, so teams can ship with known leaks and still fail on fresh races. Progress streams over SSE while it runs, so a dashboard can draw it live.`,
     category: "Instrumentation and Test",
@@ -2015,7 +2015,7 @@ export const projects: Project[] = [
   },
   {
     name: "osshell",
-    title: "osshell",
+    title: "Shell and scheduler",
     tagline: `C++20 Unix shell with a preemptive scheduler simulator built in`,
     summary: `A Unix shell in C++20: tokenizer, parser, and a fork/exec runner that handles pipes, redirection, and job control. Bolted onto it is a preemptive scheduler simulator that runs a four-level MLFQ (quantum doubling, demote-on-quantum, promote-on-IO) against a round-robin baseline on a bursty mixed workload. Job state transitions and scheduler events go out as SSE frames. The headline number is a 60.3% context-switch reduction for MLFQ over round-robin.`,
     category: "Systems and C++",
@@ -2033,7 +2033,7 @@ export const projects: Project[] = [
   },
   {
     name: "drcautomation",
-    title: "drcautomation",
+    title: "DRC delta",
     tagline: `DRC report parser with severity buckets and baseline diffs`,
     summary: `DRC tools (Calibre, Pegasus, Hercules) produce violation reports with a lot of noise in them. drcautomation parses them, sorts each violation into critical, major, or minor, and diffs the run against a baseline so a reviewer only looks at what changed since last time. Similar violations get grouped and deduplicated. Findings stream live over SSE as the Tcl runner emits them. The parser side is Python; the runner is Tcl.`,
     category: "Developer Tools",
@@ -2051,7 +2051,7 @@ export const projects: Project[] = [
   },
   {
     name: "edalauncher",
-    title: "edalauncher",
+    title: "EDA run dashboard",
     tagline: `Browser dashboard for launching and diffing EDA tool runs`,
     summary: `A browser front end for launching Cadence and Synopsys tool flows. The backend is Flask with a typed Pydantic core; the frontend is vanilla JS with no build step. Run logs stream to the page over SSE as steps complete, and two runs on the same target can be diffed to show metric drift. Storage is in-memory for now, sitting behind a SQLAlchemy seam so a real database can go in later.`,
     category: "Web and Full-stack",
@@ -2069,7 +2069,7 @@ export const projects: Project[] = [
   },
   {
     name: "testgenai",
-    title: "testgenai",
+    title: "First draft",
     tagline: `pyATS test skeletons generated from a network feature spec`,
     summary: `testgenai takes a network feature spec and prompts a model through closed-schema tool calling, so what comes back is a list of (setup, steps, expected) test cases. Each case streams out over SSE as it is produced, and the output is a pyATS-style Python skeleton that drops into nettestkit. A later pass adds coverage analysis, duplicate detection, and quality scoring. There is a deterministic stub client, so the whole thing runs offline without an API key.`,
     category: "Agents and Language",
@@ -2087,7 +2087,7 @@ export const projects: Project[] = [
   },
   {
     name: "nettestkit",
-    title: "nettestkit",
+    title: "Network test runner",
     tagline: `Network test runner with regression diffs and offline HTML reports`,
     summary: `nettestkit checks routing tables, interface state, VLAN configuration, and connectivity across simulated or live switch topologies. Instead of the full pyATS install it uses a handful of regex parsers and plain Python asserts. A streaming runner emits an SSE frame as each test finishes, two runs can be diffed for regressions, and the result renders to an HTML report you can archive offline. Interface names line up with pyATS, so a port is a drop-in.`,
     category: "Instrumentation and Test",
@@ -2105,7 +2105,7 @@ export const projects: Project[] = [
   },
   {
     name: "marketdatafeed",
-    title: "marketdatafeed",
+    title: "Conflation",
     tagline: `UDP-multicast feed handler that keeps a per-symbol best-bid-offer book`,
     summary: `A header-only C++20 handler for a UDP-multicast market data feed. It keeps a best-bid-offer book per symbol, detects sequence gaps, drops duplicates, and flags stale quotes. The part I care most about is coalescing: rather than forward every quote, it marks symbols dirty and emits exactly one snapshot per dirty symbol per drain, at whatever cadence the publisher picks (typically 10 to 100 ms). A Python sidecar computes latency percentiles, and snapshots stream out over SSE.`,
     category: "Infra and Distributed",
@@ -2123,7 +2123,7 @@ export const projects: Project[] = [
   },
   {
     name: "distrobackend",
-    title: "distrobackend",
+    title: "Backplane",
     tagline: `Go services and a Java client around a swappable event bus`,
     summary: `A backend skeleton for distributed work: Go services talk to a Kafka-shaped event bus, and a Java client library sits on the other side of it. The bus contract is the integration seam, so the in-memory implementation can be replaced with Sarama or segmentio plus Kafka without touching a single call site. v3 added a dead-letter queue, exponential-backoff retry, and idempotency keys, and SSE consumers give a long-poll-friendly event tail. There are 10 tests: 5 on the Go bus, 3 on the Go API, 2 on the Java client.`,
     category: "Infra and Distributed",
@@ -2141,7 +2141,7 @@ export const projects: Project[] = [
   },
   {
     name: "sensorflow",
-    title: "sensorflow",
+    title: "Undertow",
     tagline: `Sensor ingest in Rust with EWMA anomaly and CUSUM drift detection`,
     summary: `Environmental sensor readings come in through a Rust ingest daemon that holds them in a bounded ring buffer and batches them out, and a Python analyzer runs two detectors over the stream. EWMA z-score catches spikes. CUSUM accumulates signed deviation from a baseline, so a slow persistent shift that EWMA would quietly absorb still crosses the threshold and emits a drift event. Anomaly events go to subscribers over SSE and persist to Postgres.`,
     category: "Data and ML",
@@ -2159,7 +2159,7 @@ export const projects: Project[] = [
   },
   {
     name: "storebench",
-    title: "storebench",
+    title: "Long tail",
     tagline: `Linux storage benchmark runner in C with tail-latency verdicts`,
     summary: `storebench benchmarks Linux storage devices with the tail latency in view. The runner is C: an async-I/O worker pool feeding an HDR-style latency histogram, with one histogram per thread so the hot path has no atomics and the results merge associatively at the end. A Python orchestrator walks a device-by-workload matrix and writes a comparison report. v3 added p50 through p999, a drift ratio, an outlier counter, and a Python tail analyzer that labels each run stable, degrading, bursty, or tail-heavy. The histogram trades precision for memory: 1024 counters, about 8 KB, roughly 6% relative error across 9 orders of magnitude.`,
     category: "Systems and C++",
@@ -2177,7 +2177,7 @@ export const projects: Project[] = [
   },
   {
     name: "clouddrive",
-    title: "CloudDrive",
+    title: "Three clouds",
     tagline: `Sync engine mirroring objects across S3, Azure Blob, and GCS`,
     summary: `CloudDrive keeps objects mirrored across AWS S3, Azure Blob, and GCP Cloud Storage. The sync engine is C++20 with a Python orchestrator on top. Etags from the three providers never compare with each other, so it computes its own SHA-256 for every object and diffs on that. From there it does classified retry, chunked parallel multipart uploads, adaptive concurrency that backs off when a provider throttles, and a ConflictPolicy of newest_wins, source_wins, or manual. Progress streams over SSE with per-job bandwidth metering, and in load tests it sustained 1.8 GB/s.`,
     category: "Infra and Distributed",
@@ -2195,7 +2195,7 @@ export const projects: Project[] = [
   },
   {
     name: "modeldeploy",
-    title: "ModelDeploy",
+    title: "Model canary",
     tagline: `Canary model rollouts that promote or roll back on error rate`,
     summary: `ModelDeploy takes a model from registry to production traffic. A FastAPI prediction server sits in front of a versioned model registry, and a router splits requests between versions, for example ModelV1 at 90% and a ModelV2 canary at 10%. Then a metrics tracker watches the error rate and either promotes the canary to full traffic or rolls it back when a threshold is breached, with nobody in the loop. The whole thing is model-class agnostic: the Model protocol is a single __call__(features) -> prediction, so anything callable can be deployed. v2 added SSE streaming of the metric tail with per-version traffic share.`,
     category: "Data and ML",
@@ -2213,7 +2213,7 @@ export const projects: Project[] = [
   },
   {
     name: "docsearch",
-    title: "DocSearch",
+    title: "Card catalog",
     tagline: `Document search ranking with BM25 and dense vectors served from Go`,
     summary: `DocSearch is two halves. A Python sidecar chunks and embeds documents on ingest, and a Go query service ranks results with a hybrid of BM25 and dense vector scoring, then widens query terms through a synonym map. Results stream back over SSE as ranking proceeds rather than after it finishes. Embedding stays on the Python side and query serving stays in Go, which is what keeps query latency low. 14 tests in all: 5 on the Go index, 4 on the Go API (SSE, synonym), 5 in Python.`,
     category: "Data and ML",
@@ -2231,7 +2231,7 @@ export const projects: Project[] = [
   },
   {
     name: "ordermatching",
-    title: "OrderMatching",
+    title: "Trading pit",
     tagline: `Header-only C++20 matching engine with stop and iceberg orders`,
     summary: `OrderMatching is an in-memory, price-time priority matching engine in header-only C++20. A gateway hands orders to the engine, which produces trades, L1 snapshots, and a trade tape, all emitted as an SSE-formatted market-data feed. Beyond limit and market orders with partial fills and cancels, it handles Stop and StopLimit (triggered on last price) and Iceberg orders that refresh their visible slice on their own. Prices are integer ticks rather than floats: NaN breaks std::map ordering and cumulative-volume math drifts, and I did not want either inside a matching engine. 11 tests across 3 binaries.`,
     category: "Systems and C++",
@@ -2249,7 +2249,7 @@ export const projects: Project[] = [
   },
   {
     name: "routeengine",
-    title: "RouteEngine",
+    title: "A-star routing",
     tagline: `A* routing in Rust with storm, elevation, and road-type cost factors`,
     summary: `RouteEngine is a Rust routing core: A* and Dijkstra over a CSR-style graph with a Haversine heuristic. The interesting part is how constraints work. Storm avoidance, elevation penalty, and road-type bias are composable multiplicative factors on edge cost, so the search never branches on a constraint, and since a factor can only raise cost, the Haversine heuristic stays admissible and the first goal pop is still the optimal path. Dijkstra is kept around as ground truth in tests. p99 is under 150ms on 50K-node graphs, and the description cites 99.3% solution quality against brute force.`,
     category: "Systems and C++",
@@ -2267,7 +2267,7 @@ export const projects: Project[] = [
   },
   {
     name: "colref",
-    title: "colref",
+    title: "Safe to drop",
     tagline: `AST scan for a DB column's remaining references before you drop it`,
     summary: `Before dropping a database column you want to know whether anything still reads it, and grep lies: it matches comments, string literals, and old migrations. colref parses each file into an AST and reports only real attribute-access references. It reads the ORM schema source (Django models.py, Rails db/schema.rb) to get the field list, infers model names from table names, walks the project, and prints each hit with its location, or says none were found. Django and Rails come first; Laravel and other ORMs are on the roadmap. v0.1 only catches attribute access, so string-based calls like .values('email') or .defer('email') slip through for now.`,
     category: "Developer Tools",
@@ -2303,7 +2303,7 @@ export const projects: Project[] = [
   },
   {
     name: "queryflow",
-    title: "QueryFlow",
+    title: "Vetted SQL",
     tagline: `English question to verified PostgreSQL through retrieval and AST gates`,
     summary: `QueryFlow turns an English question into a PostgreSQL query it is willing to run, then runs it. Schema is embedded into pgvector, the relevant tables and columns are retrieved per question, and a model writes SQL against only that context. Every candidate then has to clear three gates: parse, a safety walk over the SQL AST that rejects DDL, DML, dangerous functions, and any table outside the retrieved context, and an EXPLAIN check on estimated rows. A React editor and FastAPI service sit on top, and the target DB is read-only. CI holds an eval floor of >= 87%, which the shipped mock model clears at 100% on 10 cases.`,
     category: "Agents and Language",
@@ -2321,7 +2321,7 @@ export const projects: Project[] = [
   },
   {
     name: "payflow",
-    title: "PayFlow",
+    title: "Cashier",
     tagline: `Payments API with per-merchant idempotency and HMAC-verified Stripe webhooks`,
     summary: `PayFlow is a payments API on Spring Boot and JPA over PostgreSQL: idempotent payment intents and refunds, Stripe webhook ingestion verified with HMAC-SHA256, and an append-only audit log. Idempotency keys are scoped per merchant and matched on a hash of the request body, so replaying a key with the same body returns the original response, a different body gets a 422, and an in-flight request gets a 409 with Retry-After: 5. The audit log writes in a REQUIRES_NEW transaction so it survives a rollback of the payment itself. A React/TypeScript operator console drives the demo and can walk through success and failure paths without a real Stripe account.`,
     category: "Web and Full-stack",
@@ -2339,7 +2339,7 @@ export const projects: Project[] = [
   },
   {
     name: "setup-agents",
-    title: "setup-agents",
+    title: "Org chart",
     tagline: `Salesforce CLI plugin generating tool rules and role profiles in one command`,
     summary: `One command, run inside a Salesforce project, writes the configuration files for a range of developer tools plus role-based profiles. The plugin scans the project for signals (cgcloud__, WaveDashboard, DataStream, a Playwright config) and preselects profiles from those, then emits per-tool rule files and a sub-agent routing manifest that maps task types to roles. It can also wire Salesforce MCP servers in through an interactive org login. There are 11 profiles, from Developer and Architect through MuleSoft, CRMA, and Data Cloud, and they combine, so rules from several roles stack in a single project.`,
     category: "Developer Tools",
@@ -2357,7 +2357,7 @@ export const projects: Project[] = [
   },
   {
     name: "baisics",
-    title: "baisics",
+    title: "Warm-up",
     tagline: `Model health and fitness app, still on the create-next-app scaffold`,
     summary: `baisics is meant to be a health and fitness app. So far the repo is the default create-next-app scaffold and nothing else: the README explains how to start the Next.js dev server, and there is no product code beyond the starter page. The description on the repo says model health and fitness, which is the only hint at direction. Not much to see yet.`,
     category: "Web and Full-stack",
@@ -2375,7 +2375,7 @@ export const projects: Project[] = [
   },
   {
     name: "sentinel-rag",
-    title: "Sentinel RAG",
+    title: "Need to know",
     tagline: `RAG proxy that enforces document permissions and redacts PII`,
     summary: `Sentinel RAG sits between users and a knowledge base so the model only ever sees documents the requesting user is allowed to read. Access is role-based at the document level. Before any context reaches the inference engine, PII is stripped with a combination of regex patterns and spaCy NER. Auth is single-tenant OIDC with JWT, every request gets an immutable compliance log entry, and the whole thing runs on FastAPI with Qdrant and PostgreSQL.`,
     category: "Agents and Language",
@@ -2411,7 +2411,7 @@ export const projects: Project[] = [
   },
   {
     name: "agentlab",
-    title: "AgentLab",
+    title: "Track meet",
     tagline: `Runs coding-agent task suites across model providers and scores them`,
     summary: `AgentLab runs coding-agent task suites against several model providers and scores the results. Suites are written in YAML and go through an async runner with global and per-provider concurrency, exponential-backoff retries, and a fresh workspace per task, then each result is scored by a rubric judge or a real test runner. Results land in SQLite with gzipped trajectories, so two runs can be queried and diffed against each other. A FastAPI dashboard shows the runs list and a task-by-agent heatmap.`,
     category: "Agents and Language",
@@ -2429,7 +2429,7 @@ export const projects: Project[] = [
   },
   {
     name: "pluginforge",
-    title: "PluginForge",
+    title: "Plugin sandbox",
     tagline: `Web Worker plugin sandbox with capability-gated host access`,
     summary: `Plugins in PluginForge live inside a hardened Web Worker that starts with no ambient authority. Every host capability has to be declared in the plugin manifest and granted by the user, and the grant is checked at the RPC boundary, not inside the plugin. The capability router covers storage, net, ui, clipboard, env, and shell, with URL allow-lists and glob-matched shell commands. It ships with a typed SDK, three example plugins, and a React reference host with a command palette and a live log console.`,
     category: "Systems and C++",
@@ -2447,7 +2447,7 @@ export const projects: Project[] = [
   },
   {
     name: "canvaslive",
-    title: "CanvasLive",
+    title: "Same page",
     tagline: `Multiplayer whiteboard that converges concurrent edits with operational transform`,
     summary: `CanvasLive is a shared whiteboard where strokes, shapes, and text sync between clients through an operational-transform engine, with live cursors over WebSocket. The Node server sequences ops per room, persists to SQLite, handles JWT auth, and rate-limits each client with a token bucket. On the client, React gives you freehand drawing, an infinite pan/zoom canvas, and keyboard shortcuts. Each op carries a Lamport timestamp and gets a server sequence number on acceptance, which is what lets concurrent edits end up identical on every screen.`,
     category: "Web and Full-stack",
@@ -2483,7 +2483,7 @@ export const projects: Project[] = [
   },
   {
     name: "stroma",
-    title: "Stroma",
+    title: "Commonplace book",
     tagline: `Local semantic retrieval over SQLite and sqlite-vec, in Go`,
     summary: `Stroma is a Go library that takes text artifacts, chunks and embeds them, and writes everything into SQLite plus sqlite-vec so a caller gets semantic retrieval out of a single local file. Retrieval is hybrid: dense vectors and FTS5 run as separate arms and a pluggable fusion strategy merges them, RRF by default. Chunkers and embedders are pluggable too, and all provider calls go through one HTTP layer with retry handling and a fixed set of failure classes. The idea is that callers treat the SQLite snapshot as an opaque artifact and use the library rather than building their own indexing layer again.`,
     category: "Data and ML",
@@ -2501,7 +2501,7 @@ export const projects: Project[] = [
   },
   {
     name: "context-surgeon",
-    title: "context-surgeon",
+    title: "Context audit",
     tagline: `CLI that audits the config tokens loaded before an agent session starts`,
     summary: `Every agent session starts by loading a pile of instruction and configuration files, and that fixed cost is easy to lose track of. context-surgeon is a zero-install CLI that reads those files and counts their tokens offline with a bundled tokenizer. It flags skill descriptions that got clipped, rules whose path frontmatter matches nothing, paragraphs that appear twice, and possible conflicts. Output is JSON for CI, or findings rendered to the terminal, an SVG, or a PNG.`,
     category: "Developer Tools",
@@ -2519,7 +2519,7 @@ export const projects: Project[] = [
   },
   {
     name: "Video-Streaming-CDN-Simulator-with-QUIC-Transport",
-    title: "CDN-Sim: QUIC vs TCP for Video Streaming",
+    title: "CDN simulator, QUIC vs TCP",
     tagline: `Go simulator measuring when HTTP/3 (QUIC) beats HTTP/2 (TCP) for video CDNs`,
     summary: `I wanted a number, not an argument, for when QUIC actually helps a video CDN. cdn-sim builds a small CDN out of synthetic viewers, video catalogs, and lossy links, then times segment delivery under HTTP/2 over TCP against HTTP/3 over QUIC. In modeled mode it does the math, with a Gilbert-Elliott bursty-loss model, congestion control, and head-of-line-blocking effects. The emulated mode runs real HTTP/2 and HTTP/3 servers in Docker with tc netem shaping the links. Both feed a statistics pipeline that reports confidence intervals, effect sizes, and significance tests.`,
     category: "Infra and Distributed",
@@ -2537,7 +2537,7 @@ export const projects: Project[] = [
   },
   {
     name: "Netlat-Analyser",
-    title: "netlat",
+    title: "Pcap latency report",
     tagline: `Reads pcap files and explains TCP latency, loss, and anomalies`,
     summary: `Point netlat at a pcap and it groups packets into TCP flows and tells you, in plain language, where the round trips went and why packets were resent. RTT gets measured three ways (handshake timing, TCP timestamp matching, and sequence/ack tracking), and samples from retransmitted packets are thrown out per Karn's algorithm. Retransmissions are classified by cause and latency spikes are flagged with an EWMA deviation model. It streams the file in one pass rather than loading it whole, exports Prometheus metrics, and comes with a Grafana dashboard.`,
     category: "Infra and Distributed",
@@ -2555,7 +2555,7 @@ export const projects: Project[] = [
   },
   {
     name: "SpatialPathDB",
-    title: "SpatialPathDB",
+    title: "Gazetteer",
     tagline: `Hilbert-partitioned PostgreSQL for viewport queries over pathology nuclei`,
     summary: `Digital pathology slides carry millions of nuclei, and a viewer wants the ones in the current viewport fast. SpatialPathDB stores them in PostgreSQL with two levels of partitioning, a list on slide id and then a range on Hilbert-curve keys, which gives hundreds of leaf partitions each carrying its own hybrid indexes. The application computes Hilbert key ranges for a viewport up front, so most sub-partitions are pruned before any scan happens. Also in the repo: the benchmark framework, four core query workloads, and the results and paper pipeline, all run on millions of nuclei from TCGA slides.`,
     category: "Data and ML",
@@ -2573,7 +2573,7 @@ export const projects: Project[] = [
   },
   {
     name: "JobApplier",
-    title: "JobApplier",
+    title: "Resume tailor",
     tagline: `Paste a job URL, get a tailored resume PDF, auto-fill the application`,
     summary: `JobApplier takes a pasted job URL, pulls out the description, rewrites a resume to score well against ATS filters, compiles it to PDF through LaTeX, and then fills in the application with browser automation. The frontend has a LaTeX editor with syntax highlighting, an in-browser PDF preview, and a tracker for applications; a FastAPI backend does the scraping and the tailoring. On the browser side it targets Greenhouse, Lever, Workday, and generic portals, handles multi-step forms, and notices when a portal wants an account created first.`,
     category: "Web and Full-stack",
@@ -2591,7 +2591,7 @@ export const projects: Project[] = [
   },
   {
     name: "sigma-terminal",
-    title: "Sigma Terminal Pro",
+    title: "Sigma terminal",
     tagline: `Financial terminal with hand-rolled canvas charts and streaming Finnhub quotes`,
     summary: `Sigma Terminal streams live quotes over a Finnhub WebSocket and draws candlestick charts straight onto canvas, no chart library involved. It is a Bloomberg-style screen in the browser. On top of the chart it computes 15+ technical indicators, has company deep-analysis views (financials, earnings, insider transactions, SEC filings), and tags news by sentiment with a weighting for source quality. There is also a portfolio tracker with P&L, price alerts, economic and earnings calendars, and a command palette with keyboard shortcuts. It is a lot of surface area for one Next.js 14 app, and every line of charting code is hand-written.`,
     category: "Web and Full-stack",
@@ -2626,7 +2626,7 @@ export const projects: Project[] = [
   },
   {
     name: "Sentinel",
-    title: "Sentinel",
+    title: "Assay",
     tagline: `Measures machine-generated code in a repo and its review cost`,
     summary: `Sentinel answers two questions about a codebase: how much of the code landing is machine-generated, and what it costs people to review it. It takes GitHub webhooks on push, pull request, and review events, queues them in Redis, and runs workers that flag generated code from commit message patterns, PR descriptions, velocity anomalies, and coding-style analysis. From that it computes daily metrics (generated-code percentage, a dollar-valued verification cost, four risk tiers, reviewer saturation) and fires alert rules to Slack, email, and PagerDuty. The dashboard is Next.js on Postgres and tRPC. Prisma was swapped for Drizzle after cold starts hurt the workers.`,
     category: "Developer Tools",
@@ -2644,7 +2644,7 @@ export const projects: Project[] = [
   },
   {
     name: "cubit-streaming-system",
-    title: "CUBIT Video Streaming System",
+    title: "CUBIT streaming",
     tagline: `Low-latency C++ pipeline streaming microscope camera video over UDP`,
     summary: `The job here is getting video off biomedical microscope cameras to remote viewers with as little delay as I could manage. Frames come in over V4L2, get encoded to H.264 by NVIDIA NVENC with a CPU fallback, and go out to clients over UDP. Capture, encode, network, and adaptation each run on their own thread and hand off through lock-protected queues; every two seconds the adaptation thread reads GPU utilization and nudges the bitrate. The point was watching an experiment live and remotely. Measured end to end it lands at 50-70ms while holding 60fps at 1920x1080.`,
     category: "Systems and C++",
@@ -2662,7 +2662,7 @@ export const projects: Project[] = [
   },
   {
     name: "GPU-Provisioning-System",
-    title: "GPU Provisioning System",
+    title: "GPU provisioning",
     tagline: `One API call to a ready GPU research environment on AWS`,
     summary: `One API request in, a running GPU environment on AWS EC2 out, with Jupyter, TensorBoard, and whichever ML stack was asked for. Setup used to take 5-7 days; now it is 6-10 minutes. A FastAPI server validates the request and queues a job in PostgreSQL, then a Go engine with 10 concurrent workers launches the EC2 instance, deploys a standardized Docker image, and validates the GPU. Terraform defines the infrastructure and metrics go to Prometheus. Instances shut themselves down on expiration to curb idle cost.`,
     category: "Infra and Distributed",
@@ -2680,7 +2680,7 @@ export const projects: Project[] = [
   },
   {
     name: "scan-sequencer",
-    title: "scan-sequencer",
+    title: "Interlock",
     tagline: `Scan sequencer that verifies bed and detector state before every capture`,
     summary: `scan-sequencer runs a small-animal PET scan as a state machine with one rule: never start until the hardware is verified in a known-good state, and never record a slice until the bed has physically arrived. The open-loop control before it fired each command and assumed it worked, losing about 10 runs a week to leftover bed positions, stale output-file locks, and captures taken mid-travel. Each run homes the bed to true mechanical zero via the limit switch, clears leftover locks, checks the detector, and confirms arrival before every capture. Everything runs against a simulated scanner on an injected virtual clock with a seeded fault stream, so runs are deterministic and no hardware is involved.`,
     category: "Instrumentation and Test",
@@ -2698,7 +2698,7 @@ export const projects: Project[] = [
   },
   {
     name: "scan-preflight",
-    title: "scan-preflight",
+    title: "Morning checklist",
     tagline: `SCPI preflight checklist over TCP/IP that clears a PET scanner in seconds`,
     summary: `scan-preflight replaces the 13-step morning checklist for a networked PET scanner that someone used to read off by hand. It opens a TCP socket to the instrument, talks SCPI, runs the eight data checks, and prints one pass/fail summary; the five physical steps stay on paper as a printed reminder. Every check runs and everything is reported at the end instead of stopping at the first failure, and it exits non-zero on any failure so a downstream start-scan step can gate on it. A simulated instrument ships with the tool, so the checklist runs with no scanner attached; pointing it at real hardware means dropping the --sim flag.`,
     category: "Instrumentation and Test",
@@ -2716,7 +2716,7 @@ export const projects: Project[] = [
   },
   {
     name: "bench-reliability",
-    title: "bench-reliability",
+    title: "Known issues",
     tagline: `Reproduces and fixes the three recurring failure modes of shared lab benches`,
     summary: `A reproducible model of how a bank of shared lab workstations with serial peripherals was made to stop breaking. Three root causes were generating about eight support tickets a week: Windows Update silently swapping out the vendor serial driver, Linux renaming USB serial ports by plug order, and a comms timeout shorter than the device's real reply time. Each cause and its fix lives in code: a comms client with a measured timeout and retries, a udev rule generator that maps burned-in device serials to permanent names, and a ticket root-cause analyzer. The serial device is simulated behind a seeded, deterministic latency model on an injectable clock, so nothing here needs hardware.`,
     category: "Instrumentation and Test",
@@ -2734,7 +2734,7 @@ export const projects: Project[] = [
   },
   {
     name: "diagkit",
-    title: "diagkit",
+    title: "Prime suspect",
     tagline: `Diagnostic CLI that ranks an incident's root cause with its evidence`,
     summary: `Two halves make up diagkit, a support diagnostic CLI for distributed services: a Go collector and a Python analyzer that talk through one versioned JSON incident bundle. The collector simulates a four-service topology (gateway, orders, payments, db) over an incident window, emits structured logs, distributed traces, and per-service metrics from a seeded PRNG, and normalizes each log message into a template so repeated failures collapse into signature clusters. On the Python side, the analyzer reads the bundle and scores each service from signature density, metric spikes, and dependency propagation, then prints the likely root cause next to the evidence that produced the score. Runs are deterministic per seed, so a scenario always ranks the same way.`,
     category: "Infra and Distributed",
@@ -2752,7 +2752,7 @@ export const projects: Project[] = [
   },
   {
     name: "snapvault",
-    title: "snapvault",
+    title: "Content-addressed backup",
     tagline: `Content-addressed backup with parallel verified restore across simulated nodes`,
     summary: `snapvault takes incremental snapshots of a dataset with content-addressed storage, spreads the chunks across simulated storage nodes, and restores in parallel while hash-verifying every chunk and recovering around node failures. The C++17 engine owns the storage side: a from-scratch SHA-256, a chunker, a deduplicating content store, and snapshot manifests. On the Go side sits the distributed layer: N simulated nodes, replication factor R, deterministic placement, parallel verified restore, and node-failure recovery. Both read and write one on-disk format defined in a single spec, and chunk placement is seeded by content hash, so runs reproduce exactly. There is no real cluster behind it, only the simulated nodes.`,
     category: "Infra and Distributed",
