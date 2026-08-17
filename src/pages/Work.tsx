@@ -81,7 +81,7 @@ export default function Work() {
         matchesQuery(p, q),
     );
     return filtered.sort((a, b) => {
-      if (sort === "name") return a.name.localeCompare(b.name);
+      if (sort === "name") return a.title.localeCompare(b.title);
       return b.flagshipScore - a.flagshipScore || a.name.localeCompare(b.name);
     });
   }, [q, category, language, sort]);
