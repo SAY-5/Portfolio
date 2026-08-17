@@ -45,6 +45,19 @@
   --font-sans: var(--sans);
   --font-mono: var(--mono);
 
+  /* Three surfaces. Base is the page; raised groups related things on one
+     shared region; overlay floats above (tooltips, hover). Shadows are tinted
+     and offset, never a flat halo. */
+  --surface-0: var(--ink-900);
+  --surface-1: #121411;
+  --surface-2: #191c17;
+  --shadow-1:
+    0 1px 0 rgba(236, 246, 200, 0.045) inset,
+    0 14px 30px -14px rgba(0, 0, 0, 0.65);
+  --shadow-2:
+    0 1px 0 rgba(236, 246, 200, 0.06) inset,
+    0 26px 50px -18px rgba(0, 0, 0, 0.75);
+
   --glass-bg: rgba(18, 20, 17, 0.62);
   --glass-border: rgba(236, 246, 200, 0.1);
   --glass-blur: 16px;
@@ -331,6 +344,19 @@ button {
 /* Vertical rhythm helpers */
 .section {
   padding-block: clamp(72px, 10vw, 140px);
+}
+/* A band is a full-bleed section on the next tone up, framed by hairlines. */
+.band {
+  background: var(--ink-850);
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+}
+/* A surface is a raised region that groups related rows or a panel. */
+.surface {
+  background: var(--surface-1);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
 }
 .hairline {
   border: 0;

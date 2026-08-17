@@ -354,3 +354,40 @@
     max-width: 12px;
   }
 }
+
+/* Depth: the object sits in a pool of its own light, the selected list sits
+   on a band, and the category rows sit on a raised surface. */
+.hero__stage::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  width: min(70vw, 900px);
+  height: min(46vh, 420px);
+  transform: translate(-50%, -50%);
+  background: radial-gradient(
+    closest-side,
+    rgba(205, 245, 58, 0.11),
+    rgba(205, 245, 58, 0.03) 55%,
+    transparent 100%
+  );
+  filter: blur(6px);
+  pointer-events: none;
+}
+.spread__rows.surface {
+  padding: 6px clamp(18px, 2.4vw, 32px);
+  border-top: 1px solid var(--line-soft);
+}
+.spread__rows.surface .spread__row {
+  padding-block: 18px;
+}
+.spread__rows.surface li:last-child .spread__row {
+  border-bottom: 0;
+}
+@media (max-width: 860px) {
+  .hero__stage::before {
+    top: 50%;
+    width: 90vw;
+    height: 60%;
+  }
+}

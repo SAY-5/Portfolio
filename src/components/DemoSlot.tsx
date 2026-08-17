@@ -9,7 +9,7 @@ export default function DemoSlot({ name }: { name: string }) {
   const Demo = demos[name];
   if (!Demo) return null;
   return (
-    <section className="detail__demo" aria-label="Interactive demo">
+    <section className="detail__demo surface" aria-label="Interactive demo">
       <Suspense
         fallback={
           <div className="demo-loading" role="status" aria-live="polite">

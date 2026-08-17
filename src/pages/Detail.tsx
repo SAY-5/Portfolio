@@ -114,7 +114,7 @@ export default function Detail() {
             )}
           </div>
 
-          <aside className="detail__aside">
+          <aside className="detail__aside surface">
             <div className="detail__panel">
               <h2 className="detail__panel-title">Stack</h2>
               <p className="detail__stack">{project.stack.join(', ')}</p>

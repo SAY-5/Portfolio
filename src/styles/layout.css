@@ -5,7 +5,7 @@
   z-index: 40;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  background: color-mix(in srgb, var(--ink-900) 94%, transparent);
+  background: color-mix(in srgb, var(--ink-900) 97%, transparent);
   border-bottom: 1px solid var(--line-soft);
 }
 
@@ -85,6 +85,7 @@
 /* Footer: quiet. Name, one line, two links. */
 .site-footer {
   margin-top: auto;
+  background: var(--ink-850);
   border-top: 1px solid var(--line-soft);
 }
 .site-footer__inner {
