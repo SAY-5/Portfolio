@@ -156,7 +156,7 @@ export default function Home() {
         )}
       </section>
 
-      <section className="selected section" aria-labelledby="selected-title">
+      <section className="selected section band" aria-labelledby="selected-title">
         <div className="wrap">
           <div className="selected__head">
             <h2 id="selected-title" className="selected__title">
@@ -196,7 +196,7 @@ export default function Home() {
             The same blocks, grouped by what they are. Each row opens that group
             in the index.
           </p>
-          <ul className="spread__rows">
+          <ul className="spread__rows surface">
             {categoryBuckets.map((b) => (
               <li key={b.label}>
                 <Link

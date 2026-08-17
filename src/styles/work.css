@@ -273,3 +273,31 @@
     padding-bottom: 0;
   }
 }
+
+/* The controls sit on one raised region so search, sort, facets and the
+   status line read as a single instrument, not four loose rows. */
+.work__panel {
+  padding: 22px clamp(20px, 2.6vw, 32px) 14px;
+  margin-bottom: 18px;
+}
+.work__panel .work__controls {
+  margin-bottom: 22px;
+}
+.work__panel .work__filters {
+  margin-bottom: 14px;
+}
+.work__panel .work__status {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 14px;
+  margin-bottom: 0;
+}
+@media (max-width: 900px) {
+  .work__panel {
+    padding: 18px 16px 12px;
+    margin-inline: calc(-1 * (var(--gutter) - 12px));
+  }
+  .work__panel .facet__items {
+    margin-inline: -16px;
+    padding-inline: 16px;
+  }
+}

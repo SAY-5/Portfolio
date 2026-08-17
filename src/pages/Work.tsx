@@ -127,121 +127,123 @@ export default function Work() {
       </header>
 
       <div className="wrap">
-        <div className="work__controls">
-          <label className="work__search">
-            <span className="work__search-label">Search</span>
-            <input
-              ref={inputRef}
-              type="search"
-              value={query}
-              onChange={(e) => update({ q: e.target.value })}
-              placeholder="name, language, or stack"
-              name="q"
-              inputMode="search"
-              spellCheck={false}
-              aria-label="Search projects"
-              className="work__input"
-              autoComplete="off"
-            />
-          </label>
+        <div className="work__panel surface">
+          <div className="work__controls">
+            <label className="work__search">
+              <span className="work__search-label">Search</span>
+              <input
+                ref={inputRef}
+                type="search"
+                value={query}
+                onChange={(e) => update({ q: e.target.value })}
+                placeholder="name, language, or stack"
+                name="q"
+                inputMode="search"
+                spellCheck={false}
+                aria-label="Search projects"
+                className="work__input"
+                autoComplete="off"
+              />
+            </label>
 
-          <div className="work__sort" role="group" aria-label="Sort">
-            <span className="work__sort-label">Sort</span>
-            <button
-              type="button"
-              className={`work__sort-btn ${sort === "featured" ? "is-active" : ""}`}
-              aria-pressed={sort === "featured"}
-              onClick={() => update({ sort: null })}
-            >
-              Featured first
-            </button>
-            <button
-              type="button"
-              className={`work__sort-btn ${sort === "name" ? "is-active" : ""}`}
-              aria-pressed={sort === "name"}
-              onClick={() => update({ sort: "name" })}
-            >
-              A to Z
-            </button>
+            <div className="work__sort" role="group" aria-label="Sort">
+              <span className="work__sort-label">Sort</span>
+              <button
+                type="button"
+                className={`work__sort-btn ${sort === "featured" ? "is-active" : ""}`}
+                aria-pressed={sort === "featured"}
+                onClick={() => update({ sort: null })}
+              >
+                Featured first
+              </button>
+              <button
+                type="button"
+                className={`work__sort-btn ${sort === "name" ? "is-active" : ""}`}
+                aria-pressed={sort === "name"}
+                onClick={() => update({ sort: "name" })}
+              >
+                A to Z
+              </button>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div className="work__filters wrap">
-        <div className="facet" role="group" aria-label="Category">
-          <span className="facet__label">Category</span>
-          <div className="facet__items">
-            <button
-              type="button"
-              className={`facet__btn ${category === null ? "is-active" : ""}`}
-              aria-pressed={category === null}
-              onClick={() => update({ c: null })}
-            >
-              All
-            </button>
-            {categories.map((c) => {
-              const n = categoryCounts.get(c) ?? 0;
-              return (
+          <div className="work__filters">
+            <div className="facet" role="group" aria-label="Category">
+              <span className="facet__label">Category</span>
+              <div className="facet__items">
                 <button
-                  key={c}
                   type="button"
-                  className={`facet__btn ${category === c ? "is-active" : ""} ${n === 0 ? "is-empty" : ""}`}
-                  aria-pressed={category === c}
-                  onClick={() => update({ c: category === c ? null : c })}
+                  className={`facet__btn ${category === null ? "is-active" : ""}`}
+                  aria-pressed={category === null}
+                  onClick={() => update({ c: null })}
                 >
-                  {c}
-                  <span className="facet__count mono num">{n}</span>
+                  All
                 </button>
-              );
-            })}
-          </div>
-        </div>
+                {categories.map((c) => {
+                  const n = categoryCounts.get(c) ?? 0;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`facet__btn ${category === c ? "is-active" : ""} ${n === 0 ? "is-empty" : ""}`}
+                      aria-pressed={category === c}
+                      onClick={() => update({ c: category === c ? null : c })}
+                    >
+                      {c}
+                      <span className="facet__count mono num">{n}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-        <div className="facet" role="group" aria-label="Language">
-          <span className="facet__label">Language</span>
-          <div className="facet__items">
-            <button
-              type="button"
-              className={`facet__btn ${language === null ? "is-active" : ""}`}
-              aria-pressed={language === null}
-              onClick={() => update({ l: null })}
-            >
-              All
-            </button>
-            {languages.map((l) => {
-              const n = languageCounts.get(l) ?? 0;
-              return (
+            <div className="facet" role="group" aria-label="Language">
+              <span className="facet__label">Language</span>
+              <div className="facet__items">
                 <button
-                  key={l}
                   type="button"
-                  className={`facet__btn ${language === l ? "is-active" : ""} ${n === 0 ? "is-empty" : ""}`}
-                  aria-pressed={language === l}
-                  onClick={() => update({ l: language === l ? null : l })}
+                  className={`facet__btn ${language === null ? "is-active" : ""}`}
+                  aria-pressed={language === null}
+                  onClick={() => update({ l: null })}
                 >
-                  {l}
-                  <span className="facet__count mono num">{n}</span>
+                  All
                 </button>
-              );
-            })}
+                {languages.map((l) => {
+                  const n = languageCounts.get(l) ?? 0;
+                  return (
+                    <button
+                      key={l}
+                      type="button"
+                      className={`facet__btn ${language === l ? "is-active" : ""} ${n === 0 ? "is-empty" : ""}`}
+                      aria-pressed={language === l}
+                      onClick={() => update({ l: language === l ? null : l })}
+                    >
+                      {l}
+                      <span className="facet__count mono num">{n}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="work__status" aria-live="polite">
+            <span className="work__shown mono">
+              {active
+                ? `${visible.length} of ${projects.length}`
+                : `${projects.length} projects`}
+            </span>
+            {active && (
+              <button
+                type="button"
+                className="work__clear tlink"
+                onClick={() => setParams({}, { replace: true })}
+              >
+                Clear
+              </button>
+            )}
           </div>
         </div>
-      </div>
-
-      <div className="work__status wrap" aria-live="polite">
-        <span className="work__shown mono">
-          {active
-            ? `${visible.length} of ${projects.length}`
-            : `${projects.length} projects`}
-        </span>
-        {active && (
-          <button
-            type="button"
-            className="work__clear tlink"
-            onClick={() => setParams({}, { replace: true })}
-          >
-            Clear
-          </button>
-        )}
       </div>
 
       <div className="wrap">

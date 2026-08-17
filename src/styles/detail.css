@@ -73,10 +73,16 @@
   font-weight: 500;
 }
 
-/* The demo is the object on this page. It sits right under the head and
-   brings its own panel from demo.css, so no second frame here. */
+/* The demo is the object on this page. It sits right under the head on one
+   raised surface; the demo shell inside keeps its own layout but drops its
+   hairlines so there is a single frame. */
 .detail__demo {
   margin-bottom: 8px;
+  padding: clamp(6px, 1.2vw, 14px) clamp(16px, 2.6vw, 32px);
+}
+.detail__demo .demo {
+  border-top: 0;
+  border-bottom: 0;
 }
 .demo-loading {
   min-height: 220px;
@@ -164,10 +170,11 @@
 .detail__aside {
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 28px;
   align-self: start;
   position: sticky;
   top: calc(var(--nav-h) + 24px);
+  padding: 24px 24px 20px;
 }
 .detail__panel-title {
   font-size: 12px;
@@ -249,6 +256,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 24px;
+    padding: 20px;
   }
   .detail__title {
     font-size: clamp(40px, 12vw, 80px);
