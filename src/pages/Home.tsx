@@ -110,9 +110,8 @@ export default function Home() {
           </motion.h1>
 
           <motion.p className="hero__lede" variants={item}>
-            One block per public repo, {totalProjects} in all. The lit ones are
-            the {flagshipProjects.length} I picked. Hover for the name, click to
-            open.
+            One block per public repo, {totalProjects} in all. Lit blocks are the
+            selected projects. Hover for the name, click to open.
           </motion.p>
 
           <motion.p className="hero__metric" variants={item}>
@@ -160,7 +159,7 @@ export default function Home() {
         <div className="wrap">
           <div className="selected__head">
             <h2 id="selected-title" className="selected__title">
-              Start with these.
+              Selected work
             </h2>
             <p className="selected__sub">
               {flagshipProjects.length} projects that cover most of what I do:
@@ -190,10 +189,10 @@ export default function Home() {
       <section className="spread section" aria-labelledby="spread-title">
         <div className="wrap">
           <h2 id="spread-title" className="spread__title">
-            Where they sit.
+            By category
           </h2>
           <p className="spread__sub">
-            The same blocks, grouped by what they are. Each row opens that group
+            The same catalog grouped by category. Each row opens that group
             in the index.
           </p>
           <ul className="spread__rows surface">
