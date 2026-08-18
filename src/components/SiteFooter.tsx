@@ -11,9 +11,8 @@ export default function SiteFooter() {
             Sai Asish Y
           </p>
           <p className="site-footer__line">
-            Most of my public repos are systems and infrastructure code. Some
-            are agents and web apps. A few are things I wanted to understand
-            and never turned into anything.
+            Systems and infrastructure work, agent platforms, web applications,
+            and a set of smaller experiments, all public on GitHub.
           </p>
         </div>
         <div className="site-footer__right">
