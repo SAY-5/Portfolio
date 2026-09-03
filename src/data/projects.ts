@@ -15,7 +15,7 @@ export type Project = {
   isFlagship: boolean;
 };
 
-export const flagships: string[] = ["scanguard", "cloudshift", "agentdesk", "taskboard", "shopflow", "gradeview", "codelens", "learnloop", "scan-sequencer", "diagkit", "snapvault"];
+export const flagships: string[] = ["scanguard", "cloudshift", "agentdesk", "taskboard", "shopflow", "gradeview", "codelens", "learnloop", "scan-sequencer", "diagkit", "snapvault", "rideloop", "modelgate", "dispatchgrid", "failsafe"];
 
 export const projects: Project[] = [
   {
@@ -2765,6 +2765,78 @@ export const projects: Project[] = [
       `The restored tree is compared byte-for-byte against the original, so the node-failure-survived result is an integrity check rather than an assertion.`,
     ],
     demoConcept: `Files chunk into content-hashed blocks that collapse into a deduplicated store, an edit adds one chunk, chunks replicate across a node grid, one node fails, and parallel restore verifies each chunk before a byte-for-byte verdict.`,
+    flagshipScore: 8,
+    isFlagship: true,
+  },
+  {
+    name: "rideloop",
+    title: "Ride Dispatch Platform",
+    tagline: `Ride request, driver location, and dispatch microservices with a geohash-partitioned driver index`,
+    summary: `Ride Dispatch Platform is three Python microservices behind a React rider map: driver_location ingests driver pings and answers nearest-driver queries, ride_request owns the trip lifecycle, and dispatch matches requested trips to drivers. Driver positions live in a DynamoDB table partitioned by geohash cell (precision 5) with a TTL attribute so a driver that stops pinging expires from the index. Trips, drivers, and ride events live in a PostgreSQL schema under Alembic migrations. The matcher takes the nearest available driver inside an expanding radius (500 m to 4 km) and claims it with a conditional write, so two matchers racing for one driver cannot both win. A synthetic fleet of 300 drivers and a rider generator drive the whole stack on a laptop.`,
+    category: "Infra and Distributed",
+    language: "Python",
+    stack: ["Python", "FastAPI", "DynamoDB", "PostgreSQL", "Alembic", "React", "Docker"],
+    highlights: [
+      `Measured run: 600 rides submitted at 10 per second, 600 matched, 601 matches per minute, p50 match latency 54 ms; every figure is read back from trip timestamps in PostgreSQL and the dispatch stats endpoint.`,
+      `Driver index keyed by geohash cell with a TTL attribute: a driver that stopped pinging was still visible after 3 s and gone after the 20 s TTL, with a read-side expiry filter covering the gap before DynamoDB reclaims the item.`,
+      `Nearest-first matching inside an expanding radius, and the claim is a conditional update on the driver item, so concurrent matchers cannot both take the same driver.`,
+      `Requested trips are pulled with FOR UPDATE SKIP LOCKED, so several dispatch sweeps can run at once without double-matching a trip.`,
+    ],
+    demoConcept: `A small SVG city with drivers moving over a geohash grid; drop a pickup pin and watch the radius rings expand until the nearest available driver is claimed atomically, while a driver that stops pinging fades out after its TTL and a matches-per-minute counter converges on the measured 601.`,
+    flagshipScore: 8,
+    isFlagship: true,
+  },
+  {
+    name: "modelgate",
+    title: "ETA Model Serving",
+    tagline: `PyTorch ETA model serving with strict input checks, shadow runs, and zero-drop version swaps`,
+    summary: `ETA Model Serving is a FastAPI service in front of a small PyTorch MLP that estimates trip ETA from distance, time of day, day of week, pickup zone, traffic index, and rain. Every input is validated before a tensor is built: types, ranges, known zones, finite floats, no unknown fields, and rejections return 422 with a per-field reason that is also counted by reason in Prometheus. A model registry holds a primary and an optional shadow version; the shadow runs on every request and its divergence from the primary is recorded while the client always receives the primary answer. Promotion loads and warms the candidate off the request path, then swaps the primary reference in O(1) under a lock, so in-flight requests finish on the model they started with. Prometheus metrics feed a provisioned Grafana dashboard.`,
+    category: "Data and ML",
+    language: "Python",
+    stack: ["Python", "PyTorch", "FastAPI", "Prometheus", "Grafana", "Docker"],
+    highlights: [
+      `Load test at 200 rps for 20 s with v2 promoted at t+10 s: 4000 of 4000 requests succeeded, 0 dropped, and the per-second version split flips from v1 to v2 inside a single bucket.`,
+      `Validation covers out_of_range, not_finite, wrong_type, unknown_zone, unknown_field, missing_field, and malformed_body, each surfaced in the 422 body and in modelgate_input_rejections_total.`,
+      `Shadow report over 1000 requests: mean absolute divergence 2.29 min, p95 6.35 min, 40 percent beyond the 2 min threshold, which is the evidence for whether v2 should be promoted.`,
+      `v2 (MLP 19-96-96-96-1, 25 epochs) reaches a held-out MAE of 1.888 min against 3.105 for v1 and 8.651 for predicting the mean; training is deterministic per seed and the test suite trains twice to check the weights match.`,
+    ],
+    demoConcept: `A request builder that shows the 422 reasons as fields go out of range, a shadow-run divergence readout, and a live request stream with a Promote button that flips v1 to v2 in one tick while the dropped counter stays at 0.`,
+    flagshipScore: 8,
+    isFlagship: true,
+  },
+  {
+    name: "dispatchgrid",
+    title: "Streams Ride Matcher",
+    tagline: `Kafka Streams matching service with Redis geospatial claims, city-keyed MySQL shards, and rolling updates`,
+    summary: `Streams Ride Matcher is a ride marketplace backend in Java 21 and Spring Boot 3: a rider request service, a driver location service, and a Kafka Streams matching service. Every topic is keyed by city id across six partitions, so one city's events stay ordered while cities are processed in parallel. Live driver positions sit in Redis GEO with a heartbeat TTL; the matcher runs GEOSEARCH nearest-first inside a radius, claims each candidate with a Lua SET NX script, asks the ring for a larger candidate page when a full page was already taken, and only then widens the radius. Trips are written to MySQL shards chosen by floorMod(city_id, N) with Flyway migrations applied per shard. The three services run on Kubernetes with readiness gating and RollingUpdate at maxUnavailable 0.`,
+    category: "Infra and Distributed",
+    language: "Java",
+    stack: ["Java 21", "Spring Boot", "Kafka Streams", "MySQL", "Redis", "Kubernetes", "Docker"],
+    highlights: [
+      `Measured run with 600 drivers across two cities and rides at 10 per second for 60 s: 603 submitted, 603 matched, 0 unmatched, 603 matches per minute, p50 14 ms and p95 53 ms, all read from the matching service stats endpoint.`,
+      `Shard distribution from counting rows in each MySQL shard: shard-0 holds city 2 with 301 trips and shard-1 holds city 1 with 302, which is exactly what floorMod(city_id, 2) predicts.`,
+      `The driver claim is one Lua script (stale heartbeat, SET NX with a TTL, removal from the GEO set), so two Streams tasks racing for a driver cannot both win.`,
+      `The kind end-to-end run changes an environment variable on all three Deployments under load and asserts zero HTTP errors from the generator, with a preStop sleep so endpoints drain before the JVM exits.`,
+    ],
+    demoConcept: `Two cities feeding ride requests into Kafka partitions consumed by a Streams matcher, a nearest-first claim that grows its candidate page when the nearest drivers are taken, shard tanks filling by city, and a rolling-update panel whose error counter stays at 0.`,
+    flagshipScore: 8,
+    isFlagship: true,
+  },
+  {
+    name: "failsafe",
+    title: "Resilient API Gateway",
+    tagline: `API gateway with token-bucket rate limiting, circuit breakers, retries with failover, and a chaos suite`,
+    summary: `Resilient API Gateway sits in front of a set of upstream replicas and keeps client requests succeeding while those replicas are rate limited, timing out, crashing, or being killed. Each route runs a token bucket per API key or client IP with exact refill math and Retry-After on 429, a circuit breaker per replica (closed, open, half-open with a failure-rate window and bounded probes), retries with exponential backoff and jitter for idempotent requests, and failover across replicas so a dead pod is skipped instead of surfaced. Replicas are discovered from the Kubernetes EndpointSlice API and probed actively. Every decision is a Prometheus metric on a provisioned Grafana dashboard, and a chaos suite kills containers or pods under load and fails the run if any client saw a non-2xx.`,
+    category: "Infra and Distributed",
+    language: "Python",
+    stack: ["Python", "FastAPI", "httpx", "Docker", "Kubernetes", "Prometheus", "Grafana"],
+    highlights: [
+      `Compose chaos run at 150 rps for 45 s with 4 container kills: 6751 requests, 6751 successes, 0 client-visible failures, 5 connect-phase retries and 5 failovers, p50 3.2 ms.`,
+      `Kubernetes chaos run on a kind cluster with 4 forced pod deletions: 2701 of 2701 requests succeeded, each kill producing exactly one connect retry that moved the in-flight request to a live replica.`,
+      `Replica discovery moved from headless DNS to the EndpointSlice API after the first cluster run showed DNS TTLs keeping a deleted pod in rotation.`,
+      `Breaker defaults: a 20-request window, 0.5 failure ratio after 5 requests or 3 consecutive failures, 3 s open, and at most 2 half-open probes, each transition exported as failsafe_breaker_transitions_total.`,
+    ],
+    demoConcept: `Gateway fan-out to three replicas with an interactive token bucket, a breaker state machine you can drive with failures, and a chaos run with kill buttons where retries and failovers count up while client-visible failures stay at 0.`,
     flagshipScore: 8,
     isFlagship: true,
   },
