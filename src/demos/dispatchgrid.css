@@ -1,0 +1,417 @@
+/* dispatchgrid demo: Kafka partitions, GEO claims, city shards, rolling update */
+
+.dg__phase {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 14px;
+}
+.dg__phase-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink-600);
+}
+.dg__phase-dot[data-live='true'] {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.dg__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+@media (min-width: 900px) {
+  .dg__stats {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+.dg__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink-800);
+  padding: 8px 12px;
+}
+.dg__stat-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.dg__stat-val {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.dg__stat-val em {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-faint);
+  margin-left: 6px;
+}
+
+.dg__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+@media (min-width: 900px) {
+  .dg__stage {
+    grid-template-columns: 1fr 1fr;
+  }
+  .dg__panel--wide {
+    grid-column: 1 / -1;
+  }
+}
+
+.dg__panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ink-800);
+  padding: 14px 16px;
+  min-width: 0;
+}
+.dg__panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.dg__panel-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.dg__panel-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: right;
+}
+
+/* city maps */
+.dg__maps {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 640px) {
+  .dg__maps {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.dg__map {
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--ink-850);
+  padding: 10px 12px;
+}
+.dg__map-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.dg__map-name {
+  color: var(--text-strong);
+}
+.dg__map-meta {
+  color: var(--text-faint);
+}
+.dg__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 240px;
+  margin: 0 auto;
+}
+.dg__fence {
+  fill: none;
+  stroke: var(--line-soft);
+  stroke-dasharray: 3 3;
+}
+.dg__driver {
+  fill: var(--accent);
+  opacity: 0.9;
+}
+.dg__driver--claimed {
+  fill: var(--text-faint);
+  opacity: 0.55;
+}
+.dg__ring {
+  fill: var(--accent-glow);
+  stroke: var(--accent-line);
+  stroke-width: 1;
+}
+.dg__link {
+  stroke: var(--accent);
+  stroke-width: 1.2;
+}
+.dg__pickup {
+  fill: var(--ember);
+}
+.dg__map-foot {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+/* kafka topics */
+.dg__topics {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dg__topic {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  align-items: end;
+  gap: 10px;
+}
+.dg__topic-name {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1.3;
+}
+.dg__topic-name b {
+  font-weight: 400;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.dg__bars {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  height: 44px;
+  margin-bottom: 14px;
+}
+.dg__bar-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+  border-bottom: 1px solid var(--line);
+}
+.dg__bar {
+  display: block;
+  width: 100%;
+  background: var(--ink-600);
+  border-radius: 3px 3px 0 0;
+}
+.dg__bar--city1 {
+  background: var(--accent);
+}
+.dg__bar--city2 {
+  background: var(--accent-soft);
+  opacity: 0.75;
+}
+.dg__bar-slot i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -14px;
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 9px;
+  text-align: center;
+  color: var(--text-faint);
+}
+.dg__topic + .dg__topic {
+  margin-top: 8px;
+}
+
+/* match trace */
+.dg__trace {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-height: 150px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.dg__trace-line {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text);
+}
+.dg__trace-line--dim {
+  color: var(--text-faint);
+}
+.dg__trace-line--ok {
+  color: var(--ok);
+}
+.dg__trace-line--warn {
+  color: var(--warn);
+}
+.dg__trace-line--bad {
+  color: var(--bad);
+}
+.dg__trace-line--strong {
+  color: var(--text-strong);
+}
+
+/* shard tanks */
+.dg__tanks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.dg__tank {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dg__tank-name {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-strong);
+}
+.dg__tank-name b {
+  font-weight: 400;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.dg__tank-well {
+  display: flex;
+  flex-direction: column-reverse;
+  height: 150px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ink-850);
+  overflow: hidden;
+}
+.dg__tank-fill {
+  display: flex;
+  align-items: flex-end;
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-900);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.dg__tank-fill--city1 {
+  background: var(--accent);
+}
+.dg__tank-fill--city2 {
+  background: var(--accent-soft);
+}
+.dg__tank-rule {
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+/* rollout */
+.dg__deploys {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dg__deploy {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--ink-850);
+  padding: 8px 10px;
+}
+@media (min-width: 900px) {
+  .dg__deploy {
+    grid-template-columns: 200px 1fr 150px;
+  }
+}
+.dg__deploy-name {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  color: var(--text-strong);
+}
+.dg__deploy-name b,
+.dg__deploy-count b {
+  font-weight: 400;
+  color: var(--text-faint);
+}
+.dg__pods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.dg__pod {
+  font-family: var(--mono);
+  font-size: 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 2px 6px;
+  color: var(--text-faint);
+}
+.dg__pod--ready {
+  color: var(--ok);
+  border-color: var(--accent-line);
+}
+.dg__pod--pending,
+.dg__pod--starting {
+  color: var(--warn);
+  border-style: dashed;
+}
+.dg__pod--terminating {
+  color: var(--ember-soft);
+  border-color: var(--ember-line);
+}
+.dg__pod--gone {
+  opacity: 0.35;
+  text-decoration: line-through;
+}
+.dg__deploy-count {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+@media (min-width: 900px) {
+  .dg__deploy-count {
+    text-align: right;
+  }
+}
+.dg__zero {
+  color: var(--ok) !important;
+}
+.dg__nonzero {
+  color: var(--bad) !important;
+}
+.dg__events {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
