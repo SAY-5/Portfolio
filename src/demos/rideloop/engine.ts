@@ -218,9 +218,11 @@ export class Engine {
     return this.newTrip(pickup, dropoff, true);
   }
 
+  // Rides start on the next sweep boundary so the first request is not
+  // charged a partial poll interval that the rest of the run never sees.
   startLoad(): void {
     this.ridesLeft = LOAD_RIDES;
-    this.nextRideAt = this.now;
+    this.nextRideAt = this.nextSweepAt;
   }
 
   get loadRunning(): boolean {
