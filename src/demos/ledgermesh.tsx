@@ -38,6 +38,7 @@ function statusLine(snap: Snap): string {
   if (snap.phase === 'idle') return `ready: seed ${CHAOS.seed}, ${CHAOS.rate} orders/s for ${CHAOS.durationMs / 1000} s`;
   if (snap.phase === 'done') return `settled at t+${(snap.now / 1000).toFixed(1)} s: ${snap.stats.submitted} orders, ${snap.stats.failed} failed or stuck`;
   const prefix = snap.paused ? 'paused, ' : '';
+  if (snap.phase === 'draining' && snap.processorFault) return `${prefix}load done, ${snap.inFlight} orders wait on deferred payments until the processor answers again`;
   if (snap.phase === 'draining') return `${prefix}load done, draining ${snap.inFlight} open orders`;
   return `${prefix}load t+${t} s, ${snap.stats.submitted} submitted, ${snap.inFlight} in flight`;
 }

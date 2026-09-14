@@ -173,6 +173,7 @@ export class Cluster {
     const key = `${owner === 'inventory' ? 'order-service/inventory' : 'payment-service/processor'} ${t.from}->${t.to}`;
     this.breakerTransitions.set(key, (this.breakerTransitions.get(key) ?? 0) + 1);
     this.breakerLog.push({ ...t, owner });
+    if (this.breakerLog.length > 200) this.breakerLog.splice(0, this.breakerLog.length - 200);
     this.onTrace?.({ t: t.at, source: owner === 'inventory' ? 'order-service' : 'payment-service', kind: 'breaker', text: `breaker ${owner} ${t.from} -> ${t.to}` });
   }
 }
