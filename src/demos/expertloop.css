@@ -501,3 +501,8 @@
 .el__stats--flush {
   margin-top: 0;
 }
+.el__track-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
