@@ -498,8 +498,14 @@ function PrChart({
         <text className="sl__axis-title" x={(PR.left + PR.width - PR.right) / 2} y={PR.height - 6} textAnchor="middle">
           recall on the calibration split
         </text>
-        <text className="sl__axis-title" x={12} y={PR.top + 2} dy="0.7em">
-          P
+        <text
+          className="sl__axis-title"
+          x={0}
+          y={0}
+          transform={`translate(11,${(PR.top + PR.height - PR.bottom) / 2}) rotate(-90)`}
+          textAnchor="middle"
+        >
+          precision
         </text>
         {DETECTORS.map((d) => (
           <path
@@ -654,11 +660,6 @@ function Calibration({ data }: { data: DemoData }) {
       </div>
       <div className="sl__table-wrap">
         <table className="sl__table">
-          <caption>
-            {atRun && reproduces
-              ? `At the run's target of ${fixed(data.targetPrecision, 2)} the re-picked thresholds equal the exported ones, so the test columns match the measured table.`
-              : `Thresholds re-picked at target ${fixed(target)} on the calibration split, then the exported test split logits counted at those thresholds.`}
-          </caption>
           <thead>
             <tr>
               <th scope="col">detector</th>
@@ -699,6 +700,11 @@ function Calibration({ data }: { data: DemoData }) {
           </tbody>
         </table>
       </div>
+      <p className="sl__table-note">
+            {atRun && reproduces
+              ? `At the run's target of ${fixed(data.targetPrecision, 2)} the re-picked thresholds equal the exported ones, so the test columns match the measured table.`
+              : `Thresholds re-picked at target ${fixed(target)} on the calibration split, then the exported test split logits counted at those thresholds.`}
+      </p>
     </section>
   );
 }
@@ -759,7 +765,6 @@ function Headline({ data }: { data: DemoData }) {
       </div>
       <div className="sl__table-wrap">
         <table className="sl__table">
-          <caption>Clip level metrics at the calibrated operating points, copied from the run.</caption>
           <thead>
             <tr>
               <th scope="col">detector</th>
@@ -790,6 +795,7 @@ function Headline({ data }: { data: DemoData }) {
           </tbody>
         </table>
       </div>
+      <p className="sl__table-note">Clip level metrics at the calibrated operating points, copied from the run.</p>
     </section>
   );
 }

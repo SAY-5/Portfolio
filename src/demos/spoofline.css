@@ -490,6 +490,10 @@
 .sl__target-label {
   fill: var(--accent);
   font-size: 10px;
+  paint-order: stroke;
+  stroke: var(--ink-800);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }
 .sl__grip rect {
   fill: var(--ink-700);
@@ -577,6 +581,13 @@
   overflow-x: auto;
   margin-top: 14px;
 }
+.sl__table-note {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
 .sl__table {
   width: 100%;
   min-width: 560px;
@@ -584,14 +595,6 @@
   font-family: var(--mono);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-}
-.sl__table caption {
-  caption-side: bottom;
-  text-align: left;
-  padding-top: 8px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-faint);
 }
 .sl__table th,
 .sl__table td {
@@ -642,6 +645,8 @@
   border-color: var(--accent-line);
 }
 .sl__stat-label {
+  display: block;
+  line-height: 1.4;
   font-family: var(--mono);
   font-size: 10.5px;
   color: var(--text-faint);
