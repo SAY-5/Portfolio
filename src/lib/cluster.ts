@@ -1,8 +1,8 @@
-import { categories, type Project } from '../data/projects';
+import { categories, projects, type Project } from '../data/projects';
 
-// 17 x 9 = 153 blocks, one per project.
+// 17 columns; rows grow with the catalog so there is still one block per project.
 export const COLS = 17;
-export const ROWS = 9;
+export const ROWS = Math.ceil(projects.length / COLS);
 
 // World units. Blocks are CELL wide with GAP of graphite between them.
 export const CELL = 1;
