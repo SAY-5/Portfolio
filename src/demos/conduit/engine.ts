@@ -24,6 +24,11 @@ export const WEBHOOK_HARD_FAIL_TASKS = 10;
 export const CONNECTORS = ['jira-support', 'slack-ops', 'webhook-crm'] as const;
 export type ConnectorName = (typeof CONNECTORS)[number];
 const LOG_LIMIT = 400;
+const BASE_PLAN = plan(CONNECTOR_YAML);
+const FULL_PLAN = plan({ ...CONNECTOR_YAML, [NEW_CONNECTOR_NAME]: NEW_CONNECTOR_YAML });
+// Plan totals: the shared table, 7 resources per connector and one SSM parameter per
+// secret make 26 for the shipped three connectors and 34 once the fourth file is added.
+export const PLAN_TOTALS = { base: BASE_PLAN.length, after: FULL_PLAN.length };
 
 export interface Connector {
   spec: ConnectorSpec;
@@ -54,6 +59,8 @@ export interface Summary {
   dlqAfterReplay: number;
   webhookAfter: number;
   planSummary: string;
+  planBase: number;
+  planAfter: number;
   planAdded: string[];
   ok: boolean;
   problems: string[];
@@ -72,7 +79,7 @@ export class ConduitRun {
   readonly store = new IdempotencyStore(() => this.wall);
   readonly connectors = {} as Record<ConnectorName, Connector>;
   readonly log: LogEvent[] = [];
-  readonly planDiff = diffPlans(plan(CONNECTOR_YAML), plan({ ...CONNECTOR_YAML, [NEW_CONNECTOR_NAME]: NEW_CONNECTOR_YAML }));
+  readonly planDiff = diffPlans(BASE_PLAN, FULL_PLAN);
   private seq = 0;
   private phaseAt = 0;
   private phaseOne: PhaseOne | null = null;
@@ -189,6 +196,8 @@ export class ConduitRun {
       dlqAfterReplay: webhook.dlq.messages.length,
       webhookAfter: webhook.target.inbox.length,
       planSummary: this.planDiff.summary,
+      planBase: PLAN_TOTALS.base,
+      planAfter: PLAN_TOTALS.after,
       planAdded: this.planDiff.add.map((r) => r.address),
       ok: true,
       problems: [],
@@ -200,6 +209,7 @@ export class ConduitRun {
     check(s.dlqAfterReplay === 0 && s.webhookAfter === UNIQUE_PER_CONNECTOR, 'replay did not drain the DLQ');
     check(s.retried === JIRA_RATE_LIMITED_TASKS * JIRA_429_ATTEMPTS, `retried ${s.retried}`);
     check(s.planAdded.length === 8, `planned ${s.planAdded.length}`);
+    check(s.planBase === 26 && s.planAfter === 34, `stack ${s.planBase} then ${s.planAfter}`);
     s.ok = s.problems.length === 0;
     return s;
   }

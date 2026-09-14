@@ -146,24 +146,22 @@
   color: var(--text-strong);
 }
 .cd__counts {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
   margin: 8px 0 0;
 }
 .cd__counts div {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  min-width: 0;
 }
 .cd__counts dt {
-  font-size: 9px;
-  letter-spacing: 0.06em;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
+  white-space: nowrap;
   color: var(--text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .cd__counts dd {
   margin: 0;

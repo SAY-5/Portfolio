@@ -3,7 +3,7 @@ import { useReducedMotion } from 'framer-motion';
 import '../styles/demo.css';
 import './conduit.css';
 import { ConduitSim, TICK_MS, type Snap } from './conduit/sim';
-import { RUN_ID, UNIQUE_PER_CONNECTOR } from './conduit/engine';
+import { PLAN_TOTALS, RUN_ID, UNIQUE_PER_CONNECTOR } from './conduit/engine';
 import { NEW_CONNECTOR_NAME, NEW_CONNECTOR_YAML } from './conduit/specs';
 import type { BreakerState } from './conduit/throttle';
 
@@ -83,6 +83,7 @@ export default function ConduitDemo() {
         `DLQ replay             ${sum.replayed} replayed after clearing the fault; DLQ now ${sum.dlqAfterReplay}; webhook delivered ${sum.webhookAfter}/${UNIQUE_PER_CONNECTOR}`,
         `paced sends            ${sum.paced} held back by the token buckets`,
         `new integration        ${sum.planSummary}`,
+        `terraform stack        ${sum.planBase} resources for the shipped connectors, ${sum.planAfter} with ${NEW_CONNECTOR_NAME}`,
       ].join('\n')
     : '';
 
@@ -252,6 +253,11 @@ export default function ConduitDemo() {
               </li>
             ))}
           </ul>
+          <p className="cd__note">
+            The three shipped connectors plan {PLAN_TOTALS.base} resources: the shared idempotency table, 7 per connector (work,
+            dead-letter and quarantine queues, the redrive allow policy, IAM policy, role and attachment) and one SSM parameter per
+            secret. Adding this file brings the stack to {PLAN_TOTALS.after}.
+          </p>
         </section>
 
         <section className="cd__panel cd__panel--wide" aria-label="Demo summary">
