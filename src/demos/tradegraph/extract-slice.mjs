@@ -10,7 +10,8 @@
  * random source, so a rerun on the same input writes the same bytes.
  *
  * Kept:
- *   - the seven fund families the README demo grid names, each with every fund in it;
+ *   - the seven fund families the README demo grid names, each with its whole
+ *     subsidiary tree to LINEAGE_DEPTH levels; the funds in that tree are the holders;
  *   - the thirteen issuers the README demo names, plus the EXTRA_ISSUERS top-level
  *     issuers those families hold the most of in the latest reporting period;
  *   - every subsidiary of a kept issuer to LINEAGE_DEPTH levels, and every ancestor of a
@@ -105,12 +106,11 @@ function rootOf(index) {
 }
 
 const families = FAMILY_TICKERS.map((ticker) => byTicker(ticker, FUND));
-const funds = new Set();
+const familyMembers = new Set();
 for (const root of families) {
-  for (const index of [root, ...descendants(root, LINEAGE_DEPTH)]) {
-    if ((entities[index][2] & FUND) !== 0) funds.add(index);
-  }
+  for (const index of [root, ...descendants(root, LINEAGE_DEPTH)]) familyMembers.add(index);
 }
+const funds = new Set([...familyMembers].filter((index) => (entities[index][2] & FUND) !== 0));
 
 const periods = [...new Set(slice.positions.map(periodOf))].sort().reverse();
 const latest = periods[0];
@@ -136,7 +136,7 @@ for (const issuer of [...issuers, ...extras]) {
   for (const child of descendants(issuer, LINEAGE_DEPTH)) issuingEntities.add(child);
 }
 
-const kept = new Set([...funds, ...families, ...issuingEntities]);
+const kept = new Set([...familyMembers, ...issuingEntities]);
 for (const index of [...kept]) {
   let cursor = entities[index][5];
   while (cursor >= 0) {
