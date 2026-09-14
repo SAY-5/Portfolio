@@ -2847,7 +2847,7 @@ export const projects: Project[] = [
     summary: `Ingests a standard operating procedure and a walkthrough transcript into a structured procedure whose every step, rule and decision point cites the file and line it came from, renders a versioned system prompt, and runs a bounded tool-calling loop with Jira, Slack and knowledge-base tools. A grader scores each run against the expert's rubric, failures are fed back into the next prompt version as explicit corrections, and a promotion gate refuses to ship a version while forbidden actions remain. It runs fully offline against a deterministic stand-in by default, so the whole evaluation arc reproduces with no API key.`,
     category: "Agents and Language",
     language: "Python",
-    stack: ["Python", "Anthropic API", "Terraform", "AWS", "DynamoDB", "S3", "pytest"],
+    stack: ["Python", "Tool Calling", "Terraform", "AWS", "DynamoDB", "S3", "pytest"],
     highlights: [
       `The correction loop is measured, not asserted: support triage goes 12.5% to 87.5% to 100% pass rate across three prompt versions and incident communications 12.5% to 100%, over 64 runs and 308 tool calls.`,
       `A promotion gate blocks any version that still contains a forbidden action, and the audit trail records the exact approve, edit, reject, block and promote sequence with the actor for each.`,
