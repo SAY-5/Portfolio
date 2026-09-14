@@ -27,6 +27,8 @@ const STEP_NAMES: Record<(typeof STEP_ORDER)[number], string> = {
   dedup: 'ledger ON CONFLICT (source, event_key)',
 };
 const PHASES = ['first-pass', 'duplicates', 'rejections', 'settling', 'replay', 'resettling', 'done'] as const;
+// Dispatch latency from the launchbridge README run against the Compose stack.
+const MEASURED = { p50: 1987.5, p95: 7828.5 };
 
 function ensure(ref: { current: BridgeSim | null }): BridgeSim {
   if (!ref.current) ref.current = new BridgeSim();
@@ -256,10 +258,18 @@ export default function LaunchbridgeDemo() {
             <Stat label="delivered" value={bs?.deliveries.delivered ?? 0} />
             <Stat label="retried" value={bs?.retries ?? 0} sub="attempts beyond the first" />
             <Stat label="failed then replayed" value={`${b?.failedFirstPass ?? bs?.deliveries.failed ?? 0} / ${bs?.replays.delivered ?? 0}`} />
+            <Stat
+              label="dispatch p50 / p95, simulated"
+              value={bs?.latency_ms.p50 != null ? `${bs.latency_ms.p50} / ${bs.latency_ms.p95 ?? '-'}` : '-'}
+              sub={`virtual clock, ms; measured ${MEASURED.p50} / ${MEASURED.p95} ms on the Compose stack`}
+            />
             <Stat label="left failed" value={b?.phase === 'done' ? (bs?.deliveries.failed ?? 0) : '-'} pinned bad={b?.phase === 'done' && (bs?.deliveries.failed ?? 0) > 0} />
           </div>
           {b?.phase === 'done' && (
             <>
+              <p className="lb__note mono">
+                Printed by the simulation on virtual clocks. The counts match the README run; its latencies do not. Measured dispatch p50 {MEASURED.p50} ms, p95 {MEASURED.p95} ms.
+              </p>
               <pre className="lb__summary mono">{b.lines.join('\n')}</pre>
               <p className="lb__verdict" data-pass={b.checks.every((c) => c.ok)}>
                 {b.checks.every((c) => c.ok) ? `PASS: ${b.checks.length} of ${b.checks.length} checks, 0 left failed` : 'FAIL: a check did not hold'}
@@ -327,6 +337,7 @@ function Timeline({ t }: { t: TimelineSnap }) {
           </li>
         ))}
       </ol>
+      {t.attempts.length > 0 && <p className="lb__note mono">Round trips and backoffs run on the virtual clock.</p>}
     </div>
   );
 }

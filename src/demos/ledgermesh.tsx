@@ -17,6 +17,8 @@ import { CHAOS, ChaosSession, type BreakerSnap, type ServiceSnap, type Snap } fr
 const TICK_MS = 100;
 const SPEEDS = [1, 2, 4, 8];
 const STATES = ['CLOSED', 'OPEN', 'HALF_OPEN'] as const;
+// The chaos run recorded in the ledgermesh README (Compose stack, three kills).
+const MEASURED = { orders: 1200, confirmed: 1162, cancelled: 38, kills: 'inventory @16s, payment @37s, inventory @49s', p50: 12825, p95: 36859 };
 
 function ensure(ref: { current: ChaosSession | null }): ChaosSession {
   if (!ref.current) ref.current = new ChaosSession();
@@ -168,7 +170,12 @@ export default function LedgermeshDemo() {
             <Stat label="retried, then ok" value={st.retries.successful_with_retry} sub={`${st.retries.failed_with_retry} exhausted, ${st.retries.failed_without_retry} not permitted`} />
             <Stat label="duplicates ignored" value={st.duplicates} />
             <Stat label="outbox backlog" value={st.outboxBacklog} />
-            <Stat label="saga p50 / p95" value={`${(st.p50 / 1000).toFixed(1)} / ${(st.p95 / 1000).toFixed(1)}`} unit="s" />
+            <Stat
+              label="saga p50 / p95, simulated"
+              value={`${(st.p50 / 1000).toFixed(1)} / ${(st.p95 / 1000).toFixed(1)}`}
+              unit="s"
+              sub={`virtual clock; measured ${(MEASURED.p50 / 1000).toFixed(1)} / ${(MEASURED.p95 / 1000).toFixed(1)} s on the Compose stack`}
+            />
           </div>
         </section>
 
@@ -179,7 +186,7 @@ export default function LedgermeshDemo() {
         <section className="lm__panel" aria-label="Saga stream">
           <div className="lm__head">
             <span className="lm__title">saga stream</span>
-            <span className="lm__meta">latest orders to reach a terminal state</span>
+            <span className="lm__meta">latest orders to reach a terminal state, virtual-clock times</span>
           </div>
           <ul className="lm__orders mono">
             {snap.recent.length === 0 && <li className="lm__empty">settled orders appear here once the run starts</li>}
@@ -223,7 +230,7 @@ export default function LedgermeshDemo() {
 
         <section className="lm__panel lm__panel--wide" aria-label="Chaos summary">
           <div className="lm__head">
-            <span className="lm__title">chaos summary</span>
+            <span className="lm__title">simulated chaos summary</span>
             <span className="lm__meta">
               load ends at {CHAOS.durationMs / 1000} s, then the stack drains until every order is terminal
             </span>
@@ -238,8 +245,11 @@ export default function LedgermeshDemo() {
           </div>
           <p className="lm__track-labels mono">
             {snap.kills.length === 0
-              ? `scheduled: ${snap.plan.map((k) => `${short(k.service)} @${k.at / 1000}s`).join(', ')}`
-              : `kills: ${snap.kills.map((k) => `${short(k.service)} @${Math.round(k.at / 1000)}s, ready @${(k.readyAt / 1000).toFixed(1)}s`).join('; ')}`}
+              ? `simulated schedule:${snap.plan.map((k) => `${short(k.service)} @${k.at / 1000}s`).join(', ')}`
+              : `simulated kills:${snap.kills.map((k) => `${short(k.service)} @${Math.round(k.at / 1000)}s, ready @${(k.readyAt / 1000).toFixed(1)}s`).join('; ')}`}
+          </p>
+          <p className="lm__note mono">
+            Printed by the simulation on a virtual clock. Measured run (README): {MEASURED.orders} orders, {MEASURED.confirmed} confirmed, {MEASURED.cancelled} cancelled for stock, 0 failed or stuck, kills {MEASURED.kills}, saga p50 {MEASURED.p50} ms, p95 {MEASURED.p95} ms. In the seeded schedule the payment kill lands at 30 s, against 37 s in the measured run.
           </p>
           <pre className="lm__summary mono">{snap.summary}</pre>
           {snap.phase === 'done' && (
