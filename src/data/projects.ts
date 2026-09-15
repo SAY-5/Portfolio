@@ -2923,7 +2923,7 @@ export const projects: Project[] = [
     highlights: [
       `Fusion holds precision across the seen to unseen boundary, 0.956 to 0.941 against a 0.95 target set during calibration, and the summary prints the comparison against each single stream rather than only the flattering figure.`,
       `Video alone reaches 1.000 precision on unseen attacks but catches just 38 of 80, because it is structurally blind to audio-only spoofing; the fused detector catches 48 of 80 with better F1 and area under the curve.`,
-      `Calibrating each stream on the clip label made its probabilities absorb the attack prior and produced false alarm rates above 40 percent, so streams are now calibrated on their own modality label and only thresholds on the clip label.`,
+      `Each stream is calibrated on its own modality label and only the thresholds on the clip label, so a stream probability never absorbs the corpus attack prior; the measured bona fide false alarm rate is 0.070 on unseen families, and all three of the fused detector false alarms there are audio triggered.`,
       `The audio stream was memorising speakers at 40 identities, scoring 1.00 area under the curve on calibration identities against 0.74 on unseen ones; widening the corpus to 80 identities removed it, and the write-up says so.`,
     ],
     demoConcept: `A clip playing beside both stream scores as each attack family is applied in turn, with the two calibrated thresholds and the fused decision moving in response.`,
