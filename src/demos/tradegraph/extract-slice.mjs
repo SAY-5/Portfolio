@@ -7,7 +7,7 @@
  * web/scripts/extract-slice.ts cuts from etl/sample. Its sha256 is checked against
  * web/src/data/slice-manifest.json first, so the cut always starts from the committed
  * bytes. Output is slice.json next to this script. Nothing depends on the clock or a
- * random source, so a rerun on the same input writes the same bytes.
+ * random source, so a rerun on the same checkout writes the same bytes.
  *
  * Kept:
  *   - the seven fund families the README demo grid names, each with its whole
@@ -19,9 +19,21 @@
  *   - every position a kept fund holds in a kept issuer or in one of its subsidiaries,
  *     in both reporting periods, and the instruments those positions name.
  *
- * Dropped: the ontology triples, the SPARQL templates, filings (a position keeps the
- * period of its filing), CIKs, jurisdictions, instrument names, and every other holder
- * and issuer.
+ * Carried over under `source`, so the page can label every figure it shows with where
+ * it came from:
+ *   - the commit of the checkout and the manifest's slice counts, full sample counts
+ *     and reporting periods;
+ *   - prefixes.rq and exposure.rq, byte for byte from api/src/main/resources/queries,
+ *     which the page renders the way the API does for the answer on screen;
+ *   - the run behind the README's `make demo` block: provenance, store and top pairs
+ *     from web/src/data/demo-summary.json, and the exposure totals, lineage counts,
+ *     data quality line and cost guard line parsed out of that block in README.md,
+ *     each with the line it was read from. The parse fails if the block moves, and the
+ *     README totals are checked against demo-summary.json before anything is written.
+ *
+ * Dropped: the ontology triples, the other SPARQL templates, filings (a position keeps
+ * the period of its filing), CIKs, jurisdictions, instrument names, and every other
+ * holder and issuer.
  *
  * Why the cut changes no answer: exposure(fund, issuer) reads only positions whose holder
  * is a fund in the family of the fund's ultimate parent and whose issuer is the issuer
@@ -30,6 +42,7 @@
  * order, so the grouping, the ordering and the sums run over the same rows.
  */
 
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -39,6 +52,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(process.argv[2] ?? '.');
 const SOURCE = join(REPO, 'web', 'src', 'data', 'slice.json');
 const MANIFEST = join(REPO, 'web', 'src', 'data', 'slice-manifest.json');
+const SUMMARY = join(REPO, 'web', 'src', 'data', 'demo-summary.json');
+const README = join(REPO, 'README.md');
+const QUERIES = join(REPO, 'api', 'src', 'main', 'resources', 'queries');
 const OUT = join(HERE, 'slice.json');
 
 /** tradegraph.lineage.max-depth; the exposure cap (4) sits under it. */
@@ -48,17 +64,22 @@ const FAMILY_TICKERS = ['BLK', 'IVZ', 'TROW', 'BEN', 'STT', 'AMP', 'TPG'];
 const ISSUER_TICKERS = [
   'AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'META', 'JPM', 'XOM', 'JNJ', 'WMT', 'PG', 'UNH', 'NU',
 ];
+/** The templates the page shows: the prefixes every query gets and the exposure question. */
+const QUERY_NAMES = ['prefixes', 'exposure'];
 
 const ISSUER = 1;
 const FUND = 2;
 
+const sha256Of = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
 const raw = readFileSync(SOURCE);
 const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
-const sha256 = createHash('sha256').update(raw).digest('hex');
+const sha256 = sha256Of(raw);
 if (sha256 !== manifest.sha256) {
   throw new Error(`slice.json sha256 ${sha256} does not match the manifest ${manifest.sha256}`);
 }
 const slice = JSON.parse(raw.toString('utf8'));
+const commit = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 
 // Source rows, as web/scripts/extract-slice.ts writes them:
 //   entities    [id, name, kindBits, ticker, cik, parentIndex, jurisdiction, filingIndex, ownership]
@@ -79,6 +100,12 @@ function byTicker(ticker, kind) {
   const index = entities.findIndex((row) => row[3] === ticker && (row[2] & kind) !== 0 && row[5] < 0);
   if (index < 0) throw new Error(`no top-level entity with ticker ${ticker}`);
   return index;
+}
+
+function idByName(name) {
+  const row = entities.find((r) => r[1] === name && r[5] < 0);
+  if (!row) throw new Error(`README.md names ${name}, which is not a top-level entity in the slice`);
+  return row[0];
 }
 
 function descendants(root, depth) {
@@ -151,15 +178,136 @@ const entityIndex = new Map(entityOrder.map((original, index) => [original, inde
 const instrumentOrder = [...new Set(positions.map((p) => p[4]))].sort((a, b) => a - b);
 const instrumentIndex = new Map(instrumentOrder.map((original, index) => [original, index]));
 
+/* ------------------------------------------------------------ provenance */
+
+const queries = Object.fromEntries(QUERY_NAMES.map((name) => {
+  const bytes = readFileSync(join(QUERIES, `${name}.rq`));
+  return [name, { file: `${name}.rq`, text: bytes.toString('utf8'), sha256: sha256Of(bytes) }];
+}));
+
+const summary = JSON.parse(readFileSync(SUMMARY, 'utf8'));
+
+const readmeText = readFileSync(README, 'utf8');
+function must(pattern, text, what) {
+  const match = pattern.exec(text);
+  if (!match) throw new Error(`README.md: ${what} not found`);
+  return match;
+}
+const dollars = (text) => Number(text.replace(/,/g, ''));
+const capturedAt = must(/captured at commit ([0-9a-f]{7,40})/, readmeText, 'the commit the demo block was captured at')[1];
+const block = must(/`make demo` output, unedited[\s\S]*?\n```\n([\s\S]*?)\n```/, readmeText, 'the make demo block')[1];
+const blockLines = block.split('\n');
+
+const pairs = [];
+for (let i = 0; i + 1 < blockLines.length; i += 1) {
+  const head = /^  (\S.*?) -> (.+)$/.exec(blockLines[i]);
+  const total = /^    total \$([\d,]+) /.exec(blockLines[i + 1]);
+  if (!head || !total) continue;
+  pairs.push({
+    fund: idByName(head[1]),
+    fundName: head[1],
+    issuer: idByName(head[2]),
+    issuerName: head[2],
+    total: dollars(total[1]),
+    line: blockLines[i + 1].trim(),
+  });
+}
+const viaSubsidiary = must(
+  /^  exposure through an issuer subsidiary: (.+?) -> (.+)\n(    \$([\d,]+) of total \$([\d,]+) is issued by (.+?), (\d+) hops.*)$/m,
+  block,
+  'the pair answered through an issuer subsidiary',
+);
+pairs.push({
+  fund: idByName(viaSubsidiary[1]),
+  fundName: viaSubsidiary[1],
+  issuer: idByName(viaSubsidiary[2]),
+  issuerName: viaSubsidiary[2],
+  total: dollars(viaSubsidiary[5]),
+  via: { entity: viaSubsidiary[6], value: dollars(viaSubsidiary[4]), hops: Number(viaSubsidiary[7]) },
+  line: viaSubsidiary[3].trim(),
+});
+
+const lineageRows = [];
+for (const match of block.matchAll(/^  (.+?): (\d+) descendants, deepest level (\d+), /gm)) {
+  lineageRows.push({
+    entity: idByName(match[1]),
+    name: match[1],
+    descendants: Number(match[2]),
+    deepestLevel: Number(match[3]),
+    line: match[0].trim().replace(/,$/, ''),
+  });
+}
+
+const readme = {
+  file: 'README.md',
+  capturedAt,
+  store: must(/^store\s+: (\S+)/m, block, 'the store line')[1],
+  pairs,
+  lineage: lineageRows,
+  quality: must(/^  data quality\s+: (.+)$/m, block, 'the data quality line')[1],
+  costGuard: must(/^  cost guard\s+: (.+)$/m, block, 'the cost guard line')[1],
+};
+
+// The README block is written from demo-summary.json (README.md, "make demo output"),
+// so the two have to agree before either is carried over.
+if (capturedAt !== summary.provenance.commit) {
+  throw new Error(`README block captured at ${capturedAt}, demo-summary.json at ${summary.provenance.commit}`);
+}
+for (const top of summary.topPairs) {
+  const pair = pairs.find((p) => p.fundName === top.fund && p.issuerName === top.issuer);
+  if (!pair || pair.total !== Math.round(top.totalValue)) {
+    throw new Error(`demo-summary.json pair ${top.fund} -> ${top.issuer} (${top.totalValue}) is not the README block's`);
+  }
+}
+if (readme.store !== summary.store) {
+  throw new Error(`README block store ${readme.store}, demo-summary.json store ${summary.store}`);
+}
+
 const out = {
   source: {
     repository: 'SAY-5/tradegraph',
+    commit,
     file: 'web/src/data/slice.json',
     sha256,
+    bytes: raw.length,
     families: FAMILY_TICKERS,
     issuers: ISSUER_TICKERS,
     extraIssuers: EXTRA_ISSUERS,
     lineageDepth: LINEAGE_DEPTH,
+    manifest: {
+      file: 'web/src/data/slice-manifest.json',
+      counts: {
+        entities: manifest.counts.entities,
+        positions: manifest.counts.positions,
+        filings: manifest.counts.filings,
+        lineageEdges: manifest.counts.lineageEdges,
+        triples: manifest.counts.triples,
+      },
+      full: {
+        entities: manifest.full.entities,
+        positions: manifest.full.positions,
+        filings: manifest.full.filings,
+        lineageEdges: manifest.full.lineageEdges,
+        triples: manifest.full.triples,
+        periods: manifest.full.periods,
+      },
+      periods: manifest.periods,
+    },
+    queries: { directory: 'api/src/main/resources/queries', files: queries },
+    demoSummary: {
+      file: 'web/src/data/demo-summary.json',
+      generator: summary.generator,
+      provenance: {
+        measuredAt: summary.provenance.measuredAt,
+        commit: summary.provenance.commit,
+        host: summary.provenance.host,
+      },
+      store: summary.store,
+      dataset: summary.dataset,
+      exposure: summary.exposure,
+      topPairs: summary.topPairs.map((p) => ({ fund: p.fund, issuer: p.issuer, totalValue: p.totalValue })),
+    },
+    readme,
   },
   periods,
   // [id, name, kindBits, ticker, parentIndex, ownership]; ownership null means undisclosed.
@@ -186,8 +334,9 @@ const out = {
 const json = `${JSON.stringify(out)}\n`;
 writeFileSync(OUT, json);
 process.stdout.write(
-  `slice.json ${json.length} bytes: ${out.entities.length} entities, ${funds.size} funds in `
+  `slice.json ${json.length} bytes at ${commit.slice(0, 7)}: ${out.entities.length} entities, ${funds.size} funds in `
   + `${families.length} families, ${issuers.length + extras.length} issuers with `
   + `${issuingEntities.size - issuers.length - extras.length} subsidiaries, `
-  + `${out.instruments.length} instruments, ${out.positions.length} positions over ${periods.join(' and ')}\n`,
+  + `${out.instruments.length} instruments, ${out.positions.length} positions over ${periods.join(' and ')}; `
+  + `README block at ${capturedAt}: ${pairs.length} pairs, ${lineageRows.length} lineage rows\n`,
 );
