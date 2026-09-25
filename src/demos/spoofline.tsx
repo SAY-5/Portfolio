@@ -6,6 +6,7 @@ import framesUrl from './spoofline/frames.webp';
 import spectrogramsUrl from './spoofline/spectrograms.webp';
 import {
   DETECTORS,
+  abstainAt,
   atPrecision,
   calibrated,
   countsAt,
@@ -16,18 +17,21 @@ import {
   type CurvePoint,
   type OperatingPoint,
 } from './spoofline/calibration';
-import type { ClipRow, Combo, DemoData, Detector, Stream } from './spoofline/types';
+import type { AbstainRow, ClipRow, Combo, Decision, DemoData, Detector, Fusion, Split, Stream } from './spoofline/types';
 
 // Replayed from spoofline: every clip score on this page is a number the two
 // trained CNN-LSTM streams produced in the repository's recorded run, copied
 // from its exported reference file (raw logits, Platt calibrated probabilities,
-// per stream flags and the fused decision). No network runs here. The frame
-// sheet and the spectrogram sheet are drawn from the same exported clips by
-// spoofline/make_assets.py. The calibration view is live: it re-picks each
+// per stream flags, the weighted sum and logistic fusion decisions, and the
+// stream that triggered the weighted sum decision). No network runs here. The
+// frame sheet and the spectrogram sheet are drawn from the same exported clips
+// by spoofline/make_assets.py. The calibration view is live: it re-picks each
 // threshold as the lowest calibrated probability whose precision on the 234
 // calibration clips reaches the target, the rule calibrate.py uses, keeps the
-// fitted Platt maps and fusion weight, and counts the test split at that
-// threshold. The headline figures are the run's measured metrics table.
+// fitted Platt maps, fusion weight and logistic coefficients, counts the test
+// split at those thresholds, and applies the abstain margin the same way
+// robustness.py does. The headline figures are the run's committed metrics,
+// sweep and robustness tables.
 
 const SOURCE = 'https://github.com/SAY-5/spoofline/tree/main/web';
 const DEFAULT_CLIP = 'clip_00039';
@@ -59,7 +63,10 @@ const GROUPS: { combo: Combo; title: string }[] = [
   { combo: 'both', title: 'Both attacked' },
 ];
 
-const DETECTOR_NAME: Record<Detector, string> = { video: 'video', audio: 'audio', fused: 'fused' };
+const DETECTOR_NAME: Record<Detector, string> = { video: 'video', audio: 'audio', fused: 'fused', logistic: 'logistic' };
+const FUSIONS: Fusion[] = ['fused', 'logistic'];
+const FUSION_NAME: Record<Fusion, string> = { fused: 'weighted sum', logistic: 'logistic' };
+const SPLITS: Split[] = ['seen', 'unseen'];
 
 function fixed(value: number, digits = 3): string {
   return value.toFixed(digits);
@@ -73,6 +80,10 @@ function count(value: number): string {
   return String(Math.round(value));
 }
 
+function short(commit: string): string {
+  return commit.slice(0, 7);
+}
+
 function clipTitle(clip: ClipRow): string {
   if (clip.combo === 'bonafide') return 'Bona fide';
   return [clip.videoFamily, clip.audioFamily]
@@ -81,9 +92,9 @@ function clipTitle(clip: ClipRow): string {
     .join(' + ');
 }
 
-function outcome(clip: ClipRow): string {
-  const attack = clip.decision === 'attack';
-  if (clip.label === 1) return attack ? 'attack caught' : 'attack missed';
+function outcomeOf(decision: Decision, label: 0 | 1): string {
+  const attack = decision === 'attack';
+  if (label === 1) return attack ? 'attack caught' : 'attack missed';
   return attack ? 'false alarm' : 'correctly passed';
 }
 
@@ -114,12 +125,30 @@ function fusionNote(clip: ClipRow, data: DemoData): string {
     : `The audio stream flags this clip, but the fused score ${fixed(clip.fusedProbability, 4)} stays under ${t}.`;
 }
 
+function logisticNote(clip: ClipRow, data: DemoData): string {
+  const c = data.calibration.logistic.coefficients;
+  const gap = Math.abs(clip.videoProbability - clip.audioProbability);
+  const agree = clip.logisticDecision === clip.decision;
+  const lead = agree
+    ? `Both fusions reach the same decision on this clip.`
+    : `The two fusions disagree on this clip: the weighted sum says ${clip.decision}, the logistic fusion says ${clip.logisticDecision}.`;
+  const why =
+    c.p_video > c.p_audio
+      ? `The logistic fusion puts more weight on video (${fixed(c.p_video)} against ${fixed(c.p_audio)}) and adds ${fixed(c.disagreement)} times the disagreement, ${fixed(gap, 4)} here, so a clip one stream is sure about can clear its threshold ${fixed(data.calibration.logistic.threshold, 4)}.`
+      : `The logistic fusion adds ${fixed(c.disagreement)} times the disagreement, ${fixed(gap, 4)} here, to its weighted probabilities.`;
+  return `${lead} ${why} The repository keeps the weighted sum as its primary decision and reports the logistic fusion beside it.`;
+}
+
 function sheet(url: string, cols: number, rows: number, col: number, row: number): CSSProperties {
   return {
     backgroundImage: `url("${url}")`,
     backgroundSize: `${cols * 100}% ${rows * 100}%`,
     backgroundPosition: `${cols > 1 ? (col / (cols - 1)) * 100 : 0}% ${rows > 1 ? (row / (rows - 1)) * 100 : 0}%`,
   };
+}
+
+function falseAlarmRow(data: DemoData, perturbation: string, severity: number) {
+  return data.robustness.falseAlarms.find((r) => r.perturbation === perturbation && r.severity === severity);
 }
 
 export default function SpooflineDemo() {
@@ -143,20 +172,29 @@ export default function SpooflineDemo() {
   return (
     <div className="demo" aria-label="spoofline two-stream spoof detection demo">
       <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Two streams, calibrated per stream, fused</h3>
+      <h3 className="demo__title">Two streams, calibrated per stream, fused two ways</h3>
       <p className="demo__lede">
         Each held out test clip shows its 16 frames, its log mel spectrogram, the raw score of the
         video and audio CNN-LSTM, the Platt calibrated probability against each stream's threshold,
-        and the fused decision. Clip scores are replayed from the trained model's run and are not
-        computed on this page; the calibration view below does recompute thresholds live from the
-        exported calibration scores.
+        the weighted sum and logistic fusion decisions, and the stream that triggered the weighted
+        sum. Clip scores are replayed from the trained model's run and are not computed on this
+        page; the calibration view below does recompute thresholds and the abstain rule live from
+        the exported calibration and test scores.
       </p>
       <p className="sl__source">
         The repository's own browser demo runs both networks live with onnxruntime-web:{' '}
         <a href={SOURCE} target="_blank" rel="noreferrer">
           SAY-5/spoofline/web
         </a>
-        .
+        {data ? (
+          <>
+            , exported behind a {data.export.tolerance.toExponential(0)} parity gate against PyTorch (measured{' '}
+            {data.export.parity.video.toExponential(2)} on video and {data.export.parity.audio.toExponential(2)} on audio over{' '}
+            {data.export.parityClips} clips, export.json of the run) and re-scored by the repository's self check.
+          </>
+        ) : (
+          '.'
+        )}
       </p>
       {data ? (
         <Loaded data={data} />
@@ -348,12 +386,15 @@ function OddsBar({ value, threshold, reduce }: { value: number; threshold: numbe
 
 function Scores({ data, clip, reduce }: { data: DemoData; clip: ClipRow; reduce: boolean }) {
   const fused = data.calibration.fused;
+  const logistic = data.calibration.logistic;
+  const c = logistic.coefficients;
   const attack = clip.decision === 'attack';
+  const logisticAttack = clip.logisticDecision === 'attack';
   return (
     <section className="sl__panel" aria-label="Scores from the run" aria-live="polite">
       <div className="sl__panel-head">
         <span className="sl__panel-title">scores from the run</span>
-        <span className="sl__panel-meta">PyTorch outputs replayed from the exported reference file, log odds scale</span>
+        <span className="sl__panel-meta">PyTorch outputs replayed from the exported reference file of seed {data.seed}, log odds scale</span>
       </div>
       <div className="sl__cards">
         {(['video', 'audio'] as Stream[]).map((stream) => {
@@ -397,8 +438,8 @@ function Scores({ data, clip, reduce }: { data: DemoData; clip: ClipRow; reduce:
         })}
         <article className="sl__card sl__card--fused" data-flag={attack} data-stream="fused">
           <header className="sl__card-head">
-            <span className="sl__card-name">Fused score</span>
-            <span className="sl__card-truth">{clip.label ? 'attack clip' : 'bona fide clip'}</span>
+            <span className="sl__card-name">Weighted sum</span>
+            <span className="sl__card-truth">{clip.label ? 'attack clip' : 'bona fide clip'}, the run's primary decision</span>
           </header>
           <p className="sl__formula">
             {fixed(fused.weight, 2)} × {fixed(clip.videoProbability, 4)} + {fixed(1 - fused.weight, 2)} × {fixed(clip.audioProbability, 4)} ={' '}
@@ -413,6 +454,10 @@ function Scores({ data, clip, reduce }: { data: DemoData; clip: ClipRow; reduce:
               <dt>weight on video</dt>
               <dd>{fixed(fused.weight, 2)}</dd>
             </div>
+            <div>
+              <dt>triggered by</dt>
+              <dd data-field="triggered-by">{clip.triggeredBy}</dd>
+            </div>
           </dl>
           <OddsBar value={clip.fusedProbability} threshold={fused.threshold} reduce={reduce} />
           <footer className="sl__card-foot">
@@ -420,10 +465,48 @@ function Scores({ data, clip, reduce }: { data: DemoData; clip: ClipRow; reduce:
               {attack ? 'attack' : 'bona fide'}
             </span>
             <span className="sl__outcome" data-field="outcome">
-              {outcome(clip)}
+              {outcomeOf(clip.decision, clip.label)}
             </span>
           </footer>
-          <p className="sl__note">{fusionNote(clip, data)}</p>
+          <p className="sl__note">
+            {fusionNote(clip, data)} Triggered by is the run's attribution: silence one stream at a time and see which alone
+            keeps the clip flagged (video, audio, either, joint) or none when it is not flagged.
+          </p>
+        </article>
+        <article className="sl__card sl__card--logistic" data-flag={logisticAttack} data-stream="logistic">
+          <header className="sl__card-head">
+            <span className="sl__card-name">Logistic fusion</span>
+            <span className="sl__card-truth">{clip.label ? 'attack clip' : 'bona fide clip'}, reported beside it</span>
+          </header>
+          <p className="sl__formula">
+            sigmoid({fixed(c.p_video)} × {fixed(clip.videoProbability, 4)} + {fixed(c.p_audio)} × {fixed(clip.audioProbability, 4)} +{' '}
+            {fixed(c.disagreement)} × {fixed(Math.abs(clip.videoProbability - clip.audioProbability), 4)} {logistic.intercept < 0 ? '-' : '+'}{' '}
+            {fixed(Math.abs(logistic.intercept))}) = <b data-field="logistic">{fixed(clip.logisticProbability, 4)}</b>
+          </p>
+          <dl className="sl__readout">
+            <div>
+              <dt>logistic threshold</dt>
+              <dd>{fixed(logistic.threshold, 4)}</dd>
+            </div>
+            <div>
+              <dt>on |p video - p audio|</dt>
+              <dd>{fixed(c.disagreement)}</dd>
+            </div>
+            <div>
+              <dt>intercept</dt>
+              <dd>{fixed(logistic.intercept)}</dd>
+            </div>
+          </dl>
+          <OddsBar value={clip.logisticProbability} threshold={logistic.threshold} reduce={reduce} />
+          <footer className="sl__card-foot">
+            <span className="sl__verdict" data-flag={logisticAttack} data-field="logistic-decision">
+              {logisticAttack ? 'attack' : 'bona fide'}
+            </span>
+            <span className="sl__outcome" data-field="logistic-outcome">
+              {outcomeOf(clip.logisticDecision, clip.label)}
+            </span>
+          </footer>
+          <p className="sl__note">{logisticNote(clip, data)}</p>
         </article>
       </div>
     </section>
@@ -444,6 +527,7 @@ function prY(precision: number): number {
 function Marker({ detector, x, y }: { detector: Detector; x: number; y: number }) {
   if (detector === 'video') return <rect className="sl__mk--video" x={x - 4} y={y - 4} width={8} height={8} />;
   if (detector === 'audio') return <path className="sl__mk--audio" d={`M${x},${y - 5}L${x + 5},${y + 4}L${x - 5},${y + 4}Z`} />;
+  if (detector === 'logistic') return <path className="sl__mk--logistic" d={`M${x},${y - 5.5}L${x + 5.5},${y}L${x},${y + 5.5}L${x - 5.5},${y}Z`} />;
   return <circle className="sl__mk--fused" cx={x} cy={y} r={4.5} />;
 }
 
@@ -556,7 +640,10 @@ function PrChart({
           <i className="sl__key sl__key--audio" /> audio
         </span>
         <span>
-          <i className="sl__key sl__key--fused" /> fused
+          <i className="sl__key sl__key--fused" /> weighted sum
+        </span>
+        <span>
+          <i className="sl__key sl__key--logistic" /> logistic
         </span>
         <span>markers sit at each operating point</span>
       </div>
@@ -590,40 +677,65 @@ function Lane({ name, scores, labels, threshold }: { name: string; scores: Float
   );
 }
 
+function sameRow(a: AbstainRow, b: AbstainRow | undefined): boolean {
+  if (!b) return false;
+  return (
+    a.kept === b.kept &&
+    a.abstainedAttacks === b.abstainedAttacks &&
+    a.abstainedBonafide === b.abstainedBonafide &&
+    Math.abs(a.coverage - b.coverage) < 1e-9 &&
+    Math.abs(a.precision - b.precision) < 1e-9 &&
+    Math.abs(a.recall - b.recall) < 1e-9
+  );
+}
+
 function Calibration({ data }: { data: DemoData }) {
   const [target, setTarget] = useState(data.targetPrecision);
+  const [margin, setMargin] = useState(data.robustness.margins[0]);
   const cal = data.calibration;
 
   const base = useMemo(() => {
     const calib = calibrated(data, data.calib.video, data.calib.audio);
     const test = calibrated(data, data.test.video, data.test.audio);
-    const curves = {
-      video: curve(calib.video, data.calib.label),
-      audio: curve(calib.audio, data.calib.label),
-      fused: curve(calib.fused, data.calib.label),
-    };
+    const curves = Object.fromEntries(DETECTORS.map((d) => [d, curve(calib[d], data.calib.label)])) as Record<Detector, CurvePoint[]>;
     return { calib, test, curves };
   }, [data]);
 
   const points = useMemo(
-    () => ({
-      video: atPrecision(base.curves.video, target),
-      audio: atPrecision(base.curves.audio, target),
-      fused: atPrecision(base.curves.fused, target),
-    }),
+    () => Object.fromEntries(DETECTORS.map((d) => [d, atPrecision(base.curves[d], target)])) as Record<Detector, OperatingPoint>,
     [base, target],
   );
 
   const atRun = Math.abs(target - data.targetPrecision) < 1e-9;
-  const runThreshold: Record<Detector, number> = { video: cal.video.threshold, audio: cal.audio.threshold, fused: cal.fused.threshold };
+  const runThreshold: Record<Detector, number> = {
+    video: cal.video.threshold,
+    audio: cal.audio.threshold,
+    fused: cal.fused.threshold,
+    logistic: cal.logistic.threshold,
+  };
   const reproduces = DETECTORS.every((d) => Math.abs(points[d].threshold - runThreshold[d]) < 1e-12);
+
+  const abstain = useMemo(
+    () =>
+      FUSIONS.map((fusion) =>
+        SPLITS.map((split) => {
+          const keep = (i: number) => data.test.unseen[i] === (split === 'unseen' ? 1 : 0);
+          const row = abstainAt(base.test.video, base.test.audio, base.test[fusion], data.test.label, points[fusion].threshold, margin, keep);
+          const measured = data.robustness.abstain[split][fusion].find((r) => Math.abs(r.margin - margin) < 1e-9);
+          return { fusion, split, row, matches: sameRow(row, measured) };
+        }),
+      ).flat(),
+    [base, data, points, margin],
+  );
+  const abstainReproduces = abstain.every((r) => r.matches);
+  const noAbstain = margin >= 1;
 
   return (
     <section className="sl__panel" aria-label="Calibration">
       <div className="sl__panel-head">
         <span className="sl__panel-title">threshold at a target precision, computed here</span>
         <span className="sl__panel-meta">
-          {data.calib.label.length} calibration clips, Platt maps and fusion weight {fixed(cal.fused.weight, 2)} held at the run's fit
+          {data.calib.label.length} calibration clips, Platt maps, fusion weight {fixed(cal.fused.weight, 2)} and logistic coefficients held at the run's fit
         </span>
       </div>
       <div className="sl__controls">
@@ -701,10 +813,58 @@ function Calibration({ data }: { data: DemoData }) {
         </table>
       </div>
       <p className="sl__table-note">
-            {atRun && reproduces
-              ? `At the run's target of ${fixed(data.targetPrecision, 2)} the re-picked thresholds equal the exported ones, so the test columns match the measured table.`
-              : `Thresholds re-picked at target ${fixed(target)} on the calibration split, then the exported test split logits counted at those thresholds.`}
+        {atRun && reproduces
+          ? `At the run's target of ${fixed(data.targetPrecision, 2)} the re-picked thresholds equal the exported ones for all four detectors, so the test columns match the measured table.`
+          : `Thresholds re-picked at target ${fixed(target)} on the calibration split, then the exported test split logits counted at those thresholds.`}
       </p>
+      <div className="sl__abstain">
+        <div className="sl__abstain-head">
+          <span className="sl__abstain-title">abstain when the streams disagree, computed here</span>
+          <div className="sl__margins" role="group" aria-label="Abstain margin">
+            <span>margin</span>
+            {data.robustness.margins.map((m) => (
+              <button key={m} type="button" className="sl__margin" aria-pressed={Math.abs(m - margin) < 1e-9} onClick={() => setMargin(m)}>
+                {m >= 1 ? 'never' : fixed(m, 2)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="sl__table-wrap sl__table-wrap--tight">
+          <table className="sl__table">
+            <thead>
+              <tr>
+                <th scope="col">fusion</th>
+                <th scope="col">split</th>
+                <th scope="col">coverage</th>
+                <th scope="col">kept P</th>
+                <th scope="col">kept R</th>
+                <th scope="col">attacks abstained</th>
+                <th scope="col">bona fide abstained</th>
+              </tr>
+            </thead>
+            <tbody>
+              {abstain.map(({ fusion, split, row }) => (
+                <tr key={`${fusion}-${split}`} data-fusion={fusion} data-split={split} data-fused={fusion === 'fused' && split === 'unseen'}>
+                  <th scope="row">{FUSION_NAME[fusion]}</th>
+                  <td>{split}</td>
+                  <td data-field="coverage">{fixed(row.coverage)}</td>
+                  <td data-field="kept-precision">{fixed(row.precision)}</td>
+                  <td>{fixed(row.recall)}</td>
+                  <td>{row.abstainedAttacks}</td>
+                  <td>{row.abstainedBonafide}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="sl__table-note" data-field="abstain-note">
+          {noAbstain
+            ? `A clip is abstained on when |p video - p audio| exceeds the margin; at "never" every clip is kept and the rows equal the table above. Precision and recall count only the kept clips.`
+            : atRun && abstainReproduces
+              ? `At the run's thresholds and margin ${fixed(margin, 2)} these rows equal the abstain block of robustness.json, the run's committed ladder (margins fixed before the run).`
+              : `Margin ${fixed(margin, 2)} applied to the exported test logits at the thresholds re-picked above; robustness.json records the same ladder at the run's own thresholds.`}
+        </p>
+      </div>
     </section>
   );
 }
@@ -717,17 +877,34 @@ function Headline({ data }: { data: DemoData }) {
   const bona = u.fused.n - u.fused.nPositive;
   const splice = data.familyRates.video_splice;
   const vocoder = data.familyRates.audio_vocoder;
+  const sweep = data.sweep;
+  const fusedSweep = sweep.unseen.fused.precision;
+  const logisticSweep = sweep.unseen.logistic.precision;
+  const videoSweep = sweep.unseen.video.precision;
+  const clean = data.robustness.falseAlarms.find((r) => r.perturbation === 'clean') ?? data.robustness.falseAlarms[0];
+  const noise = falseAlarmRow(data, 'audio_noise', 40);
+  const resample = falseAlarmRow(data, 'resample', 12000);
+  const bonaClips = data.robustness.bonafideClips.seen_test + data.robustness.bonafideClips.unseen_test;
   const stats = [
-    { label: 'fused precision, unseen', value: fixed(u.fused.precision), sub: `target ${fixed(target, 2)}; ${fixed(s.fused.precision)} on seen families`, accent: true, field: 'fused-precision' },
-    { label: 'video precision, unseen', value: fixed(u.video.precision), sub: `${u.video.tp} of ${u.video.nPositive} unseen attacks caught`, accent: false, field: 'video-precision' },
-    { label: 'fused caught, unseen', value: `${u.fused.tp} / ${u.fused.nPositive}`, sub: `${u.fused.fp} false alarms on ${bona} bona fide clips`, accent: false, field: 'fused-caught' },
-    { label: 'audio precision, unseen', value: fixed(u.audio.precision), sub: `${u.audio.tp} of ${u.audio.nPositive} unseen attacks caught`, accent: false, field: 'audio-precision' },
+    {
+      label: 'fused precision, unseen',
+      value: fixed(u.fused.precision),
+      sub: `target ${fixed(target, 2)}; ${fixed(s.fused.precision)} on seen families; one seed, ${fusedSweep.n} seeds of this pair average ${fixed(fusedSweep.mean)}, std ${fixed(fusedSweep.std)} (sweep.json)`,
+      accent: true,
+      field: 'fused-precision',
+    },
+    { label: 'video precision, unseen', value: fixed(u.video.precision), sub: `${u.video.tp} of ${u.video.nPositive} unseen attacks caught; ${fixed(videoSweep.mean)} in every sweep seed`, accent: false, field: 'video-precision' },
+    { label: 'logistic precision, unseen', value: fixed(u.logistic.precision), sub: `${u.logistic.tp} of ${u.logistic.nPositive} caught; the run's second fusion, ${fixed(logisticSweep.mean)} over ${logisticSweep.n} seeds`, accent: false, field: 'logistic-precision' },
+    { label: 'fused caught, unseen', value: `${u.fused.tp} / ${u.fused.nPositive}`, sub: `${u.fused.fp} false alarms on ${bona} bona fide clips, all ${data.attribution.unseen.fused.bonafide.audio} audio triggered`, accent: false, field: 'fused-caught' },
   ];
   return (
     <section className="sl__panel" aria-label="Measured on unseen attack families">
       <div className="sl__panel-head">
         <span className="sl__panel-title">measured on unseen attack families</span>
-        <span className="sl__panel-meta">the run's metrics table, held out families {data.unseenFamilies.join(' and ')}</span>
+        <span className="sl__panel-meta">
+          make demo, profile {data.profile}, seed {data.seed}, weights from commit {short(data.trainedFrom)} ({data.trainedFromDescribe}), held out{' '}
+          {data.unseenFamilies.join(' and ')}, metrics from {data.runArtifacts.results}
+        </span>
       </div>
       <div className="sl__stats">
         {stats.map((stat) => (
@@ -738,11 +915,15 @@ function Headline({ data }: { data: DemoData }) {
           </div>
         ))}
       </div>
+      <p className="sl__verdict-line" data-field="verdict">
+        <span>verdict line printed by the run</span>
+        {data.headline.verdict}
+      </p>
       <div className="sl__prose">
         <p>
           On attack families held out of training, fused precision is <b>{fixed(u.fused.precision)}</b> against a calibration
-          target of {fixed(target, 2)}, and below the video stream alone at <b>{fixed(u.video.precision)}</b>. On seen families
-          the same operating point measured {fixed(s.fused.precision)}.
+          target of {fixed(target, 2)}, and below the video stream alone at <b>{fixed(u.video.precision)}</b>, which is the
+          verdict the run prints. On seen families the same operating point measured {fixed(s.fused.precision)}.
         </p>
         <p>
           The video stream reaches {fixed(u.video.precision)} by flagging little: {u.video.tp} of {u.video.nPositive} unseen
@@ -754,7 +935,24 @@ function Headline({ data }: { data: DemoData }) {
           {fixed(w, 2)} on video the fused score behaves close to an OR of the two streams, so it also takes on the audio
           stream's false alarms: {u.fused.tp} / ({u.fused.tp} + {u.fused.fp}) = {fixed(u.fused.precision)}. The fused detector
           trades a few points of precision for {u.fused.tp - u.video.tp} more caught attacks, with F1 {fixed(u.fused.f1)} and AUC{' '}
-          {fixed(u.fused.auc)} against {fixed(u.video.f1)} and {fixed(u.video.auc)} for video.
+          {fixed(u.fused.auc)} against {fixed(u.video.f1)} and {fixed(u.video.auc)} for video. The logistic fusion over both
+          probabilities and their disagreement, fitted on the same calibration split, reaches {fixed(u.logistic.precision)} here and
+          catches {u.logistic.tp} of {u.logistic.nPositive}, still below video alone; the repository keeps the weighted sum as its
+          primary decision and reports the logistic fusion beside it.
+        </p>
+        <p>
+          This is one seed. Over {fusedSweep.n} seeds of the same held out pair at the {data.profile} profile ({data.runArtifacts.sweep}
+          ) the fused unseen precision averages <b>{fixed(fusedSweep.mean)}</b> with a sample standard deviation of{' '}
+          {fixed(fusedSweep.std)} and a bootstrap interval of {fixed(fusedSweep.ciLow)} to {fixed(fusedSweep.ciHigh)}, so this run sits
+          at the bottom of that interval. Video alone holds {fixed(videoSweep.mean)} in all {videoSweep.n} runs and the logistic
+          fusion averages {fixed(logisticSweep.mean)}, so neither fusion beats the best single stream on precision in any seed.
+        </p>
+        <p>
+          Measured on clean capture only. On the same run's {bonaClips} bona fide test clips ({data.runArtifacts.robustness}) the
+          weighted sum's false alarm rate is {fixed(clean.fused)} clean; Gaussian noise at{' '}
+          {noise ? `${count(noise.severity ?? 0)} dB SNR lifts it to ${fixed(noise.fused)}` : 'the mildest severity lifts it'} and a
+          round trip through {resample ? `${count((resample.severity ?? 0) / 1000)} kHz to ${fixed(resample.fused)}` : 'a lower rate lifts it further'},
+          so the precision above does not survive benign audio degradation.
         </p>
         <p>
           The misses concentrate in the held out families: {count(splice.detected)} of {count(splice.n)} face splices and{' '}
@@ -795,7 +993,7 @@ function Headline({ data }: { data: DemoData }) {
           </tbody>
         </table>
       </div>
-      <p className="sl__table-note">Clip level metrics at the calibrated operating points, copied from the run.</p>
+      <p className="sl__table-note">Clip level metrics at the calibrated operating points, copied from {data.runArtifacts.results} of the run.</p>
     </section>
   );
 }

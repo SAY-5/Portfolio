@@ -266,9 +266,9 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
-@media (min-width: 900px) {
+@media (min-width: 760px) {
   .sl__cards {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 .sl__card {
@@ -683,4 +683,104 @@
 .sl__prose b {
   color: var(--text-strong);
   font-weight: 600;
+}
+
+/* second fusion and attribution */
+.sl__card--logistic {
+  border-color: var(--accent-line);
+  border-style: dashed;
+}
+.sl__series--logistic {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 3;
+}
+.sl__mk--logistic {
+  fill: var(--ink-800);
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+.sl__key--logistic {
+  border-top: 2px dashed var(--accent);
+}
+
+/* abstain readout */
+.sl__abstain {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+.sl__abstain-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+}
+.sl__abstain-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.sl__margins {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.sl__margins > span {
+  margin-right: 4px;
+}
+.sl__margin {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-strong);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.sl__margin:hover {
+  border-color: var(--accent-line);
+}
+.sl__margin:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
+.sl__margin[aria-pressed='true'] {
+  border-color: var(--accent-line);
+  background: var(--accent-glow);
+  color: var(--accent);
+}
+.sl__table-wrap--tight {
+  margin-top: 10px;
+}
+
+/* headline verdict line */
+.sl__verdict-line {
+  display: grid;
+  gap: 2px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink-850);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+.sl__verdict-line span {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
