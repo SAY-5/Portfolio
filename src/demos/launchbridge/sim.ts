@@ -1,18 +1,32 @@
 // Composes the signed-webhook bench, the delivery attempt timeline and the
 // burst run over two in-process services on virtual clocks, and flattens them
-// into a plain snapshot the component renders.
+// into a plain snapshot the component renders. The bench clock moves only
+// while a delivery is open and by one second per action, so a click sequence
+// signs the same bytes every time it is repeated.
 import { BURST, runBurst, type BurstProgress } from './burst';
-import { baseBackoff, DESTINATIONS } from './delivery';
-import { Service, TOLERANCE_SECONDS, type SignedRequest, type WebhookResponse } from './service';
-import type { Json, VerifyStep } from './signing';
+import { baseBackoff, DESTINATIONS, envelopeContext, renderPayload } from './delivery';
+import { describeTransform, isIdentity, type RouteDecision } from './routing';
+import { MAX_BODY_BYTES, Service, TOLERANCE_SECONDS, type SignedRequest, type WebhookResponse } from './service';
+import { canonicalJson, type Json, type VerifyStep } from './signing';
 import type { DeliveryRow, DeliveryStatus } from './store';
 
-export const BENCH = { source: 'orders', seed: 7, burstSeed: 0x5eed, wrongSecret: 'not-the-secret', staleSeconds: 3600, tolerance: TOLERANCE_SECONDS };
+export const BENCH = {
+  source: 'orders',
+  eventType: 'order.created',
+  seed: 7,
+  burstSeed: 0x5eed,
+  wrongSecret: 'not-the-secret',
+  staleSeconds: 3600,
+  tolerance: TOLERANCE_SECONDS,
+  bodyLimit: MAX_BODY_BYTES,
+  secondsPerAction: 1,
+};
 
 export interface Tamper {
   flipByte: boolean;
   wrongSecret: boolean;
   stale: boolean;
+  oversize: boolean;
 }
 
 export interface ExchangeSnap {
@@ -23,9 +37,11 @@ export interface ExchangeSnap {
   timestamp: string;
   signature: string;
   body: string;
+  bodyBytes: number;
   flipped: string | null;
   expected: string | null;
   deliveries: number;
+  decisions: RouteDecision[];
 }
 
 export interface AttemptSnap {
@@ -49,6 +65,8 @@ export interface TimelineSnap {
   attempts: AttemptSnap[];
   nextInMs: number | null;
   replayOf: string | null;
+  payload: string;
+  transform: string | null;
 }
 
 export interface Choice {
@@ -59,6 +77,7 @@ export interface Choice {
 
 export interface BridgeSnap {
   nextPayload: string;
+  typed: boolean;
   down: boolean;
   last: ExchangeSnap | null;
   canReplay: boolean;
@@ -80,11 +99,24 @@ function flipOneByte(body: string): { body: string; note: string } {
   };
 }
 
+// Grow the body past the service's limit after signing. api.py refuses the
+// declared length before the signature is read, so what the padding holds
+// never matters; the signature shown is the one computed over the unpadded body.
+function padBody(body: string): string {
+  const filler = 'x'.repeat(MAX_BODY_BYTES - body.length + 1);
+  return `${body.slice(0, -1)}, "pad": "${filler}"}`;
+}
+
+function shown(body: string, bytes: number): string {
+  return body.length > 160 ? `${body.slice(0, 120)} ... (${bytes.toLocaleString('en-US')} bytes)` : body;
+}
+
 export class BridgeSim {
   bench = new Service(BENCH.seed);
   burstService = new Service(BENCH.burstSeed);
   version = 0;
   down = false;
+  typed = true;
   selected: string | null = null;
   private seq = 1001;
   private last: ExchangeSnap | null = null;
@@ -93,12 +125,15 @@ export class BridgeSim {
   private progress: BurstProgress | null = null;
 
   private payload(): Record<string, Json> {
-    const p: Record<string, Json> = { id: `order-${this.seq}`, amount: 20 + ((this.seq * 37) % 180) };
+    const p: Record<string, Json> = { id: `order-${this.seq}` };
+    if (this.typed) p.type = BENCH.eventType;
+    p.amount = 20 + ((this.seq * 37) % 180);
     if (this.down) p.tag = 'down';
     return p;
   }
 
   private record(label: string, request: SignedRequest, response: WebhookResponse, flipped: string | null, payload: Json): void {
+    const bodyBytes = new TextEncoder().encode(request.body).length;
     this.last = {
       label,
       status: response.status,
@@ -106,19 +141,30 @@ export class BridgeSim {
       steps: response.steps,
       timestamp: request.headers['X-Timestamp'] ?? '',
       signature: request.headers['X-Signature'] ?? '',
-      body: request.body,
+      body: shown(request.body, bodyBytes),
+      bodyBytes,
       flipped,
       expected: response.verification.expected,
       deliveries: response.result?.delivery_ids.length ?? 0,
+      decisions: response.result?.decisions ?? [],
     };
+    // A deduplicated request is kept as well: its signature is in the nonce
+    // store, so replaying it is the 409 the service gives.
     if (response.status === 202 || response.status === 200) this.lastAccepted = { request, payload };
     const first = response.result?.delivery_ids[0];
     if (first) this.selected = first;
     this.version++;
   }
 
+  // Every action moves the bench clock by a fixed second, so timestamps and
+  // signatures depend on the click sequence, not on how long the tab was open.
+  private step(): void {
+    this.bench.clock.advance(BENCH.secondsPerAction * 1000);
+  }
+
   // Sign a new event, then apply whatever tampering is switched on.
   send(t: Tamper): void {
+    this.step();
     const payload = this.payload();
     this.seq++;
     const request = this.bench.sign(BENCH.source, payload, {
@@ -131,24 +177,34 @@ export class BridgeSim {
       request.body = f.body;
       flipped = f.note;
     }
-    const label = [t.flipByte && 'byte flipped', t.wrongSecret && 'wrong secret', t.stale && 'stale timestamp'].filter(Boolean).join(', ') || 'signed';
+    if (t.oversize) request.body = padBody(request.body);
+    const label =
+      [t.oversize && 'body padded past the limit', t.flipByte && 'byte flipped', t.wrongSecret && 'wrong secret', t.stale && 'stale timestamp'].filter(Boolean).join(', ') || 'signed';
     this.record(`new event, ${label}`, request, this.bench.webhook(request), flipped, payload);
   }
 
-  // The last accepted request, byte for byte, headers and signature included.
+  // The last accepted or deduplicated request, byte for byte, headers and signature included.
   replay(): void {
     if (!this.lastAccepted) return;
+    this.step();
     const { request, payload } = this.lastAccepted;
-    this.record('replayed request, same signature', request, this.bench.webhook(request), null, payload);
+    const skew = this.bench.clock.seconds() - Number(request.headers['X-Timestamp'] ?? 0);
+    const label = skew > BENCH.tolerance ? `replayed request, same signature, captured ${skew} s ago, outside the ${BENCH.tolerance} s window` : 'replayed request, same signature';
+    this.record(label, request, this.bench.webhook(request), null, payload);
   }
 
   // The same event a second later: a fresh signature over the same id.
   resend(): void {
     if (!this.lastAccepted) return;
-    this.bench.clock.advance(1000);
+    this.step();
     const payload = this.lastAccepted.payload;
     const request = this.bench.sign(BENCH.source, payload);
     this.record('same event id, fresh signature', request, this.bench.webhook(request), null, payload);
+  }
+
+  setTyped(on: boolean): void {
+    this.typed = on;
+    this.version++;
   }
 
   setDown(on: boolean): void {
@@ -159,6 +215,7 @@ export class BridgeSim {
   }
 
   replayFailed(): number {
+    this.step();
     const ids = this.bench.replayBulk({ source: BENCH.source }, 'destination repaired');
     if (ids[0]) this.selected = ids[0];
     this.version++;
@@ -177,12 +234,12 @@ export class BridgeSim {
     this.version++;
   }
 
+  // The bench clock advances only while a delivery is open, so an idle tab
+  // does not age a captured request out of the timestamp window.
   tick(benchMs: number, burstSteps: number): void {
     if (this.bench.worker.openCount() > 0) {
       this.bench.advance(benchMs);
       this.version++;
-    } else {
-      this.bench.clock.advance(benchMs);
     }
     if (!this.burst) return;
     for (let i = 0; i < burstSteps && this.burst; i++) {
@@ -226,7 +283,9 @@ export class BridgeSim {
     const svc = this.bench.db.deliveries.has(id) ? this.bench : this.burstService;
     const d = svc.db.deliveries.get(id);
     if (!d) return null;
-    const policy = DESTINATIONS.find((x) => x.name === d.destination)?.retry;
+    const destination = DESTINATIONS.find((x) => x.name === d.destination);
+    const event = svc.db.events.get(d.event_id);
+    const policy = destination?.retry;
     return {
       id: d.id,
       label,
@@ -246,6 +305,8 @@ export class BridgeSim {
       })),
       nextInMs: d.status === 'pending' && d.next_attempt_at !== null ? Math.max(0, d.next_attempt_at - svc.clock.now()) : null,
       replayOf: d.replay_of,
+      payload: destination && event ? canonicalJson(renderPayload(destination, event, envelopeContext(event, svc.clock))) : '',
+      transform: destination && !isIdentity(destination.transform) ? describeTransform(destination.transform) : null,
     };
   }
 
@@ -266,6 +327,7 @@ export class BridgeSim {
     const events = [...db.events.values()];
     return {
       nextPayload: JSON.stringify(this.payload()).replace(/,/g, ', ').replace(/:/g, ': '),
+      typed: this.typed,
       down: this.down,
       last: this.last,
       canReplay: this.lastAccepted !== null,

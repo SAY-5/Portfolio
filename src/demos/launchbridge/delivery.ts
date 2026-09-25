@@ -1,8 +1,9 @@
 // Outbound delivery: the retry policy, the receiver fake that verifies the
 // outbound signature and injects failures by payload tag, and the worker that
 // claims due deliveries, posts signed requests and schedules jittered backoff.
+import { applyTransform } from './routing';
 import { canonicalJson, EVENT_ID_HEADER, IDEMPOTENCY_HEADER, parseJson, SIGNATURE_HEADER, signHeaders, TIMESTAMP_HEADER, verifySignature, type Json } from './signing';
-import type { AttemptRow, Database, Destination, DeliveryStatus, Prng, VirtualClock } from './store';
+import type { AttemptRow, Database, Destination, DeliveryStatus, EventRow, Prng, VirtualClock } from './store';
 
 export interface RetryPolicy {
   maxAttempts: number;
@@ -16,11 +17,46 @@ export interface DestinationConfig extends Destination {
   retry: RetryPolicy;
 }
 
-// destinations.yaml: crm takes every source, billing only orders.
+// destinations.yaml at main: crm takes every source and passes the payload
+// through; billing takes orders whose `type` matches order.* and whose amount
+// is at least 0, and ships the payload with internal_notes dropped, amount
+// renamed to total, and channel and reference set from the event. The
+// rate_limit and circuit_breaker gates in the same file are not ported: the
+// service defers a delivery rather than failing it when either trips, and this
+// page never defers.
 export const DESTINATIONS: DestinationConfig[] = [
-  { name: 'crm', secret: 'crm-dev-secret', sources: ['*'], maxAttempts: 4, retry: { maxAttempts: 4, baseDelaySeconds: 0.5, maxDelaySeconds: 8, multiplier: 2, jitter: 0.2 } },
-  { name: 'billing', secret: 'billing-dev-secret', sources: ['orders'], maxAttempts: 6, retry: { maxAttempts: 6, baseDelaySeconds: 1, maxDelaySeconds: 30, multiplier: 2, jitter: 0.2 } },
+  {
+    name: 'crm',
+    secret: 'crm-dev-secret',
+    sources: ['*'],
+    eventTypes: [],
+    when: [],
+    transform: {},
+    maxAttempts: 4,
+    retry: { maxAttempts: 4, baseDelaySeconds: 0.5, maxDelaySeconds: 8, multiplier: 2, jitter: 0.2 },
+  },
+  {
+    name: 'billing',
+    secret: 'billing-dev-secret',
+    sources: ['orders'],
+    eventTypes: ['order.*'],
+    when: [{ field: 'amount', op: 'gte', value: 0 }],
+    transform: { drop: ['internal_notes'], rename: { amount: 'total' }, set: { channel: '{source}', reference: '{event_key}' } },
+    maxAttempts: 6,
+    retry: { maxAttempts: 6, baseDelaySeconds: 1, maxDelaySeconds: 30, multiplier: 2, jitter: 0.2 },
+  },
 ];
+
+// envelope_context(event): the fields templates may reference and the envelope carries.
+export function envelopeContext(event: EventRow, clock: VirtualClock): Record<string, Json> {
+  return { event_id: event.id, source: event.source, event_key: event.event_key, received_at: clock.iso(event.received_at) };
+}
+
+// Destination.render_payload(): the stored payload through the destination's transform.
+export function renderPayload(destination: DestinationConfig, event: EventRow, context: Record<string, Json>): Json {
+  const payload = event.payload !== null ? event.payload : event.raw_body;
+  return applyTransform(destination.transform, payload, context);
+}
 
 // Deterministic delay before the retry that follows `attempt` (1-based).
 export function baseBackoff(policy: RetryPolicy, attempt: number): number {
@@ -150,14 +186,9 @@ export class Worker {
       return delivery.status;
     }
     const attemptNumber = delivery.attempts + 1;
-    const envelope: Json = {
-      event_id: event.id,
-      source: event.source,
-      event_key: event.event_key,
-      received_at: this.clock.iso(event.received_at),
-      destination: delivery.destination,
-      payload: event.payload !== null ? event.payload : event.raw_body,
-    };
+    // build_envelope(): identical bytes across retries and replays of one event.
+    const context = envelopeContext(event, this.clock);
+    const envelope: Json = { ...context, destination: delivery.destination, payload: renderPayload(destination, event, context) };
     const body = canonicalJson(envelope);
     const headers = signHeaders(destination.secret, body, Math.floor(now / 1000));
     headers[IDEMPOTENCY_HEADER] = delivery.idempotency_key;

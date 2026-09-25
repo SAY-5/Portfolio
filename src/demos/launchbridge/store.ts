@@ -1,7 +1,11 @@
 // In-memory stand-in for the PostgreSQL schema, plus the seeded PRNG and the
-// virtual clock. The dedup ledger enforces both unique constraints the way the
-// database does: (source, event_key) is the ON CONFLICT arbiter that turns a
-// repeat into a no-op, and signature raises an integrity error.
+// virtual clock. Two tables guard the inbound path the way the database does:
+// signature_nonces is written first and keyed by signature alone, so the exact
+// same request is a replay whether its first arrival was accepted or
+// deduplicated; processed_events then makes (source, event_key) the ON CONFLICT
+// arbiter that turns a re-send into a no-op, with its own signature unique as
+// the second line of defence.
+import { decide, EVENT_TYPE_FIELD, type Predicate, type RouteDecision, type Transform } from './routing';
 import { contentHash, parseJson, type Json } from './signing';
 
 export class Prng {
@@ -134,8 +138,14 @@ export class Database {
     this.rng = rng;
   }
 
-  signatureSeen(signature: string): boolean {
-    return this.bySignature.has(signature);
+  // signature_nonces: every accepted inbound signature, keyed by signature alone.
+  readonly nonces = new Map<string, { source: string; seen_at: number }>();
+
+  // INSERT INTO signature_nonces ... ON CONFLICT (signature) DO NOTHING RETURNING signature.
+  insertNonce(signature: string, source: string, now: number): boolean {
+    if (this.nonces.has(signature)) return false;
+    this.nonces.set(signature, { source, seen_at: now });
+    return true;
   }
 
   // INSERT ... ON CONFLICT (source, event_key) DO NOTHING RETURNING id.
@@ -164,6 +174,9 @@ export interface Destination {
   name: string;
   secret: string;
   sources: string[];
+  eventTypes: string[];
+  when: Predicate[];
+  transform: Transform;
   maxAttempts: number;
 }
 
@@ -173,6 +186,7 @@ export interface IngestResult {
   deduplicated: boolean;
   delivery_ids: string[];
   replayed: boolean;
+  decisions: RouteDecision[];
 }
 
 // Prefer an explicit event id header, then a payload id, then the content hash.
@@ -185,14 +199,17 @@ export function deriveEventKey(payload: Json | null, body: string, headerEventId
   return `hash:${contentHash(body)}`;
 }
 
-// Record an inbound request and fan out deliveries unless it is a duplicate. A
-// signature seen before is a replay, whichever constraint catches it.
+// Record an inbound request and fan out deliveries unless it is a duplicate.
+// The nonce store is written before anything else and is keyed by signature
+// alone, so the exact same request is refused whether its first arrival was
+// accepted or deduplicated (ingest.py); the ledger's signature unique is the
+// second line of defence.
 export function ingestEvent(
   db: Database,
   input: { source: string; body: string; headers: Record<string, string>; signature: string; now: number; destinations: Destination[] },
 ): IngestResult {
   const { source, body, headers, signature, now } = input;
-  if (db.signatureSeen(signature)) return { event_id: '', event_key: '', deduplicated: false, delivery_ids: [], replayed: true };
+  if (!db.insertNonce(signature, source, now)) return { event_id: '', event_key: '', deduplicated: false, delivery_ids: [], replayed: true, decisions: [] };
   const parsed = parseJson(body);
   const payload = parsed !== undefined && typeof parsed === 'object' ? parsed : null;
   const eventKey = deriveEventKey(payload, body, headers['x-event-id']);
@@ -201,14 +218,16 @@ export function ingestEvent(
   const inserted = db.insertLedger({ source, event_key: eventKey, signature, event_id: event.id, processed_at: now });
   if (inserted === 'integrity') {
     db.events.delete(event.id);
-    return { event_id: '', event_key: eventKey, deduplicated: false, delivery_ids: [], replayed: true };
+    return { event_id: '', event_key: eventKey, deduplicated: false, delivery_ids: [], replayed: true, decisions: [] };
   }
   if (inserted === null) {
     event.status = 'deduplicated';
-    return { event_id: event.id, event_key: eventKey, deduplicated: true, delivery_ids: [], replayed: false };
+    return { event_id: event.id, event_key: eventKey, deduplicated: true, delivery_ids: [], replayed: false, decisions: [] };
   }
+  // registry.route(source, payload): one delivery per destination whose rules match.
+  const decisions = input.destinations.map((d) => decide(d, source, payload ?? undefined, EVENT_TYPE_FIELD));
   const ids: string[] = [];
-  for (const dest of input.destinations.filter((d) => d.sources.includes('*') || d.sources.includes(source))) {
+  for (const dest of input.destinations.filter((d) => decisions.find((x) => x.destination === d.name)?.routed)) {
     const row: DeliveryRow = {
       id: db.rng.uuid(),
       event_id: event.id,
@@ -230,7 +249,7 @@ export function ingestEvent(
     db.deliveries.set(row.id, row);
     ids.push(row.id);
   }
-  return { event_id: event.id, event_key: eventKey, deduplicated: false, delivery_ids: ids, replayed: false };
+  return { event_id: event.id, event_key: eventKey, deduplicated: false, delivery_ids: ids, replayed: false, decisions };
 }
 
 // A new attempt series with the same idempotency key; the original is marked replayed.
