@@ -221,6 +221,9 @@ export default function LaunchbridgeDemo() {
                 </li>
               ))}
             </ul>
+            <p className="lb__note mono">
+              {'event_key: the X-Event-Id header, else the payload id, as id:<value>; over 255 characters it becomes id-hash:<sha256 of id:<value>> so long ids keep their identity; with neither, hash:<sha256 of the body>'}
+            </p>
           </div>
         </section>
 

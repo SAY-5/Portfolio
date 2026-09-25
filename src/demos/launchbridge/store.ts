@@ -189,12 +189,27 @@ export interface IngestResult {
   decisions: RouteDecision[];
 }
 
-// Prefer an explicit event id header, then a payload id, then the content hash.
-export function deriveEventKey(payload: Json | null, body: string, headerEventId: string | undefined): string {
-  if (headerEventId) return `id:${headerEventId}`.slice(0, 255);
+export const MAX_EVENT_KEY_LENGTH = 255;
+
+function explicitEventKey(payload: Json | null, headerEventId: string | undefined): string | null {
+  if (headerEventId) return `id:${headerEventId}`;
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const id = payload['id'];
-    if (id !== undefined && id !== null && id !== '') return `id:${String(id)}`.slice(0, 255);
+    if (id !== undefined && id !== null && id !== '') return `id:${String(id)}`;
+  }
+  return null;
+}
+
+// Prefer an explicit event id header, then a payload id, then the content
+// hash. An explicit key longer than the 255-character column becomes
+// id-hash:<sha256 of the full id:<value> string>, so distinct long ids keep
+// their identity (ingest.py at main). The service also honours ledger rows
+// that older releases wrote with a truncated key; this page has no such rows.
+export function deriveEventKey(payload: Json | null, body: string, headerEventId: string | undefined): string {
+  const explicit = explicitEventKey(payload, headerEventId);
+  if (explicit !== null) {
+    if (explicit.length > MAX_EVENT_KEY_LENGTH) return `id-hash:${contentHash(explicit)}`;
+    return explicit;
   }
   return `hash:${contentHash(body)}`;
 }
