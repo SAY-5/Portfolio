@@ -1,10 +1,11 @@
-// Deterministic local executor (port of expertloop/executor/run.py): a
-// rule-following stand-in for the agent that receives the instruction set.
+// Deterministic local executor (port of expertloop/executor/run.py at 5.1.0):
+// a rule-following stand-in for the agent that receives the instruction set.
 // It walks the compiled steps against a scenario, applies decision rules,
-// records every action and tool call, and stops when a rule says so. Test
-// cases assert on that trace.
+// records every action, tool call, executed step and fired rule, and stops
+// when a rule says so. Test cases assert on that trace. Only the comparison
+// grammar is ported; the condition plugin registry is not.
 
-import { STOP_WORDS, type DecisionRule, type InstructionDocument } from './compile';
+import { haltsFrom, type DecisionRule, type InstructionDocument } from './compile';
 
 export interface Scenario {
   facts?: Record<string, unknown>;
@@ -27,6 +28,9 @@ export interface ExecutionTrace {
   outcomes: string[];
   skipped: string[];
   halted_at: string | null;
+  steps_executed: string[];
+  /** "global:0", "s3:0": the rule labels the coverage report in the Python service counts. */
+  rules_fired_ids: string[];
 }
 
 export interface CaseResult {
@@ -66,11 +70,6 @@ function lookup(facts: Record<string, unknown>, name: string): [boolean, unknown
   return [false, null];
 }
 
-function hasStopWord(text: string): boolean {
-  const lowered = text.toLowerCase();
-  return STOP_WORDS.some((w) => lowered.includes(w));
-}
-
 /** Evaluate a natural-language condition against scenario facts and flags. */
 export function evaluateCondition(condition: string, scenario: Scenario): boolean {
   const facts = scenario.facts ?? {};
@@ -105,11 +104,12 @@ export function evaluateCondition(condition: string, scenario: Scenario): boolea
 }
 
 function applyRules(rules: DecisionRule[], scenario: Scenario, trace: ExecutionTrace, label: string): boolean {
-  for (const rule of rules) {
+  for (const [index, rule] of rules.entries()) {
     if (evaluateCondition(rule.condition, scenario)) {
       trace.rules_fired.push(`${label}: if ${rule.condition} then ${rule.then}`);
+      trace.rules_fired_ids.push(`${label}:${index}`);
       trace.actions.push(rule.then);
-      if (rule.halts || hasStopWord(rule.then)) {
+      if (rule.halts || haltsFrom(rule.then)) {
         trace.halted_at = label;
         return true;
       }
@@ -119,7 +119,16 @@ function applyRules(rules: DecisionRule[], scenario: Scenario, trace: ExecutionT
 }
 
 export function execute(document: InstructionDocument, scenario: Scenario): ExecutionTrace {
-  const trace: ExecutionTrace = { actions: [], tool_calls: [], rules_fired: [], outcomes: [], skipped: [], halted_at: null };
+  const trace: ExecutionTrace = {
+    actions: [],
+    tool_calls: [],
+    rules_fired: [],
+    outcomes: [],
+    skipped: [],
+    halted_at: null,
+    steps_executed: [],
+    rules_fired_ids: [],
+  };
   if (applyRules(document.decision_rules ?? [], scenario, trace, 'global')) return trace;
   for (const step of document.steps ?? []) {
     if (step.condition && !evaluateCondition(step.condition, scenario)) {
@@ -127,6 +136,7 @@ export function execute(document: InstructionDocument, scenario: Scenario): Exec
       continue;
     }
     if (applyRules(step.decision_rules ?? [], scenario, trace, step.id)) return trace;
+    trace.steps_executed.push(step.id);
     trace.actions.push(step.action);
     if (step.tool) trace.tool_calls.push(step.tool);
     if (step.expected_outcome) trace.outcomes.push(step.expected_outcome);

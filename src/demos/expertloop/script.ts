@@ -3,15 +3,20 @@
 // publish (the refund SOP is blocked by a failing forbidden-action case), fix
 // and republish, revise onboarding to v2 and roll it back to v1. Each yield is
 // one action's log lines; the return value is the summary computed from the
-// records, which is compared with the block quoted in the README.
+// records. The run section and the summary block are rendered the way demo.py
+// prints them and compared with the blocks quoted in the README.
 
 import type { InstructionDocument } from './compile';
 import { PEOPLE, SAMPLE_NOTES, SAMPLE_SOURCES, SAMPLE_TEST_CASES, type NoteKey } from './notes';
 import { Conflict, ExpertLoopService, IllegalTransition, type Publication } from './service';
-import { FakeJira, FakeWebhookReceiver, JiraTarget, WebhookTarget, type Target } from './sources';
+import { FakeJira, FakeWebhookReceiver, JiraTarget, ReceiptCounter, WebhookTarget, type Target } from './sources';
 
-export const WEBHOOK_SECRET = 'demo-secret';
-export const JIRA_ISSUE = 'OPS-1';
+export { README_RUN, README_SUMMARY } from './expected';
+
+/** The compose stack's values (deploy/docker-compose.yml), which make demo runs against. */
+export const WEBHOOK_SECRET = 'demo-webhook-secret';
+export const JIRA_ISSUE = 'OPS-42';
+export const RUN_SECTION = 'Running test cases and publishing approved sets';
 
 export interface DemoLine {
   kind: 'section' | 'info' | 'ok' | 'fail' | 'blocked';
@@ -53,8 +58,9 @@ export interface DemoWorld {
 
 export function createDemoWorld(): DemoWorld {
   const service = new ExpertLoopService();
-  const webhook = new FakeWebhookReceiver(WEBHOOK_SECRET);
-  const jira = new FakeJira();
+  const counter = new ReceiptCounter();
+  const webhook = new FakeWebhookReceiver(WEBHOOK_SECRET, counter);
+  const jira = new FakeJira(counter);
   return { service, webhook, jira, targets: [new WebhookTarget(WEBHOOK_SECRET, webhook), new JiraTarget(JIRA_ISSUE, jira)], sets: { refund: 0, onboarding: 0, incident: 0 }, blocked: 0 };
 }
 
@@ -97,14 +103,17 @@ export function createApprovedWorld(): DemoWorld {
   return world;
 }
 
-/** The incident set under a review policy that requires an admin among the approvers. */
+/** The review deadline the policy panel sets, in hours. */
+export const POLICY_DEADLINE_HOURS = 4;
+
+/** The incident set under a review policy that requires an admin among the approvers and a 4 h deadline. */
 export function createPolicyWorld(): DemoWorld {
   const world = createSeededWorld();
-  world.service.setReviewPolicy(PEOPLE.ops, world.sets.incident, { required_roles: ['admin'] });
+  world.service.setReviewPolicy(PEOPLE.ops, world.sets.incident, { required_roles: ['admin'], review_deadline_hours: POLICY_DEADLINE_HOURS });
   return world;
 }
 
-function edit(world: DemoWorld, setId: number, reason: string, mutate: (doc: InstructionDocument) => void, log: DemoLine[]): void {
+export function edit(world: DemoWorld, setId: number, reason: string, mutate: (doc: InstructionDocument) => void, log: DemoLine[]): void {
   const current = world.service.getSet(setId);
   const document = JSON.parse(JSON.stringify(current.document)) as InstructionDocument;
   mutate(document);
@@ -125,7 +134,7 @@ function runTests(world: DemoWorld, setId: number, log: DemoLine[]): void {
   const run = world.service.runTests(PEOPLE.ravi, setId);
   log.push({ kind: run.status === 'passed' ? 'ok' : 'fail', text: `set ${setId} v${run.version}: ${run.status.toUpperCase()} (${run.passed} passed, ${run.failed} failed)` });
   for (const result of run.results) {
-    if (!result.passed) log.push({ kind: 'fail', text: `FAIL ${result.name}: ${result.failures.join('; ')}` });
+    if (!result.passed) log.push({ kind: 'fail', text: `  FAIL ${result.name}: ${result.failures.join('; ')}` });
   }
 }
 
@@ -145,16 +154,17 @@ function publish(world: DemoWorld, setId: number, log: DemoLine[]): void {
   }
 }
 
+/** The edits demo.py makes: a source-only citation is provenance since 5.1.0. */
 function applyManagerThreshold(document: InstructionDocument): void {
   const step = document.steps[3];
   step.decision_rules.push({ condition: 'amount is over 500', then: 'request manager approval and stop', halts: true });
-  step.citations.push({ note_id: step.citations[0].note_id, line_start: step.citations[0].line_start, line_end: step.citations[0].line_end, source_kind: 'doc', source_ref: 'policy/refunds-v4' });
+  step.citations.push({ source_kind: 'doc', source_ref: 'policy/refunds-v4' });
 }
 
 function announceMitigation(document: InstructionDocument): void {
   const step = document.steps[5];
   step.action = 'Post the mitigation plan in #incidents, then ' + step.action[0].toLowerCase() + step.action.slice(1);
-  step.citations.push({ note_id: step.citations[0].note_id, line_start: step.citations[0].line_start, line_end: step.citations[0].line_end, source_kind: 'url', source_ref: 'https://status.example.com/runbooks/triage' });
+  step.citations.push({ source_kind: 'url', source_ref: 'https://status.example.com/runbooks/triage' });
 }
 
 function addOncallChannel(document: InstructionDocument): void {
@@ -198,7 +208,7 @@ export function* demoScript(world: DemoWorld): Generator<DemoLine[], DemoSummary
   reviewRound(world, world.sets.refund, ['ravi', 'mei'], log);
   yield flush();
 
-  section('Running test cases and publishing approved sets');
+  section(RUN_SECTION);
   const order: NoteKey[] = ['onboarding', 'incident', 'refund'];
   for (const key of order) {
     runTests(world, world.sets[key], log);
@@ -289,15 +299,18 @@ export function summaryBlock(summary: DemoSummary): string {
   ].join('\n');
 }
 
-/** The block quoted in the repo README. */
-export const README_SUMMARY = `== Summary
-  notes ingested:        3
-  steps compiled:        18
-  citations linked:      26 (18/18 steps cited, 100%)
-  edits recorded:        3
-  approvals:             7 (changes requested: 1)
-  test runs:             5 (4 green, 1 red; 13 cases passed, 1 failed)
-  publishes blocked:     1
-  publishes delivered:   8 deliveries (4 versions to 2 targets), rollbacks: 1
-  receipts:              5 webhook (signed), 5 Jira comments, 5 Jira attachments
-  states:                set 1=published (live v2), set 2=published (live v1), set 3=published (live v2)`;
+/**
+ * The "Running test cases and publishing approved sets" section the way demo.py
+ * prints it: a section header and every line indented by two spaces. Null until
+ * the script has reached that section.
+ */
+export function runBlock(lines: DemoLine[]): string | null {
+  const start = lines.findIndex((l) => l.kind === 'section' && l.text === RUN_SECTION);
+  if (start === -1) return null;
+  const out = [`== ${RUN_SECTION}`];
+  for (const line of lines.slice(start + 1)) {
+    if (line.kind === 'section') break;
+    out.push(`  ${line.text}`);
+  }
+  return out.join('\n');
+}

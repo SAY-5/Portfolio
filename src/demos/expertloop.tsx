@@ -1,22 +1,26 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useReducedMotion } from 'framer-motion';
 import '../styles/demo.css';
 import './expertloop.css';
 import { Lab, README_FIGURES, type LabSnap, type LogLine, type ReceiptView, type Reviewer } from './expertloop/lab';
 
-// Real mechanism from expertloop: a deterministic parser splits an expert
-// note into sections whose items remember their line ranges, and the compiler
-// turns each step item into an instruction step citing that range plus any
-// doc:, ticket or URL reference on it. A citation stores its source's sha256;
+// Real mechanism from expertloop at 5.1.0: a deterministic parser splits an
+// expert note into sections whose items remember their line ranges, and the
+// compiler turns each step item into an instruction step citing that range
+// plus any doc:, ticket or URL reference on it; the page checks the port
+// against the repo's golden fixtures. A citation stores its source's sha256;
 // re-hashing a source to a new digest opens a drift flag on exactly the steps
 // that cite it, and the publish gate refuses while a flag is open, the latest
 // test run is not green on the current version, or the set is not approved.
-// The review policy refuses approval by the version author and holds a set in
-// review until a required role has approved. Publishing signs the payload
-// with HMAC-SHA256 for a webhook receiver and posts to a Jira fake, and a
-// rollback re-delivers the previous snapshot. Ids are sequential and the
-// clock is a counter, so every run prints the same summary.
+// The review policy refuses approval by the version author, holds a set in
+// review until a required role has approved, and escalates an overdue review
+// once. A branch copies a version into a draft and merges back three-way,
+// refusing with the conflicting step and field. Publishing signs the payload
+// with HMAC-SHA256 for a webhook receiver and posts an ADF comment to a Jira
+// fake; a rollback re-delivers the previous snapshot. Ids are sequential and
+// the clocks are counters, so every run prints the same run section and summary.
 const STEP_MS = 420;
+const CLOCK_STEP_H = 5;
 const TRACK = ['draft', 'in_review', 'approved'] as const;
 const REVIEWERS: Reviewer[] = ['dana', 'ravi', 'mei', 'ops'];
 
@@ -62,6 +66,31 @@ function Stat({ label, value, sub, tone }: { label: string; value: number | stri
   );
 }
 
+/** A source ref with soft break opportunities after ':' and '/', so a narrow cell wraps at them. */
+function breakable(text: string) {
+  const parts = text.split(/(?<=[:/])/);
+  return parts.map((part, i) => (
+    <Fragment key={i}>
+      {part}
+      {i < parts.length - 1 && <wbr />}
+    </Fragment>
+  ));
+}
+
+function Block({ label, text, state }: { label: string; text: string; state: 'match' | 'differs' | 'pending' }) {
+  return (
+    <div className="el__block-wrap">
+      <span className="el__block-label" data-state={state}>
+        {label}
+      </span>
+      <div className="el__block-scroll">
+        <pre className="el__block">{text}</pre>
+      </div>
+      <span className="el__block-hint">a line longer than the pane scrolls sideways; line breaks are kept for the character comparison</span>
+    </div>
+  );
+}
+
 export default function ExpertloopDemo() {
   const reduce = useReducedMotion();
   const [lab, setLab] = useState(() => new Lab());
@@ -69,6 +98,7 @@ export default function ExpertloopDemo() {
   const [noteIdx, setNoteIdx] = useState(1);
   const [stepId, setStepId] = useState('s6');
   const [playing, setPlaying] = useState(false);
+  const noteRef = useRef<HTMLOListElement | null>(null);
 
   useEffect(() => {
     if (!playing) return;
@@ -79,6 +109,16 @@ export default function ExpertloopDemo() {
     }, STEP_MS);
     return () => window.clearInterval(id);
   }, [playing, lab]);
+
+  // keep the cited range inside the scrolling note pane
+  useEffect(() => {
+    const pane = noteRef.current;
+    const line = pane?.querySelector<HTMLElement>('.el__line[data-on="true"]');
+    if (!pane || !line) return;
+    const p = pane.getBoundingClientRect();
+    const l = line.getBoundingClientRect();
+    if (l.top < p.top || l.bottom > p.bottom) pane.scrollTop += l.top - p.top - (p.height - l.height) / 2;
+  }, [noteIdx, stepId]);
 
   function act(fn: (l: Lab) => void) {
     fn(lab);
@@ -119,23 +159,30 @@ export default function ExpertloopDemo() {
     (t, n) => ({ steps: t.steps + n.coverage.steps, cited: t.cited + n.coverage.cited_steps, citations: t.citations + n.coverage.citations }),
     { steps: 0, cited: 0, citations: 0 },
   );
+  const fx = snap.fixtures;
 
   const d = snap.drift;
   const gate = d.stale.length > 0 ? 'blocked' : d.state === 'published' ? 'open' : 'clear';
   const p = snap.policy;
+  const v = snap.versions;
   const sc = snap.script;
   const live = sc.live;
   const trackAt = TRACK.indexOf(p.state as (typeof TRACK)[number]);
+  const runState = sc.runMatches === null ? 'pending' : sc.runMatches ? 'match' : 'differs';
+  const blockState = sc.matches === null ? 'pending' : sc.matches && sc.fixtureMatches ? 'match' : 'differs';
+  const verdictOk = sc.matches === true && sc.fixtureMatches === true && sc.runMatches === true;
 
   return (
     <div className="demo" aria-label="expertloop instruction set demo">
       <span className="demo__tag">Interactive demo</span>
-      <h3 className="demo__title">Cited steps, a drift gate, a review policy</h3>
+      <h3 className="demo__title">Cited steps, a drift gate, a review policy, a merge conflict</h3>
       <p className="demo__lede">
-        Each instruction step compiled from an expert note cites the note lines it came from. Rewriting a
-        cited source flags exactly the steps that cite it, and the publish gate refuses until an expert
-        re-verifies them. The review policy refuses approval by the version author and holds the set in
-        review until an admin approves. The replayed demo script ends on the summary the repo prints:{' '}
+        Each instruction step compiled from an expert note cites the note lines it came from, and the port is
+        checked in the page against the repo&apos;s golden fixtures. Rewriting a cited source flags exactly the
+        steps that cite it, and the publish gate refuses until an expert re-verifies them. The review policy
+        refuses approval by the version author, holds the set until an admin approves and escalates an overdue
+        review once. A branch merges back three-way, and a step field changed on both sides is a 409 naming the
+        step and the field. The replayed demo script ends on the run section and summary the repo prints:{' '}
         {README_FIGURES.steps} steps, {README_FIGURES.citations} citations, {README_FIGURES.blocked} blocked
         publish, {README_FIGURES.deliveries} deliveries and {README_FIGURES.rollbacks} rollback.
       </p>
@@ -148,6 +195,10 @@ export default function ExpertloopDemo() {
               {totals.steps} steps, {totals.citations} citations as ingested, {totals.cited}/{totals.steps} steps cited
             </span>
           </div>
+          <p className="el__fixture" data-ok={fx.ok}>
+            {fx.ok ? 'port checked in the page: ' : 'port differs from the fixtures: '}
+            {fx.compiled}/{fx.compiledTotal} compiled documents and {fx.traces}/{fx.tracesTotal} executor traces equal samples/expected at {fx.commit}
+          </p>
           <div className="el__tabs" role="group" aria-label="Note">
             {snap.notes.map((n, i) => (
               <button key={n.key} className="el__tab" aria-pressed={i === noteIdx} onClick={() => pickNote(i)}>
@@ -161,7 +212,7 @@ export default function ExpertloopDemo() {
                 {note.file}, {note.lines.length} lines, {step.id} cites L{step.lineStart}
                 {step.lineEnd !== step.lineStart ? `-${step.lineEnd}` : ''}
               </span>
-              <ol className="el__note" aria-label={`${note.file} source lines`}>
+              <ol className="el__note" ref={noteRef} aria-label={`${note.file} source lines`}>
                 {note.lines.map((text, i) => {
                   const no = i + 1;
                   return (
@@ -198,12 +249,19 @@ export default function ExpertloopDemo() {
                         ))}
                         {s.tool && <span className="el__chip">tool {s.tool}</span>}
                         {s.rules > 0 && <span className="el__chip">{s.rules} rule</span>}
-                        {s.halts && <span className="el__chip el__chip--bad">halts</span>}
+                        {s.halts && <span className="el__chip el__chip--halt">halts</span>}
                       </span>
                     </button>
                   </li>
                 ))}
               </ul>
+              <div className="el__row">
+                <button className="demo__btn demo__btn--ghost el__small" onClick={() => act((l) => l.citePastEnd(noteIdx, step.id))}>
+                  Edit {step.id} to cite L{note.lines.length + 1}
+                </button>
+                <span className="el__hint el__hint--inline">the note has {note.lines.length} lines; the document check answers</span>
+              </div>
+              <Log lines={snap.provenance} empty="A citation has to be a line range inside its note or a reference to a source of a known kind; anything else is a 422, not provenance." />
             </div>
           </div>
         </section>
@@ -219,27 +277,27 @@ export default function ExpertloopDemo() {
           <div className="el__doc" data-changed={d.rewritten}>
             <div className="el__doc-ref">doc:{d.ref}</div>
             <p className="el__doc-text">{d.content}</p>
-            <div className="el__doc-hash">sha256:{d.hash.slice(0, 32)}</div>
+            <div className="el__doc-hash">sha256 computed in the page: {d.hash.slice(0, 32)}</div>
           </div>
           <div className="el__table-wrap">
             <table className="el__table">
               <thead>
                 <tr>
-                  <th>step</th>
+                  <th className="el__col-key">step</th>
                   <th>source</th>
                   <th>cited</th>
-                  <th>registry</th>
-                  <th>state</th>
+                  <th className="el__col-registry">registry</th>
+                  <th className="el__col-key">state</th>
                 </tr>
               </thead>
               <tbody>
                 {d.rows.map((r) => (
                   <tr key={`${r.stepId}-${r.source}`} data-stale={r.stale}>
-                    <td>{r.stepId}</td>
-                    <td>{r.source}</td>
+                    <td className="el__col-key">{r.stepId}</td>
+                    <td className="el__col-break">{breakable(r.source)}</td>
                     <td>{r.cited.slice(0, 10)}</td>
-                    <td>{r.current.slice(0, 10)}</td>
-                    <td>{r.stale ? 'stale' : 'verified'}</td>
+                    <td className="el__col-registry">{r.current.slice(0, 10)}</td>
+                    <td className="el__col-key">{r.stale ? 'stale' : 'verified'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -274,7 +332,7 @@ export default function ExpertloopDemo() {
           <div className="el__head">
             <span className="el__title">review policy, set {p.setId}</span>
             <span className="el__meta">
-              requires role {p.roles.join(', ')}, {p.required} approval
+              requires role {p.roles.join(', ')}, {p.required} approval, {p.deadlineHours} h deadline
             </span>
           </div>
           <div className="el__track" aria-label={`State ${p.state.replace('_', ' ')}`}>
@@ -298,6 +356,13 @@ export default function ExpertloopDemo() {
             <dd>{p.approvers.length ? p.approvers.join(', ') : 'none this round'}</dd>
             <dt>missing roles</dt>
             <dd>{p.state === 'approved' || p.missing.length === 0 ? 'none' : p.missing.join(', ')}</dd>
+            <dt>deadline</dt>
+            <dd>
+              {p.deadlineHours} h after submit
+              {p.hoursSinceSubmit === null ? ' (the clock starts on submit)' : `, virtual clock at T+${p.hoursSinceSubmit} h${p.overdue ? ', overdue' : ''}`}
+            </dd>
+            <dt>escalated</dt>
+            <dd>{p.escalations === 0 ? 'not yet' : `once, ${p.escalations} review_escalated event audited`}</dd>
           </dl>
           <div className="el__row">
             <button className="demo__btn el__small" onClick={() => act((l) => l.submitPolicy())} disabled={p.state !== 'draft'}>
@@ -308,11 +373,99 @@ export default function ExpertloopDemo() {
                 Approve as {who}
               </button>
             ))}
+          </div>
+          <div className="el__row">
+            <button className="demo__btn demo__btn--ghost el__small" onClick={() => act((l) => l.advancePolicyClock(CLOCK_STEP_H))} disabled={p.state !== 'in_review'}>
+              Advance clock {CLOCK_STEP_H} h
+            </button>
+            <button className="demo__btn demo__btn--ghost el__small" onClick={() => act((l) => l.escalatePolicy())} disabled={p.state !== 'in_review'}>
+              Escalate overdue as ops
+            </button>
             <button className="demo__btn demo__btn--ghost el__small" onClick={() => act((l) => l.resetPolicy())}>
               Reset
             </button>
           </div>
-          <Log lines={p.log} empty="dana wrote the note, so dana cannot approve it; reviewers alone cannot satisfy the admin role." />
+          <Log lines={p.log} empty="dana wrote the note, so dana cannot approve it; reviewers alone cannot satisfy the admin role; an overdue review is escalated once." />
+        </section>
+
+        <section className="el__panel el__panel--wide" aria-label="Versions, branch and merge">
+          <div className="el__head">
+            <span className="el__title">versions: branch, merge, conflict</span>
+            <span className="el__meta">
+              set {v.parentId} v{v.parentVersion}, {v.parentState.replace('_', ' ')}
+              {v.branch ? `; set ${v.branch.id} v${v.branch.version} branched from v${v.branch.from}${v.branch.mergedInto ? `, merged into v${v.branch.mergedInto}` : ''}` : ''}
+            </span>
+          </div>
+          <div className="el__versions">
+            <div>
+              <ol className="el__seq" aria-label="Branch and merge sequence">
+                {v.steps.map((label, i) => (
+                  <li key={label} data-state={i < v.stage ? 'done' : i === v.stage ? 'next' : 'pending'}>
+                    <span className="el__seq-no">{i + 1}</span>
+                    {label}
+                  </li>
+                ))}
+              </ol>
+              <div className="el__row">
+                <button className="demo__btn el__small" onClick={() => act((l) => l.nextVersionStep())} disabled={v.next === null}>
+                  {v.next ? `Next: ${v.next.toLowerCase()}` : 'Sequence complete'}
+                </button>
+                <button className="demo__btn demo__btn--ghost el__small" onClick={() => act((l) => l.resetVersions())} disabled={v.stage === 0}>
+                  Reset
+                </button>
+              </div>
+              <Log
+                lines={v.log}
+                empty="A branch copies one version of a set into a new draft with its own edits and review; merging it back is a three-way merge against the version it branched from."
+              />
+            </div>
+            <div>
+              <span className="el__file">set {v.parentId} versions, computed in the page</span>
+              <dl className="el__kv">
+                {v.versions.map((x) => (
+                  <Fragment key={x.version}>
+                    <dt>v{x.version}</dt>
+                    <dd>{x.label}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+              <span className="el__file el__file--gap">
+                step-level diff v{v.diffFrom} to v{v.diffTo}, as GET /instruction-sets/{v.parentId}/diff returns it
+              </span>
+              {v.diff.length ? (
+                <div className="el__table-wrap">
+                  <table className="el__table el__table--wrap">
+                    <thead>
+                      <tr>
+                        <th className="el__col-key">step</th>
+                        <th className="el__col-key">field</th>
+                        <th>before</th>
+                        <th>after</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {v.diff.map((r) => (
+                        <tr key={`${r.stepId}-${r.field}`}>
+                          <td className="el__col-key">{r.stepId}</td>
+                          <td className="el__col-key">{r.field}</td>
+                          <td>{r.before}</td>
+                          <td>{r.after}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="el__hint">no step differs from v1 yet</p>
+              )}
+              {v.conflicts.length > 0 && (
+                <div className="el__gate" data-state="blocked" aria-live="polite">
+                  409 conflict:{' '}
+                  {v.conflicts.map((c) => `${c.stepId}.${c.field}, parent "${c.parent}", branch "${c.branch}"`).join('; ')}; the parent is left untouched
+                </div>
+              )}
+            </div>
+          </div>
         </section>
 
         <section className="el__panel el__panel--wide" aria-label="Demo script run">
@@ -325,12 +478,13 @@ export default function ExpertloopDemo() {
           </div>
           <div className="el__script">
             <div>
-              <ul className="el__log" aria-live="polite">
+              <ul className="el__log el__log--script" aria-live="polite">
                 {sc.lines.length === 0 ? (
                   <li className="el__empty">
                     The script registers eight sources, ingests the three notes, requests changes on the incident set,
                     reviews, tests and publishes, fixes the blocked refund SOP, then revises onboarding to v2 and rolls it
-                    back to v1.
+                    back to v1, against the same in-memory fakes with the compose stack&apos;s issue key OPS-42 and one
+                    shared receipt counter.
                   </li>
                 ) : (
                   sc.lines.map((line, i) => (
@@ -357,15 +511,29 @@ export default function ExpertloopDemo() {
                 <Stat label="test runs" value={live ? live.test_runs : '...'} sub={live ? `${live.runs_green} green, ${live.runs_red} red` : 'README 5'} />
               </div>
               {sc.done && sc.summary && (
-                <p className="el__verdict" data-pass={sc.matches === true}>
-                  <b>{sc.matches ? 'summary block matches the README' : 'summary block differs from the README'}</b>:{' '}
+                <p className="el__verdict" data-pass={verdictOk}>
+                  <b>{verdictOk ? 'run section and summary block match the README' : 'the replayed run differs from the README'}</b>:{' '}
                   {sc.summary.steps} steps, {sc.summary.citations} citations at {Math.round(sc.summary.coverage * 100)}%,{' '}
-                  {sc.summary.publishes_blocked} blocked publish, {sc.summary.deliveries} deliveries, {sc.summary.rollbacks} rollback.
+                  {sc.summary.publishes_blocked} blocked publish, {sc.summary.deliveries} deliveries, {sc.summary.rollbacks} rollback, computed
+                  from the in-memory records after the run.
                 </p>
               )}
             </div>
           </div>
-          {sc.block && <pre className="el__block">{sc.block}</pre>}
+          {sc.runBlock && (
+            <Block
+              label={`run section, README.md lines 97-106: ${runState === 'match' ? 'equal' : runState === 'differs' ? 'differs' : 'in progress'}`}
+              text={sc.runBlock}
+              state={runState}
+            />
+          )}
+          {sc.block && (
+            <Block
+              label={`summary block, README.md lines 108-118 and samples/expected/demo_summary.json: ${blockState === 'match' ? 'equal character for character' : 'differs'}`}
+              text={sc.block}
+              state={blockState}
+            />
+          )}
         </section>
       </div>
 
@@ -382,7 +550,7 @@ export default function ExpertloopDemo() {
         <button className="demo__btn demo__btn--ghost" onClick={reset}>
           Reset all
         </button>
-        <span className="demo__hint">sequential ids and a counter clock, the same summary every run</span>
+        <span className="demo__hint">sequential ids and counter clocks, the same run every time; fixtures from SAY-5/expertloop at {fx.commit}</span>
       </div>
     </div>
   );
