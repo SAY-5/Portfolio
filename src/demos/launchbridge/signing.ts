@@ -77,7 +77,17 @@ export function contentHash(body: string): string {
   return toHex(sha256(utf8(body)));
 }
 
-export type StepId = 'timestamp' | 'window' | 'header' | 'hmac' | 'nonce' | 'dedup';
+// The verification list in the service's order: api.py refuses an oversized
+// body before the route runs, signing.py checks the four signature steps, and
+// ingest.py writes the nonce store and then the ledger.
+export type StepId = 'size' | 'timestamp' | 'window' | 'header' | 'hmac' | 'nonce' | 'dedup';
+
+export const TIMESTAMP_LABEL = `${TIMESTAMP_HEADER} is unix seconds`;
+export const HEADER_LABEL = `${SIGNATURE_HEADER} starts with ${SIGNATURE_PREFIX}`;
+export const HMAC_LABEL = 'HMAC-SHA256(secret, "<timestamp>.<body>") matches, constant time';
+export function windowLabel(toleranceSeconds: number): string {
+  return `|now - timestamp| <= ${toleranceSeconds} s`;
+}
 
 export interface VerifyStep {
   id: StepId;
@@ -110,28 +120,25 @@ export function verifySignature(
     steps.push({ id, label, ok: false, detail: `${reason}: ${detail}` });
     return { ok: false, timestamp: null, reason, detail, expected, steps };
   };
-  const tsLabel = `${TIMESTAMP_HEADER} is unix seconds`;
-  if (!timestampHeader) return fail('timestamp', tsLabel, 'missing_timestamp', `${TIMESTAMP_HEADER} header is required`);
+  if (!timestampHeader) return fail('timestamp', TIMESTAMP_LABEL, 'missing_timestamp', `${TIMESTAMP_HEADER} header is required`);
   const trimmed = timestampHeader.trim();
-  if (!/^[+-]?\d+$/.test(trimmed)) return fail('timestamp', tsLabel, 'invalid_timestamp', 'timestamp must be unix seconds');
+  if (!/^[+-]?\d+$/.test(trimmed)) return fail('timestamp', TIMESTAMP_LABEL, 'invalid_timestamp', 'timestamp must be unix seconds');
   const timestamp = Number.parseInt(trimmed, 10);
-  steps.push({ id: 'timestamp', label: tsLabel, ok: true, detail: String(timestamp) });
+  steps.push({ id: 'timestamp', label: TIMESTAMP_LABEL, ok: true, detail: String(timestamp) });
 
   const skew = nowSeconds - timestamp;
-  const windowLabel = `|now - timestamp| <= ${toleranceSeconds} s`;
+  const winLabel = windowLabel(toleranceSeconds);
   if (Math.abs(skew) > toleranceSeconds) {
-    return fail('window', windowLabel, 'stale_timestamp', `timestamp outside the ${toleranceSeconds}s tolerance window (skew ${skew} s)`);
+    return fail('window', winLabel, 'stale_timestamp', `timestamp outside the ${toleranceSeconds}s tolerance window (skew ${skew} s)`);
   }
-  steps.push({ id: 'window', label: windowLabel, ok: true, detail: `skew ${skew} s` });
+  steps.push({ id: 'window', label: winLabel, ok: true, detail: `skew ${skew} s` });
 
-  const headerLabel = `${SIGNATURE_HEADER} starts with ${SIGNATURE_PREFIX}`;
-  if (!signatureHeader) return fail('header', headerLabel, 'missing_signature', `${SIGNATURE_HEADER} header is required`);
-  if (!signatureHeader.startsWith(SIGNATURE_PREFIX)) return fail('header', headerLabel, 'invalid_signature', `signature must start with ${SIGNATURE_PREFIX}`);
-  steps.push({ id: 'header', label: headerLabel, ok: true, detail: 'present' });
+  if (!signatureHeader) return fail('header', HEADER_LABEL, 'missing_signature', `${SIGNATURE_HEADER} header is required`);
+  if (!signatureHeader.startsWith(SIGNATURE_PREFIX)) return fail('header', HEADER_LABEL, 'invalid_signature', `signature must start with ${SIGNATURE_PREFIX}`);
+  steps.push({ id: 'header', label: HEADER_LABEL, ok: true, detail: 'present' });
 
   const expected = computeSignature(secret, timestamp, body);
-  const hmacLabel = 'HMAC-SHA256(secret, "<timestamp>.<body>") matches, constant time';
-  if (!timingSafeEqual(expected, signatureHeader)) return fail('hmac', hmacLabel, 'invalid_signature', 'signature does not match body', expected);
-  steps.push({ id: 'hmac', label: hmacLabel, ok: true, detail: 'digest equal' });
+  if (!timingSafeEqual(expected, signatureHeader)) return fail('hmac', HMAC_LABEL, 'invalid_signature', 'signature does not match body', expected);
+  steps.push({ id: 'hmac', label: HMAC_LABEL, ok: true, detail: 'digest equal' });
   return { ok: true, timestamp, reason: null, detail: '', expected, steps };
 }

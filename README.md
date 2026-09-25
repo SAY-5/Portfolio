@@ -13,8 +13,10 @@ react-three-fiber for the hero object. The build is a static single page app.
 
 ## Run it locally
 
+Use Node.js 20.19+, 22.13+, or 24+ (even-numbered LTS releases).
+
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 

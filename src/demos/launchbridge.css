@@ -474,6 +474,92 @@
   color: var(--bad);
 }
 
+/* routing decisions under the verification list */
+.lb__label--gap {
+  margin-top: 10px;
+}
+.lb__routes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+}
+.lb__routes li {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-soft);
+  background: var(--ink-850);
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+.lb__routes li span:first-child {
+  color: var(--text-strong);
+}
+.lb__routes li[data-routed='true'] {
+  border-color: var(--accent-line);
+  color: var(--text-strong);
+}
+.lb__routes li[data-routed='true'] span:first-child {
+  color: var(--accent);
+}
+
+/* envelope payload on the timeline */
+.lb__tl-payload {
+  margin: 0 0 10px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* live burst status, the dg__phase pattern */
+.lb__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin: 0 0 10px;
+}
+.lb__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink-600);
+}
+.lb__status-dot[data-live='true'] {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* eight tiles: two rows of four from 900 px, so no tile is orphaned */
+@media (min-width: 900px) {
+  .lb__stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* the summary block wraps with a hanging indent on narrow screens */
+.lb__line {
+  display: block;
+}
+@media (max-width: 600px) {
+  .lb__summary {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .lb__line {
+    padding-left: 2ch;
+    text-indent: -2ch;
+  }
+}
+
 .lb[data-motion='reduced'] * {
   transition: none !important;
 }

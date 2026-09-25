@@ -122,8 +122,14 @@ export function* runBurst(service: Service): Generator<BurstProgress, BurstProgr
     { name: 'nothing left failed', ok: after.deliveries.failed === 0 },
     { name: 'signature rejections == bad requests', ok: after.signature_rejections === BURST.badSignatures },
   ];
+  // The block in scripts/demo.py's layout. Lines the script reads from the
+  // smoke suite, /ops/overview or wall-clock request timing have no source
+  // here and say so; the two checks that depend on them are listed as n/a
+  // rather than dropped, so the count against the README's eight is visible.
+  const lastReplay = service.db.replays[service.db.replays.length - 1];
   p.lines = [
     '== LaunchBridge demo summary ==',
+    'target:                 this page (virtual clock, seeded PRNG, no network)',
     `events received:        ${after.events.received}`,
     `  unique accepted:      ${after.events.accepted}`,
     `  deduplicated:         ${after.events.deduplicated}   (duplicates sent: ${BURST.duplicates})`,
@@ -132,8 +138,15 @@ export function* runBurst(service: Service): Generator<BurstProgress, BurstProgr
     `deliveries failed:      ${p.failedFirstPass}   (hard failures injected: ${BURST.hard})`,
     `replayed after fix:     ${p.replayed}   -> delivered ${after.replays.delivered}, still failed ${after.deliveries.failed}`,
     `signature rejections:   ${after.signature_rejections}   (sent: wrong secret, stale timestamp, replayed signature)`,
-    `dispatch latency:       p50 ${after.latency_ms.p50} ms   p95 ${after.latency_ms.p95} ms`,
+    `dispatch latency:       p50 ${after.latency_ms.p50} ms   p95 ${after.latency_ms.p95} ms   (virtual clock)`,
+    'ingest rate:            not simulated',
+    'smoke checks passed:    not simulated',
+    'ops overview:           not simulated',
+    `last replay:            ${lastReplay ? `${lastReplay.mode} by ${lastReplay.actor}` : 'none'} -> ${after.replays.delivered === p.replayed ? 'delivered' : 'partial'}`,
+    'smoke status:           not simulated',
     ...p.checks.map((c) => `check ${c.ok ? 'ok ' : 'BAD'}  ${c.name}`),
+    'check n/a  smoke suite green   (not simulated)',
+    'check n/a  overview agrees with stats   (not simulated)',
   ];
   p.phase = 'done';
   return snap();
