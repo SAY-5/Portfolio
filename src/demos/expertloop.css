@@ -1,4 +1,6 @@
-/* expertloop demo: cited compile, drift gate, review policy, replayed demo run */
+/* expertloop demo: cited compile, drift gate, review policy, branch and merge, replayed demo run.
+   One hue: the lime accent carries every "on" state; refusals and stale rows use the text colour
+   and the words the panel already prints. */
 
 .el__stage {
   display: grid;
@@ -59,6 +61,20 @@
   line-height: 1.55;
   color: var(--text-faint);
 }
+.el__hint--inline {
+  margin: 0;
+}
+.el__fixture {
+  margin: 0 0 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+.el__fixture[data-ok='true'] {
+  color: var(--accent);
+}
 .el__chip {
   display: inline-block;
   font-family: var(--mono);
@@ -74,9 +90,9 @@
   color: var(--accent);
   background: var(--accent-glow);
 }
-.el__chip--bad {
-  border-color: var(--bad);
-  color: var(--bad);
+.el__chip--halt {
+  border-color: var(--line-strong);
+  color: var(--text-strong);
 }
 
 /* compile */
@@ -118,6 +134,9 @@
   font-size: 10.5px;
   color: var(--text-faint);
   margin-bottom: 6px;
+}
+.el__file--gap {
+  margin-top: 12px;
 }
 .el__note {
   list-style: none;
@@ -275,7 +294,8 @@
   overflow-wrap: anywhere;
 }
 .el__doc[data-changed='true'] {
-  border-color: var(--bad);
+  border-color: var(--line-strong);
+  border-style: dashed;
 }
 .el__doc-hash {
   color: var(--text-faint);
@@ -307,9 +327,19 @@
   color: var(--text-strong);
   border-bottom: 1px solid var(--line-soft);
   white-space: nowrap;
+  vertical-align: top;
+}
+.el__table--wrap td {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .el__table tr[data-stale='true'] td {
-  color: var(--bad);
+  color: var(--text-strong);
+}
+.el__table tr[data-stale='true'] td:last-child {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--line-strong);
 }
 .el__gate {
   margin-top: 12px;
@@ -323,8 +353,9 @@
   overflow-wrap: anywhere;
 }
 .el__gate[data-state='blocked'] {
-  border-color: var(--bad);
-  color: var(--bad);
+  border-color: var(--line-strong);
+  border-style: dashed;
+  color: var(--text-strong);
 }
 .el__gate[data-state='open'] {
   border-color: var(--accent-line);
@@ -348,6 +379,9 @@
   padding-left: 10px;
   border-left: 2px solid var(--line);
 }
+.el__log--script li {
+  white-space: pre-wrap;
+}
 .el__log li[data-kind='ok'] {
   border-left-color: var(--accent);
   color: var(--text-strong);
@@ -355,8 +389,9 @@
 .el__log li[data-kind='blocked'],
 .el__log li[data-kind='bad'],
 .el__log li[data-kind='fail'] {
-  border-left-color: var(--bad);
-  color: var(--bad);
+  border-left-color: var(--line-strong);
+  border-left-style: dashed;
+  color: var(--text-strong);
 }
 .el__log li[data-kind='section'] {
   border-left-color: transparent;
@@ -400,6 +435,11 @@
   height: 1px;
   background: var(--line-strong);
 }
+.el__track-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .el__kv {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -415,6 +455,57 @@
   margin: 0;
   color: var(--text-strong);
   overflow-wrap: anywhere;
+}
+
+/* versions */
+.el__versions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+@media (min-width: 900px) {
+  .el__versions {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  }
+}
+.el__seq {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.el__seq li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-soft);
+  color: var(--text-faint);
+}
+.el__seq li[data-state='done'] {
+  color: var(--text);
+}
+.el__seq li[data-state='next'] {
+  border-color: var(--accent-line);
+  background: var(--accent-glow);
+  color: var(--text-strong);
+}
+.el__seq-no {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.el__seq li[data-state='done'] .el__seq-no,
+.el__seq li[data-state='next'] .el__seq-no {
+  color: var(--accent);
 }
 
 /* demo script */
@@ -465,8 +556,26 @@
 .el__receipts span {
   overflow-wrap: anywhere;
 }
+.el__block-wrap {
+  position: relative;
+  margin-top: 12px;
+}
+.el__block-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+.el__block-label[data-state='match'] {
+  color: var(--accent);
+}
+.el__block-label[data-state='differs'] {
+  color: var(--text-strong);
+}
 .el__block {
-  margin: 12px 0 0;
+  margin: 0;
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--line-soft);
@@ -477,6 +586,9 @@
   color: var(--text-strong);
   overflow-x: auto;
   white-space: pre;
+}
+.el__block-hint {
+  display: none;
 }
 .el__verdict {
   margin: 12px 0 0;
@@ -495,14 +607,48 @@
   font-weight: 600;
 }
 .el__verdict[data-pass='false'] {
-  border-color: var(--bad);
+  border-color: var(--line-strong);
+  border-style: dashed;
   background: transparent;
+}
+.el__verdict[data-pass='false'] b {
+  color: var(--text-strong);
 }
 .el__stats--flush {
   margin-top: 0;
 }
-.el__track-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+
+/* narrow screens: let table cells wrap, drop the registry column (the state
+   column already says stale or verified), and cue the sideways scroll of the
+   README blocks, whose line breaks must stay for the character comparison */
+@media (max-width: 600px) {
+  .el__table td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .el__col-registry {
+    display: none;
+  }
+  .el__block {
+    font-size: 10px;
+    padding-right: 28px;
+  }
+  .el__block-wrap::after {
+    content: '';
+    position: absolute;
+    top: 22px;
+    right: 0;
+    bottom: 0;
+    width: 36px;
+    border-radius: 0 10px 10px 0;
+    background: linear-gradient(90deg, transparent, var(--ink-900) 70%);
+    pointer-events: none;
+  }
+  .el__block-hint {
+    display: block;
+    margin-top: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+  }
 }
