@@ -331,6 +331,12 @@
 }
 .el__table--wrap td {
   white-space: normal;
+  overflow-wrap: break-word;
+}
+.el__col-key {
+  white-space: nowrap;
+}
+.el__col-break {
   overflow-wrap: anywhere;
 }
 .el__table tr[data-stale='true'] td {
@@ -584,11 +590,30 @@
   font-size: 11px;
   line-height: 1.55;
   color: var(--text-strong);
+  padding-right: 36px;
   overflow-x: auto;
   white-space: pre;
 }
+.el__block-scroll {
+  position: relative;
+}
+.el__block-scroll::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 36px;
+  border-radius: 0 10px 10px 0;
+  background: linear-gradient(90deg, transparent, var(--ink-900) 70%);
+  pointer-events: none;
+}
 .el__block-hint {
-  display: none;
+  display: block;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
 }
 .el__verdict {
   margin: 12px 0 0;
@@ -618,37 +643,21 @@
   margin-top: 0;
 }
 
-/* narrow screens: let table cells wrap, drop the registry column (the state
-   column already says stale or verified), and cue the sideways scroll of the
-   README blocks, whose line breaks must stay for the character comparison */
+/* narrow screens: let table cells wrap and drop the registry column (the state
+   column already says stale or verified); the README blocks keep their line
+   breaks for the character comparison and carry a scroll cue at every width */
 @media (max-width: 600px) {
   .el__table td {
     white-space: normal;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+  }
+  .el__col-key {
+    white-space: nowrap;
   }
   .el__col-registry {
     display: none;
   }
   .el__block {
     font-size: 10px;
-    padding-right: 28px;
-  }
-  .el__block-wrap::after {
-    content: '';
-    position: absolute;
-    top: 22px;
-    right: 0;
-    bottom: 0;
-    width: 36px;
-    border-radius: 0 10px 10px 0;
-    background: linear-gradient(90deg, transparent, var(--ink-900) 70%);
-    pointer-events: none;
-  }
-  .el__block-hint {
-    display: block;
-    margin-top: 6px;
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--text-faint);
   }
 }

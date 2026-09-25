@@ -66,14 +66,27 @@ function Stat({ label, value, sub, tone }: { label: string; value: number | stri
   );
 }
 
+/** A source ref with soft break opportunities after ':' and '/', so a narrow cell wraps at them. */
+function breakable(text: string) {
+  const parts = text.split(/(?<=[:/])/);
+  return parts.map((part, i) => (
+    <Fragment key={i}>
+      {part}
+      {i < parts.length - 1 && <wbr />}
+    </Fragment>
+  ));
+}
+
 function Block({ label, text, state }: { label: string; text: string; state: 'match' | 'differs' | 'pending' }) {
   return (
     <div className="el__block-wrap">
       <span className="el__block-label" data-state={state}>
         {label}
       </span>
-      <pre className="el__block">{text}</pre>
-      <span className="el__block-hint">scrolls sideways; line breaks are kept for the character comparison</span>
+      <div className="el__block-scroll">
+        <pre className="el__block">{text}</pre>
+      </div>
+      <span className="el__block-hint">a line longer than the pane scrolls sideways; line breaks are kept for the character comparison</span>
     </div>
   );
 }
@@ -270,21 +283,21 @@ export default function ExpertloopDemo() {
             <table className="el__table">
               <thead>
                 <tr>
-                  <th>step</th>
+                  <th className="el__col-key">step</th>
                   <th>source</th>
                   <th>cited</th>
                   <th className="el__col-registry">registry</th>
-                  <th>state</th>
+                  <th className="el__col-key">state</th>
                 </tr>
               </thead>
               <tbody>
                 {d.rows.map((r) => (
                   <tr key={`${r.stepId}-${r.source}`} data-stale={r.stale}>
-                    <td>{r.stepId}</td>
-                    <td>{r.source}</td>
+                    <td className="el__col-key">{r.stepId}</td>
+                    <td className="el__col-break">{breakable(r.source)}</td>
                     <td>{r.cited.slice(0, 10)}</td>
                     <td className="el__col-registry">{r.current.slice(0, 10)}</td>
-                    <td>{r.stale ? 'stale' : 'verified'}</td>
+                    <td className="el__col-key">{r.stale ? 'stale' : 'verified'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -424,8 +437,8 @@ export default function ExpertloopDemo() {
                   <table className="el__table el__table--wrap">
                     <thead>
                       <tr>
-                        <th>step</th>
-                        <th>field</th>
+                        <th className="el__col-key">step</th>
+                        <th className="el__col-key">field</th>
                         <th>before</th>
                         <th>after</th>
                       </tr>
@@ -433,8 +446,8 @@ export default function ExpertloopDemo() {
                     <tbody>
                       {v.diff.map((r) => (
                         <tr key={`${r.stepId}-${r.field}`}>
-                          <td>{r.stepId}</td>
-                          <td>{r.field}</td>
+                          <td className="el__col-key">{r.stepId}</td>
+                          <td className="el__col-key">{r.field}</td>
                           <td>{r.before}</td>
                           <td>{r.after}</td>
                         </tr>
