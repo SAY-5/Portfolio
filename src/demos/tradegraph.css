@@ -1,5 +1,16 @@
 /* tradegraph demo: fund family exposure through subsidiaries and affiliates */
 
+.tg__source {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin: -10px 0 18px;
+  line-height: 1.6;
+  max-width: 78ch;
+}
+.tg__nowrap {
+  white-space: nowrap;
+}
+
 .tg__presets {
   display: flex;
   flex-wrap: wrap;
@@ -168,6 +179,24 @@
   background: var(--accent);
   color: var(--ink-900);
 }
+.tg__seg-btn[data-refused='true'] {
+  color: var(--text-faint);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.tg__seg-btn[data-refused='true']:hover {
+  background: transparent;
+  color: var(--text);
+}
+.tg__refusal {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text);
+  border-left: 2px solid var(--accent-line);
+  padding-left: 10px;
+  max-width: 80ch;
+}
 
 /* exposure */
 .tg__total {
@@ -187,6 +216,12 @@
 }
 .tg__ref[data-match='true'] {
   color: var(--accent);
+}
+.tg__quarters {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 4px;
+  line-height: 1.5;
 }
 .tg__legs {
   display: grid;
@@ -301,6 +336,36 @@
   margin: 0;
   font-size: 13px;
   color: var(--text-faint);
+}
+.tg__own {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+/* sparql */
+.tg__sparql {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--ink-900);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text);
+  overflow-x: auto;
+  max-height: 420px;
+  overflow-y: auto;
+  tab-size: 2;
+}
+.tg__fine {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-faint);
+  max-width: 100ch;
 }
 .tg__lines {
   list-style: none;

@@ -3,7 +3,9 @@
 // lineage and exposure. The hops, the depth caps from application.yml, the
 // period an answer covers, the leg split and the explanation sentence follow
 // the source line for line. The triple materialisation, the ontology and the
-// query cache are left out because nothing here reads them.
+// query cache are left out because nothing here reads them; the SPARQL the
+// API sends for the same question is rendered by sparql.ts from the template
+// the slice carries.
 
 export type Kind = 'Issuer' | 'Fund' | 'Subsidiary';
 
@@ -19,6 +21,8 @@ export interface EntityNode {
   parent: string | null;
   /** Fraction of this entity its parent discloses owning; 1 when nothing was disclosed. */
   ownership: number;
+  /** False when the sample stated no percentage, which the ETL flags tg:ownershipAssumed. */
+  disclosed: boolean;
 }
 
 export interface PositionNode {
@@ -125,8 +129,73 @@ type EntityRow = [string, string, number, string | null, number, number | null];
 type InstrumentRow = [string, string, string | null];
 type PositionRow = [number, number, number, number, number, number];
 
+/** A fund-to-issuer total read out of the README's `make demo` block, with the line it came from. */
+export interface ReadmePair {
+  fund: string;
+  fundName: string;
+  issuer: string;
+  issuerName: string;
+  total: number;
+  via?: { entity: string; value: number; hops: number };
+  line: string;
+}
+
+/** A lineage count read out of the same block. */
+export interface ReadmeLineage {
+  entity: string;
+  name: string;
+  descendants: number;
+  deepestLevel: number;
+  line: string;
+}
+
+/**
+ * What extract-slice.mjs carried over from the tradegraph checkout beside the rows: the
+ * commit, the manifest counts, the two SPARQL templates byte for byte, the run behind the
+ * README's demo block and the figures parsed out of that block.
+ */
+export interface SliceSource {
+  repository: string;
+  commit: string;
+  file: string;
+  sha256: string;
+  bytes: number;
+  families: string[];
+  issuers: string[];
+  extraIssuers: number;
+  lineageDepth: number;
+  manifest: {
+    file: string;
+    counts: { entities: number; positions: number; filings: number; lineageEdges: number; triples: number };
+    full: { entities: number; positions: number; filings: number; lineageEdges: number; triples: number; periods: string[] };
+    periods: string[];
+  };
+  queries: {
+    directory: string;
+    files: Record<'prefixes' | 'exposure', { file: string; text: string; sha256: string }>;
+  };
+  demoSummary: {
+    file: string;
+    generator: string;
+    provenance: { measuredAt: string; commit: string; host: string };
+    store: string;
+    dataset: Record<string, number>;
+    exposure: { queries: number; pairsWithExposure: number; p50Millis: number; maxMillis: number; cachedRepeatMillis: number };
+    topPairs: { fund: string; issuer: string; totalValue: number }[];
+  };
+  readme: {
+    file: string;
+    capturedAt: string;
+    store: string;
+    pairs: ReadmePair[];
+    lineage: ReadmeLineage[];
+    quality: string;
+    costGuard: string;
+  };
+}
+
 export interface SliceData {
-  source: Record<string, unknown>;
+  source: SliceSource;
   periods: string[];
   entities: EntityRow[];
   instruments: InstrumentRow[];
@@ -143,6 +212,7 @@ function push<K, V>(index: Map<K, V[]>, key: K, value: V): void {
 
 /** The slice expanded into the typed edges the query hops walk. */
 export class Store {
+  readonly source: SliceSource;
   readonly entities = new Map<string, EntityNode>();
   readonly instruments = new Map<string, Instrument>();
   readonly positions: PositionNode[] = [];
@@ -151,6 +221,7 @@ export class Store {
   readonly issuedBy = new Map<string, PositionNode[]>();
 
   constructor(slice: SliceData) {
+    this.source = slice.source;
     const rows = slice.entities;
     for (const [id, name, bits, ticker, parentIndex, ownership] of rows) {
       this.entities.set(id, {
@@ -160,6 +231,7 @@ export class Store {
         ticker,
         parent: parentIndex >= 0 ? rows[parentIndex][0] : null,
         ownership: ownership ?? 1,
+        disclosed: ownership !== null,
       });
     }
     for (const entity of this.entities.values()) {
@@ -231,6 +303,24 @@ export function ownershipWeight(store: Store, path: PathStep[]): number {
     weight *= entity && entity.parent ? entity.ownership : 1;
   }
   return weight;
+}
+
+export interface OwnershipStep {
+  id: string;
+  name: string;
+  fraction: number;
+  disclosed: boolean;
+}
+
+/** The lineage hops a path's weight is the product of, with the fraction each one carries. */
+export function ownershipSteps(store: Store, path: PathStep[]): OwnershipStep[] {
+  const steps: OwnershipStep[] = [];
+  for (const id of ownedOn(path)) {
+    const entity = store.entity(id);
+    if (!entity || !entity.parent) continue;
+    steps.push({ id: entity.id, name: entity.name, fraction: entity.ownership, disclosed: entity.disclosed });
+  }
+  return steps;
 }
 
 export function ref(store: Store, id: string): EntityRef {
