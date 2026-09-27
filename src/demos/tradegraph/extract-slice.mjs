@@ -3,6 +3,9 @@
  *
  *   node src/demos/tradegraph/extract-slice.mjs <path to a SAY-5/tradegraph checkout>
  *
+ * Run `make etl-validate` in the checkout first: it writes etl/build/quality.json, the report
+ * the README's data quality line is checked against.
+ *
  * Input is web/src/data/slice.json of the tradegraph repository, which
  * web/scripts/extract-slice.ts cuts from etl/sample. Its sha256 is checked against
  * web/src/data/slice-manifest.json first, so the cut always starts from the committed
@@ -28,8 +31,10 @@
  *   - the run behind the README's `make demo` block: provenance, store and top pairs
  *     from web/src/data/demo-summary.json, and the exposure totals, lineage counts,
  *     data quality line and cost guard line parsed out of that block in README.md,
- *     each with the line it was read from. The parse fails if the block moves, and the
- *     README totals are checked against demo-summary.json before anything is written.
+ *     each with the line it was read from. The parse fails if the block moves. Before
+ *     anything is written, the README totals and store are checked against
+ *     demo-summary.json, and the data quality and cost guard lines against the quality
+ *     report and the API source as described where they are checked.
  *
  * Dropped: the ontology triples, the other SPARQL templates, filings (a position keeps
  * the period of its filing), CIKs, jurisdictions, instrument names, and every other
@@ -44,7 +49,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -55,6 +60,11 @@ const MANIFEST = join(REPO, 'web', 'src', 'data', 'slice-manifest.json');
 const SUMMARY = join(REPO, 'web', 'src', 'data', 'demo-summary.json');
 const README = join(REPO, 'README.md');
 const QUERIES = join(REPO, 'api', 'src', 'main', 'resources', 'queries');
+/** Written by `make etl-validate` (tradegraph-etl validate --sample --out build); gitignored. */
+const QUALITY_REPORT = join(REPO, 'etl', 'build', 'quality.json');
+const DEMO_QUERIES = join(REPO, 'scripts', 'demo_queries.py');
+const API_RESOURCES = join(REPO, 'api', 'src', 'main', 'resources');
+const EXCEPTION_HANDLER = join(REPO, 'api', 'src', 'main', 'java', 'dev', 'tradegraph', 'api', 'web', 'ApiExceptionHandler.java');
 const OUT = join(HERE, 'slice.json');
 
 /** tradegraph.lineage.max-depth; the exposure cap (4) sits under it. */
@@ -263,6 +273,87 @@ if (readme.store !== summary.store) {
   throw new Error(`README block store ${readme.store}, demo-summary.json store ${summary.store}`);
 }
 
+/*
+ * The data quality and cost guard lines. demo-summary.json records neither: scripts/demo_queries.py
+ * prints the first from /ops/overview, which serves the report `tradegraph-etl validate` wrote
+ * to etl/build/quality.json earlier in scripts/demo.sh, and the second from the status the API
+ * answers to one request. That report and the run's console output are gitignored (etl/build/,
+ * demo-output/), so no committed file holds the values of the run the block records. What
+ * is checked instead:
+ *   - each line has exactly the shape scripts/demo_queries.py prints;
+ *   - conforms agrees with the four counts, as QualityReport.conforms defines it in
+ *     etl/src/tradegraph_etl/quality.py (true only when all four are zero);
+ *   - the counts equal etl/build/quality.json in the checkout, which `make etl-validate`
+ *     writes from the committed sample, and that report covers the entity and position
+ *     counts demo-summary.json records;
+ *   - the check time falls before demo-summary.json's measuredAt and within the hour before
+ *     it: scripts/demo.sh runs the validation, then starts the API, then the queries, in one
+ *     run;
+ *   - the depth is the one cost_guard() in scripts/demo_queries.py sends to the lineage
+ *     endpoint, it is above tradegraph.lineage.max-depth for the fuseki profile demo.sh starts
+ *     the API with, and the status is the one ApiExceptionHandler answers QueryCostException
+ *     with.
+ * Not checked, because nothing committed records it: the check time itself (a fresh report
+ * stamps its own), and that the recorded run received that status, as opposed to the code at
+ * the checkout answering it; the path from the lineage request to QueryGuard.depth is not
+ * re-read either.
+ */
+const quality = /^conforms=(true|false), dangling (\d+), cycles (\d+), missing identifiers (\d+), shape violations (\d+) \(checked (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\)$/.exec(readme.quality);
+if (!quality) throw new Error(`README block data quality line is not in the shape demo_queries.py prints: ${readme.quality}`);
+const qualityCounts = {
+  danglingReferences: Number(quality[2]),
+  subsidiaryCycles: Number(quality[3]),
+  missingIdentifiers: Number(quality[4]),
+  shaclViolations: Number(quality[5]),
+};
+const conforms = quality[1] === 'true';
+if (conforms !== Object.values(qualityCounts).every((count) => count === 0)) {
+  throw new Error(`README block data quality line says conforms=${quality[1]} with counts ${Object.values(qualityCounts).join(', ')}`);
+}
+if (!existsSync(QUALITY_REPORT)) {
+  throw new Error(`${QUALITY_REPORT} not found: run \`make etl-validate\` in the checkout first`);
+}
+const report = JSON.parse(readFileSync(QUALITY_REPORT, 'utf8'));
+for (const [key, count] of Object.entries({ conforms, ...qualityCounts })) {
+  if (report[key] !== count) {
+    throw new Error(`README block data quality ${key} ${count}, etl/build/quality.json ${report[key]}`);
+  }
+}
+if (report.entities !== summary.dataset.entities || report.positions !== summary.dataset.positions) {
+  throw new Error(`etl/build/quality.json covers ${report.entities} entities and ${report.positions} positions, `
+    + `demo-summary.json ${summary.dataset.entities} and ${summary.dataset.positions}`);
+}
+const checkedMs = Date.parse(quality[6]);
+const measuredMs = Date.parse(summary.provenance.measuredAt);
+if (!(checkedMs < measuredMs && measuredMs - checkedMs <= 3600 * 1000)) {
+  throw new Error(`README block quality check at ${quality[6]} is not within the hour before demo-summary.json's measuredAt ${summary.provenance.measuredAt}`);
+}
+
+const costGuard = /^depth=(\d+) answered (\d{3})$/.exec(readme.costGuard);
+if (!costGuard) throw new Error(`README block cost guard line is not in the shape demo_queries.py prints: ${readme.costGuard}`);
+const guardFunction = /^def cost_guard\(\)[\s\S]*?\n(?=\S)/m.exec(readFileSync(DEMO_QUERIES, 'utf8'))?.[0] ?? '';
+const guardDepth = Number(/^ {4}depth = (\d+)$/m.exec(guardFunction)?.[1]);
+if (!Number.isInteger(guardDepth) || !/\/lineage\?depth=\{depth\}/.test(guardFunction)) {
+  throw new Error('scripts/demo_queries.py: cost_guard() no longer sends one fixed depth to the lineage endpoint');
+}
+const lineageMaxDepth = (file) => /^ {2}lineage:\n {4}max-depth: (\d+)$/m.exec(readFileSync(join(API_RESOURCES, file), 'utf8'))?.[1];
+const maxDepth = Number(lineageMaxDepth('application-fuseki.yml') ?? lineageMaxDepth('application.yml'));
+if (!Number.isInteger(maxDepth)) throw new Error('api/src/main/resources: tradegraph.lineage.max-depth not found');
+const STATUS_CODES = { BAD_REQUEST: 400, NOT_FOUND: 404, UNPROCESSABLE_ENTITY: 422, BAD_GATEWAY: 502 };
+const statusName = /@ExceptionHandler\(QueryCostException\.class\)[\s\S]*?HttpStatus\.([A-Z_]+)/.exec(readFileSync(EXCEPTION_HANDLER, 'utf8'))?.[1];
+if (!(statusName in STATUS_CODES)) {
+  throw new Error(`ApiExceptionHandler.java: no known status for the QueryCostException handler (${statusName})`);
+}
+if (Number(costGuard[1]) !== guardDepth) {
+  throw new Error(`README block cost guard depth ${costGuard[1]}, scripts/demo_queries.py asks for ${guardDepth}`);
+}
+if (!(guardDepth > maxDepth)) {
+  throw new Error(`cost guard depth ${guardDepth} is not above tradegraph.lineage.max-depth ${maxDepth}`);
+}
+if (Number(costGuard[2]) !== STATUS_CODES[statusName]) {
+  throw new Error(`README block cost guard status ${costGuard[2]}, ApiExceptionHandler answers ${STATUS_CODES[statusName]} (HttpStatus.${statusName})`);
+}
+
 const out = {
   source: {
     repository: 'SAY-5/tradegraph',
@@ -338,5 +429,7 @@ process.stdout.write(
   + `${families.length} families, ${issuers.length + extras.length} issuers with `
   + `${issuingEntities.size - issuers.length - extras.length} subsidiaries, `
   + `${out.instruments.length} instruments, ${out.positions.length} positions over ${periods.join(' and ')}; `
-  + `README block at ${capturedAt}: ${pairs.length} pairs, ${lineageRows.length} lineage rows\n`,
+  + `README block at ${capturedAt}: ${pairs.length} pairs, ${lineageRows.length} lineage rows; `
+  + `data quality counts equal etl/build/quality.json, cost guard depth ${guardDepth} is above `
+  + `lineage max-depth ${maxDepth} and answers ${STATUS_CODES[statusName]}\n`,
 );

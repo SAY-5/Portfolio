@@ -2813,7 +2813,7 @@ export const projects: Project[] = [
     language: "Java",
     stack: ["Java 21", "Spring Boot", "Kafka Streams", "MySQL", "Redis", "Kubernetes", "Docker"],
     highlights: [
-      `Measured run with 600 drivers across two cities and rides at 10 per second for 60 s: 603 submitted, 603 matched, 0 unmatched, 603 matches per minute, p50 14 ms and p95 53 ms, all read from the matching service stats endpoint.`,
+      `Measured run with 600 drivers across two cities and rides at 10 per second for 60 s: the load generator counted 603 rides submitted, and the matching service stats endpoint gave 603 matched, 0 unmatched, 603 matches per minute, p50 14 ms and p95 53 ms.`,
       `Shard distribution from counting rows in each MySQL shard: shard-0 holds city 2 with 301 trips and shard-1 holds city 1 with 302, which is exactly what floorMod(city_id, 2) predicts.`,
       `The driver claim is one Lua script (stale heartbeat, SET NX with a TTL, removal from the GEO set), so two Streams tasks racing for a driver cannot both win.`,
       `The kind end-to-end run changes an environment variable on all three Deployments under load and asserts zero HTTP errors from the generator, with a preStop sleep so endpoints drain before the JVM exits.`,

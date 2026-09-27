@@ -332,7 +332,7 @@ export default function ExpertloopDemo() {
           <div className="el__head">
             <span className="el__title">review policy, set {p.setId}</span>
             <span className="el__meta">
-              requires role {p.roles.join(', ')}, {p.required} approval, {p.deadlineHours} h deadline
+              requires role {p.roles.join(', ')}, {p.required} approval, {p.deadlineHours} h deadline set in the page
             </span>
           </div>
           <div className="el__track" aria-label={`State ${p.state.replace('_', ' ')}`}>
@@ -358,8 +358,8 @@ export default function ExpertloopDemo() {
             <dd>{p.state === 'approved' || p.missing.length === 0 ? 'none' : p.missing.join(', ')}</dd>
             <dt>deadline</dt>
             <dd>
-              {p.deadlineHours} h after submit
-              {p.hoursSinceSubmit === null ? ' (the clock starts on submit)' : `, virtual clock at T+${p.hoursSinceSubmit} h${p.overdue ? ', overdue' : ''}`}
+              {p.deadlineHours} h after submit, set in the page
+              {p.hoursSinceSubmit === null ? ' (the clock starts on submit)' : `; virtual clock at T+${p.hoursSinceSubmit} h${p.overdue ? ', overdue' : ''}`}
             </dd>
             <dt>escalated</dt>
             <dd>{p.escalations === 0 ? 'not yet' : `once, ${p.escalations} review_escalated event audited`}</dd>
@@ -384,6 +384,7 @@ export default function ExpertloopDemo() {
             <button className="demo__btn demo__btn--ghost el__small" onClick={() => act((l) => l.resetPolicy())}>
               Reset
             </button>
+            <span className="el__hint el__hint--inline">the {CLOCK_STEP_H} h clock step is set in the page</span>
           </div>
           <Log lines={p.log} empty="dana wrote the note, so dana cannot approve it; reviewers alone cannot satisfy the admin role; an overdue review is escalated once." />
         </section>

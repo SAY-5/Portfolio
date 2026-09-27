@@ -321,8 +321,10 @@ export default function LaunchbridgeDemo() {
             <>
               <p className="lb__note mono">
                 {COMPUTED_LABEL}. The counts match the README run ({MEASURED_LABEL}); its durations do not: that run measured {MEASURED_LATENCY}, and its README says every
-                duration {MEASURED.loadCaveat}. 6 of the README run&apos;s 8 checks run here; the smoke suite, /ops/overview and the ingest-rate line are not simulated, so those
-                lines and the two checks that read them are marked not simulated. No delivery here is deferred, because the rate limit and circuit breaker gate is not ported.
+                duration {MEASURED.loadCaveat}. 6 of the README run&apos;s 8 checks run here. Not simulated, and marked so: the ingest rate line (request timing in the README
+                run), the smoke checks passed line (its smoke suite), the ops overview and smoke status lines (its /ops/overview), and the two checks that read them. Computed
+                here: every other line, including last replay, which the README run reads from /ops/overview and this page takes from its own replay table. No delivery here is
+                deferred, because the rate limit and circuit breaker gate is not ported.
               </p>
               <pre className="lb__summary mono">
                 {b.lines.map((line, i) => (
