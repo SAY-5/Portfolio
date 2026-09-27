@@ -325,7 +325,7 @@ if (report.entities !== summary.dataset.entities || report.positions !== summary
 }
 const checkedMs = Date.parse(quality[6]);
 const measuredMs = Date.parse(summary.provenance.measuredAt);
-if (!(checkedMs <= measuredMs && measuredMs - checkedMs <= 3600 * 1000)) {
+if (!(checkedMs < measuredMs && measuredMs - checkedMs <= 3600 * 1000)) {
   throw new Error(`README block quality check at ${quality[6]} is not within the hour before demo-summary.json's measuredAt ${summary.provenance.measuredAt}`);
 }
 
