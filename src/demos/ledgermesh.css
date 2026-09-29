@@ -394,6 +394,10 @@
 .lm__src {
   color: var(--accent-soft);
 }
+.lm__orders > .lm__empty,
+.lm__log > .lm__empty {
+  display: block;
+}
 .lm__txt {
   overflow-wrap: anywhere;
 }

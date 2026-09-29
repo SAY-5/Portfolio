@@ -174,3 +174,28 @@ test('kernelcheck is searchable and both detail links use its verified CPU-model
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
   });
 });
+
+
+for (const width of [1440, 390]) {
+  for (const [project, selector] of [
+    ['failsafe', '.fg__recent > .fg__recent-empty'],
+    ['ledgermesh', '.lm__orders > .lm__empty, .lm__log > .lm__empty'],
+  ]) {
+    test(project + ' empty-state prose is readable at ' + width + 'px', async () => {
+      await withPage(width, async (page) => {
+        await page.goto(origin + '/p/' + project);
+        await page.locator(selector).first().waitFor();
+        const paragraphs = await page.locator(selector).evaluateAll((elements) => elements.map((element) => {
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          return { text: element.textContent, lines: range.getClientRects().length };
+        }));
+        assert.equal(paragraphs.length, project === 'failsafe' ? 1 : 2);
+        for (const paragraph of paragraphs) {
+          assert.ok(paragraph.lines <= 3, paragraph.text + ' must not wrap into a narrow data column (' + paragraph.lines + ' lines)');
+        }
+      });
+    });
+  }
+
+}
