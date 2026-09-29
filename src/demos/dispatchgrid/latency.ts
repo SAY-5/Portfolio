@@ -3,9 +3,10 @@ import type { Rng } from './rng.ts';
 // Service time model. The real matcher's latency is the time between the rider
 // service producing the request and the Streams task claiming a driver: a
 // shard insert, a produce, a poll, one GEOSEARCH and one claim script per
-// candidate tried. In the browser those take microseconds, so the run charges
-// a synthetic service time drawn from a log normal fitted to the measured run
-// (p50 14 ms, p95 53 ms) with a rare tail for rebalances and GC pauses.
+// candidate tried. In the browser those take microseconds, so this illustrative
+// model charges synthetic log-normal service time, per-claim work and a rare
+// tail. It is not fitted to the retained benchmark; browser counters are not
+// infrastructure measurements.
 export function drawMatchLatencyMs(rnd: Rng, claimsTried: number): number {
   const base = Math.exp(Math.log(13) + 0.78 * rnd.gaussian());
   const perClaim = Math.max(0, claimsTried - 1) * 1.2;
