@@ -126,7 +126,9 @@ export function* runBurst(service: Service): Generator<BurstProgress, BurstProgr
   // smoke suite, /ops/overview or wall-clock request timing have no source
   // here and say so; the two checks that depend on them are listed as n/a
   // rather than dropped, so the count against the README's eight is visible.
+  // As /ops/overview does: the newest replay row, and the status of the delivery it created.
   const lastReplay = service.db.replays[service.db.replays.length - 1];
+  const lastReplayOutcome = lastReplay ? service.db.deliveries.get(lastReplay.replacement)?.status ?? 'none' : null;
   p.lines = [
     '== LaunchBridge demo summary ==',
     'target:                 this page (virtual clock, seeded PRNG, no network)',
@@ -142,7 +144,7 @@ export function* runBurst(service: Service): Generator<BurstProgress, BurstProgr
     'ingest rate:            not simulated',
     'smoke checks passed:    not simulated',
     'ops overview:           not simulated',
-    `last replay:            ${lastReplay ? `${lastReplay.mode} by ${lastReplay.actor}` : 'none'} -> ${after.replays.delivered === p.replayed ? 'delivered' : 'partial'}`,
+    `last replay:            ${lastReplay ? `${lastReplay.mode} by ${lastReplay.actor} -> ${lastReplayOutcome}` : 'none'}`,
     'smoke status:           not simulated',
     ...p.checks.map((c) => `check ${c.ok ? 'ok ' : 'BAD'}  ${c.name}`),
     'check n/a  smoke suite green   (not simulated)',

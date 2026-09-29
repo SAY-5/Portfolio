@@ -50,6 +50,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { STATUS_CODES } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -67,7 +68,7 @@ const API_RESOURCES = join(REPO, 'api', 'src', 'main', 'resources');
 const EXCEPTION_HANDLER = join(REPO, 'api', 'src', 'main', 'java', 'dev', 'tradegraph', 'api', 'web', 'ApiExceptionHandler.java');
 const OUT = join(HERE, 'slice.json');
 
-/** tradegraph.lineage.max-depth; the exposure cap (4) sits under it. */
+/** tradegraph.lineage.max-depth; the exposure cap (4) sits under it. Compared with the API's value below. */
 const LINEAGE_DEPTH = 5;
 const EXTRA_ISSUERS = 12;
 const FAMILY_TICKERS = ['BLK', 'IVZ', 'TROW', 'BEN', 'STT', 'AMP', 'TPG'];
@@ -339,10 +340,15 @@ if (!Number.isInteger(guardDepth) || !/\/lineage\?depth=\{depth\}/.test(guardFun
 const lineageMaxDepth = (file) => /^ {2}lineage:\n {4}max-depth: (\d+)$/m.exec(readFileSync(join(API_RESOURCES, file), 'utf8'))?.[1];
 const maxDepth = Number(lineageMaxDepth('application-fuseki.yml') ?? lineageMaxDepth('application.yml'));
 if (!Number.isInteger(maxDepth)) throw new Error('api/src/main/resources: tradegraph.lineage.max-depth not found');
-const STATUS_CODES = { BAD_REQUEST: 400, NOT_FOUND: 404, UNPROCESSABLE_ENTITY: 422, BAD_GATEWAY: 502 };
+if (maxDepth !== LINEAGE_DEPTH) {
+  throw new Error(`the slice keeps subsidiary trees to LINEAGE_DEPTH ${LINEAGE_DEPTH}, but tradegraph.lineage.max-depth is ${maxDepth}`);
+}
+// An HttpStatus constant is its reason phrase in upper snake case, so its code is looked up by
+// phrase in node:http rather than in a list of the statuses the handler uses today.
 const statusName = /@ExceptionHandler\(QueryCostException\.class\)[\s\S]*?HttpStatus\.([A-Z_]+)/.exec(readFileSync(EXCEPTION_HANDLER, 'utf8'))?.[1];
-if (!(statusName in STATUS_CODES)) {
-  throw new Error(`ApiExceptionHandler.java: no known status for the QueryCostException handler (${statusName})`);
+const status = Number(Object.keys(STATUS_CODES).find((code) => STATUS_CODES[code].toUpperCase().replace(/[^A-Z0-9]+/g, '_') === statusName));
+if (!Number.isInteger(status)) {
+  throw new Error(`ApiExceptionHandler.java: HttpStatus.${statusName} of the QueryCostException handler has no status code in node:http`);
 }
 if (Number(costGuard[1]) !== guardDepth) {
   throw new Error(`README block cost guard depth ${costGuard[1]}, scripts/demo_queries.py asks for ${guardDepth}`);
@@ -350,8 +356,8 @@ if (Number(costGuard[1]) !== guardDepth) {
 if (!(guardDepth > maxDepth)) {
   throw new Error(`cost guard depth ${guardDepth} is not above tradegraph.lineage.max-depth ${maxDepth}`);
 }
-if (Number(costGuard[2]) !== STATUS_CODES[statusName]) {
-  throw new Error(`README block cost guard status ${costGuard[2]}, ApiExceptionHandler answers ${STATUS_CODES[statusName]} (HttpStatus.${statusName})`);
+if (Number(costGuard[2]) !== status) {
+  throw new Error(`README block cost guard status ${costGuard[2]}, ApiExceptionHandler answers ${status} (HttpStatus.${statusName})`);
 }
 
 const out = {
@@ -431,5 +437,5 @@ process.stdout.write(
   + `${out.instruments.length} instruments, ${out.positions.length} positions over ${periods.join(' and ')}; `
   + `README block at ${capturedAt}: ${pairs.length} pairs, ${lineageRows.length} lineage rows; `
   + `data quality counts equal etl/build/quality.json, cost guard depth ${guardDepth} is above `
-  + `lineage max-depth ${maxDepth} and answers ${STATUS_CODES[statusName]}\n`,
+  + `lineage max-depth ${maxDepth} and answers ${status}\n`,
 );

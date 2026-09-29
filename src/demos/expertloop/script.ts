@@ -106,10 +106,13 @@ export function createApprovedWorld(): DemoWorld {
 /** The review deadline the policy panel sets, in hours. */
 export const POLICY_DEADLINE_HOURS = 4;
 
+/** The approver role the policy panel requires; like the deadline, a choice of the page. */
+export const POLICY_REQUIRED_ROLES = ['admin'];
+
 /** The incident set under a review policy that requires an admin among the approvers and a 4 h deadline. */
 export function createPolicyWorld(): DemoWorld {
   const world = createSeededWorld();
-  world.service.setReviewPolicy(PEOPLE.ops, world.sets.incident, { required_roles: ['admin'], review_deadline_hours: POLICY_DEADLINE_HOURS });
+  world.service.setReviewPolicy(PEOPLE.ops, world.sets.incident, { required_roles: [...POLICY_REQUIRED_ROLES], review_deadline_hours: POLICY_DEADLINE_HOURS });
   return world;
 }
 

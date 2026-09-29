@@ -261,13 +261,13 @@ export class Engine {
 
   private commitMatch(trip: Trip, driverId: string): void {
     // Service time: the conditional claim, the FOR UPDATE SKIP LOCKED row
-    // update, and the event insert, drawn around the measured p50.
+    // update, and the event insert, drawn around a 54 ms median.
     const service = lognormal(this.rnd, 54, 0.3);
     trip.status = 'matched';
     trip.driverId = driverId;
     trip.matchedAt = this.now + service;
     // Manual trips pause between rings so the rings can be seen; that pause
-    // is not part of the measured match latency.
+    // is not part of the reported match latency.
     trip.latencyMs = Math.round(trip.matchedAt - trip.requestedAt - trip.pausedMs);
     const d = this.drivers.find((x) => x.id === driverId);
     if (d) {

@@ -146,27 +146,27 @@ test('existing detail pages retain their showcase destination', async () => {
   });
 });
 
-test('RankFault is searchable and both detail links use its verified replay demo', async () => {
+test('rankfault is searchable and both detail links use its verified replay demo', async () => {
   await withPage(1440, async (page) => {
     await page.goto(`${origin}/work?q=rankfault`);
     await page.getByRole('searchbox', { name: 'Search projects' }).waitFor();
     assert.equal(await page.locator('.rows a[href="/p/rankfault"]').count(), 1);
     await page.locator('.rows a[href="/p/rankfault"]').click();
-    await page.getByRole('heading', { name: 'RankFault', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Collective Fault Injection Harness', exact: true }).waitFor();
     assert.equal(await page.getByRole('link', { name: 'Open the app', exact: false }).getAttribute('href'), 'https://say5-rankfault.vercel.app/');
     assert.equal(await page.getByRole('link', { name: 'Standalone app', exact: false }).getAttribute('href'), 'https://say5-rankfault.vercel.app/');
-    assert.match(await page.locator('main').innerText(), /114 retained CPU\/Gloo runs/);
+    assert.match(await page.locator('main').innerText(), /ran as 114 runs/);
     assert.match(await page.locator('main').innerText(), /not a live faulting cluster/);
   });
 });
 
-test('KernelCheck is searchable and both detail links use its verified CPU-model demo', async () => {
+test('kernelcheck is searchable and both detail links use its verified CPU-model demo', async () => {
   await withPage(390, async (page) => {
     await page.goto(`${origin}/work?q=kernelcheck`);
     await page.getByRole('searchbox', { name: 'Search projects' }).waitFor();
     assert.equal(await page.locator('.rows a[href="/p/kernelcheck"]').count(), 1);
     await page.locator('.rows a[href="/p/kernelcheck"]').click();
-    await page.getByRole('heading', { name: 'KernelCheck', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'CUDA Kernel Fuzz Tester', exact: true }).waitFor();
     assert.equal(await page.getByRole('link', { name: 'Open the app', exact: false }).getAttribute('href'), 'https://say5-kernelcheck.vercel.app/');
     assert.equal(await page.getByRole('link', { name: 'Standalone app', exact: false }).getAttribute('href'), 'https://say5-kernelcheck.vercel.app/');
     assert.match(await page.locator('main').innerText(), /six CUDA kernels/);
