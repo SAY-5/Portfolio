@@ -50,6 +50,8 @@
 .work__search {
   position: relative;
   flex: 1 1 380px;
+  min-width: 0;
+  max-width: 100%;
   margin-bottom: -1px;
   display: flex;
   align-items: baseline;
@@ -88,6 +90,24 @@
 .work__input::-webkit-search-cancel-button {
   -webkit-appearance: none;
   appearance: none;
+}
+
+.work__query-clear {
+  flex: 0 0 auto;
+  align-self: center;
+  min-height: 44px;
+  margin-bottom: 4px;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.work__query-clear:hover {
+  color: var(--lime);
 }
 
 .work__sort {
