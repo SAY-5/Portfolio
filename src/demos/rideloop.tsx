@@ -126,7 +126,7 @@ export default function RideloopDemo() {
         cells that overlap each radius ring, takes the nearest available driver,
         and claims it with a conditional update. Stop one driver&apos;s pings to
         watch its item age past the {TTL_MS / 1000} s ttl, or run the 60 s load
-        to reproduce the measured matches per minute.
+        schedule on a virtual clock.
       </p>
 
       <div className="rl__stage">
