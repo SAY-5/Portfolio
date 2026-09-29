@@ -5,13 +5,12 @@ import Arrow from '../components/Arrow';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { projects, getProject } from '../data/projects';
 import { hasDemo } from '../lib/demoRegistry';
+import { getProjectDemoUrl } from '../lib/projectLinks';
 import DemoSlot from '../components/DemoSlot';
 import NotFound from './NotFound';
 import '../styles/detail.css';
 
 const ease = [0.22, 1, 0.36, 1] as const;
-
-const SHOWCASE_BASE = 'https://showcases-lime.vercel.app';
 
 export default function Detail() {
   const { name } = useParams();
@@ -25,7 +24,7 @@ export default function Detail() {
   const idx = projects.findIndex((p) => p.name === project.name);
   const prev = idx > 0 ? projects[idx - 1] : null;
   const next = idx < projects.length - 1 ? projects[idx + 1] : null;
-  const showcaseUrl = `${SHOWCASE_BASE}/${project.name}`;
+  const showcaseUrl = getProjectDemoUrl(project);
   const githubUrl = `https://github.com/SAY-5/${project.name}`;
   const demoReady = hasDemo(project.name);
 

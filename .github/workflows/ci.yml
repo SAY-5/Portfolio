@@ -15,7 +15,12 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
+      - run: npm run test:search
       - run: npm run lint
       - run: npx tsc -b
       - run: npm run build
+      - name: Work search browser regression
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: npm run test:browser

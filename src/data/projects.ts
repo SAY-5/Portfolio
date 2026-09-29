@@ -13,6 +13,7 @@ export type Project = {
   demoConcept: string;
   flagshipScore: number;
   isFlagship: boolean;
+  demoUrl?: string;
 };
 
 export const flagships: string[] = ["scanguard", "cloudshift", "agentdesk", "taskboard", "shopflow", "gradeview", "codelens", "learnloop", "scan-sequencer", "diagkit", "snapvault", "rideloop", "modelgate", "dispatchgrid", "failsafe", "playbook", "launchbridge", "expertloop", "panelist", "spoofline", "ledgermesh", "tradegraph", "conduit"];
@@ -2988,6 +2989,44 @@ export const projects: Project[] = [
     demoConcept: `Tasks flowing through three connector queues where a rate-limited target paces its token bucket, a failing webhook trips the breaker and fills the dead-letter queue, and one new YAML file turns into a Terraform plan.`,
     flagshipScore: 9,
     isFlagship: true,
+  },
+  {
+    name: "rankfault",
+    title: "RankFault",
+    tagline: `Distributed fault-injection harness with an interactive replay of retained CPU/Gloo runs`,
+    summary: `A distributed fault-injection harness with a browser explorer for 114 retained CPU/Gloo runs across 38 experiment cells and three repeats. The demo replays committed observations, lets readers inspect a cell and repeat, and links the evidence to its source revision. It is a recorded-run explorer, not a live faulting cluster; CPU/Gloo observations do not establish GPU/NCCL behavior.`,
+    category: "Infra and Distributed",
+    language: "Python",
+    stack: ["Python", "PyTorch", "Gloo", "TypeScript", "React", "Vite"],
+    highlights: [
+      `The retained matrix contains 38 experiment cells with three repeats each, totaling 114 CPU/Gloo runs.`,
+      `Cell and repeat selections are shareable in the URL, so a reader can reopen the same recorded observation.`,
+      `The demo preserves recorded timing and outcomes and links classification and matrix documentation to immutable source snapshots.`,
+      `The browser performs replay and inspection only; it does not launch a distributed process group or inject new faults.`,
+    ],
+    demoConcept: `Explore the retained experiment matrix, choose a repeat, and inspect its recorded timeline and classification with source-linked evidence.`,
+    flagshipScore: 8,
+    isFlagship: false,
+    demoUrl: "https://say5-rankfault.vercel.app/",
+  },
+  {
+    name: "kernelcheck",
+    title: "KernelCheck",
+    tagline: `CPU execution-model fuzzing for six CUDA kernels, with reproducible seeded-mutation shrink traces`,
+    summary: `A correctness-testing project for six CUDA kernels with a browser port of its CPU execution model and fuzzer. Readers choose a kernel and seeded mutation, rerun cases in a Web Worker, and inspect the failing inputs and shrink trace against recorded evidence. The browser does not execute GPU kernels or measure GPU performance; it makes the CPU model's checks and bounded shrinking inspectable.`,
+    category: "Systems and C++",
+    language: "C++",
+    stack: ["C++", "CUDA", "TypeScript", "React", "Vite", "Web Workers"],
+    highlights: [
+      `Six CUDA kernels are represented by a CPU execution-model port that runs locally in the browser.`,
+      `Seeded mutations make the injected defects explicit, while repeatable seeds let readers rerun a case and follow its shrink candidates.`,
+      `Budget-exhausted shrinking is labeled best-found rather than presented as a proven minimal counterexample.`,
+      `Recorded traces and source-linked evidence can be compared with browser reruns; the demo is not evidence of measured GPU execution.`,
+    ],
+    demoConcept: `Choose a kernel and seeded mutation, run the CPU model, inspect the failing case and shrink steps, and compare the result with committed evidence.`,
+    flagshipScore: 8,
+    isFlagship: false,
+    demoUrl: "https://say5-kernelcheck.vercel.app/",
   },
 ];
 

@@ -9,26 +9,12 @@ import { useSearchParams } from "react-router-dom";
 import ProjectRow from "../components/ProjectRow";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { projects, categories, languages } from "../data/projects";
+import { matchesProjectQuery } from "../lib/projectSearch";
 import "../styles/work.css";
 
 type Sort = "featured" | "name";
 
 const indexOf = new Map(projects.map((p, i) => [p.name, i + 1]));
-
-function matchesQuery(p: (typeof projects)[number], q: string) {
-  if (!q) return true;
-  const hay = [
-    p.title,
-    p.tagline,
-    p.summary,
-    p.category,
-    p.language,
-    ...p.stack,
-  ]
-    .join(" ")
-    .toLowerCase();
-  return hay.includes(q);
-}
 
 export default function Work() {
   useDocumentTitle("Work");
@@ -78,7 +64,7 @@ export default function Work() {
       (p) =>
         (!category || p.category === category) &&
         (!language || p.language === language) &&
-        matchesQuery(p, q),
+        matchesProjectQuery(p, q),
     );
     return filtered.sort((a, b) => {
       if (sort === "name") return a.title.localeCompare(b.title);
@@ -91,7 +77,7 @@ export default function Work() {
     const m = new Map<string, number>();
     for (const p of projects) {
       if (language && p.language !== language) continue;
-      if (!matchesQuery(p, q)) continue;
+      if (!matchesProjectQuery(p, q)) continue;
       m.set(p.category, (m.get(p.category) ?? 0) + 1);
     }
     return m;
@@ -100,7 +86,7 @@ export default function Work() {
     const m = new Map<string, number>();
     for (const p of projects) {
       if (category && p.category !== category) continue;
-      if (!matchesQuery(p, q)) continue;
+      if (!matchesProjectQuery(p, q)) continue;
       m.set(p.language, (m.get(p.language) ?? 0) + 1);
     }
     return m;
@@ -129,14 +115,15 @@ export default function Work() {
       <div className="wrap">
         <div className="work__panel surface">
           <div className="work__controls">
-            <label className="work__search">
-              <span className="work__search-label">Search</span>
+            <div className="work__search">
+              <label className="work__search-label" htmlFor="project-search">Search</label>
               <input
+                id="project-search"
                 ref={inputRef}
                 type="search"
                 value={query}
                 onChange={(e) => update({ q: e.target.value })}
-                placeholder="name, language, or stack"
+                placeholder="Name, description, or technology…"
                 name="q"
                 inputMode="search"
                 spellCheck={false}
@@ -144,7 +131,19 @@ export default function Work() {
                 className="work__input"
                 autoComplete="off"
               />
-            </label>
+              {query.length > 0 && (
+                <button
+                  type="button"
+                  className="work__query-clear tlink"
+                  onClick={() => {
+                    update({ q: null });
+                    inputRef.current?.focus();
+                  }}
+                >
+                  Clear search
+                </button>
+              )}
+            </div>
 
             <div className="work__sort" role="group" aria-label="Sort">
               <span className="work__sort-label">Sort</span>
